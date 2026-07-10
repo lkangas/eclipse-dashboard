@@ -36,35 +36,51 @@
   .grip i{width:3px; height:3px; border-radius:50%; background:var(--line);}
   .vsplit:hover .grip i, .hsplit:hover .grip i{background:var(--muted);}
 
-  /* --- contacts table --- */
-  .contacts{padding:14px 14px 8px; overflow:auto;}
-  table{width:100%; border-collapse:collapse; font-size:14px;}
-  td,th{padding:6px 10px; text-align:left; border-bottom:1px solid var(--line);}
-  th{color:var(--muted); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.4px;}
+  /* --- contacts table ---
+     #paneContacts is the sized container; .contacts (a child, not the same
+     element) reads that size and scales EVERYTHING via one --tscale factor,
+     so the whole block shrinks together to fit available height (or width)
+     instead of ever scrolling or clipping. Knee points: full size while
+     height >= ~340px (comfortable) or width >= ~300px, easing down to a
+     0.4 floor at the panel's practical minimum (140px, set by the drag
+     handles). overflow stays hidden on the container -- CSS size containment
+     requires that -- but it should never actually trigger since content is
+     scaled to always fit; verified empirically down to the 140px minimum. */
+  #paneContacts{container-type:size; container-name:contacts;}
+  .contacts{
+    --tscale: max(0.4, min(1, calc(100cqw / 300px), calc(100cqh / 340px)));
+    padding: calc(14px*var(--tscale)) 14px calc(8px*var(--tscale));
+  }
+  table{width:100%; border-collapse:collapse; font-size:calc(14px*var(--tscale));}
+  td,th{padding:calc(6px*var(--tscale)) 10px; text-align:left; border-bottom:1px solid var(--line);}
+  th{color:var(--muted); font-weight:500; font-size:calc(11px*var(--tscale)); text-transform:uppercase; letter-spacing:.4px;}
   td.num{text-align:right; font-variant-numeric:tabular-nums;}
   tr.next td{background:var(--accent-bg); color:var(--accent-ink); font-weight:500;}
 
   /* --- local circumstances (duration, magnitude, etc.) --- */
-  .circ{display:flex; gap:22px; flex-wrap:wrap; padding:12px 10px 6px; border-top:1px solid var(--line); margin-top:6px;}
+  .circ{display:flex; gap:22px; flex-wrap:wrap; border-top:1px solid var(--line);
+        padding:calc(12px*var(--tscale)) 10px calc(6px*var(--tscale));
+        margin-top:calc(6px*var(--tscale));}
   .circ div{display:flex; flex-direction:column; gap:2px;}
-  .circ span{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px;}
-  .circ b{font-size:15px; font-weight:500; font-variant-numeric:tabular-nums;}
+  .circ span{font-size:calc(11px*var(--tscale)); color:var(--muted); text-transform:uppercase; letter-spacing:.4px;}
+  .circ b{font-size:calc(15px*var(--tscale)); font-weight:500; font-variant-numeric:tabular-nums;}
 
   /* --- countdown + schematic ---
-     Sized off the PANEL's own width (container query), not the viewport --
-     otherwise this never shrinks when the panel itself is dragged narrow.
-     Each clamp's cqw term is tuned so it stays at max size until the panel
-     is actually narrow enough to need shrinking, not from the default width. */
-  #paneCountdown{container-type:inline-size; container-name:countdown;}
+     Sized off the PANEL's own size (container query), not the viewport, and
+     against BOTH its width and height -- otherwise shrinking the browser's
+     height (or dragging a panel shorter) does nothing, since cqw alone only
+     tracks width. Each property picks whichever axis is more constraining. */
+  #paneCountdown{container-type:size; container-name:countdown;}
   .countdown{display:flex; flex-direction:column; align-items:center; justify-content:center;
              height:100%; gap:14px; padding:10px;}
   .numwrap{display:flex; flex-direction:column; align-items:center; justify-content:center;
            gap:6px; min-width:0;}
   .numwrap .numline{font-family:"SF Mono","Cascadia Mono",Consolas,monospace;
                     font-weight:500; letter-spacing:-.5px; white-space:nowrap;
-                    font-size:clamp(20px, 14cqw, 64px);}
-  .numwrap.dual .numline{font-size:clamp(16px, 16cqw, 42px);}
-  .countdown svg{width:clamp(50px, 40cqw, 180px); height:clamp(50px, 40cqw, 180px); flex-shrink:0;}
+                    font-size:max(20px, min(14cqw, 20cqh, 64px));}
+  .numwrap.dual .numline{font-size:max(16px, min(16cqw, 12cqh, 42px));}
+  .countdown svg{width:max(50px, min(40cqw, 56cqh, 180px));
+                 height:max(50px, min(40cqw, 56cqh, 180px)); flex-shrink:0;}
 
   /* MAX and C3 (during totality) go side by side once there's room, else stacked */
   @container countdown (min-width: 500px){
@@ -98,23 +114,25 @@
     <div class="topbar"><b>Zaragoza</b><span>41.65°N 0.89°W</span><span class="fill"></span><span>20:28:23 CEST</span><span>18:28:23 UT</span></div>
     <div class="main" id="main">
       <div class="col left" id="colLeft">
-        <div class="pane contacts" id="paneContacts">
-          <table>
-            <thead><tr><th>Event</th><th class="num">T</th><th class="num">Time</th><th class="num">Alt</th></tr></thead>
-            <tbody>
-              <tr><td>C1</td><td class="num">+53:23</td><td class="num">19:35:00</td><td class="num">—</td></tr>
-              <tr class="next"><td>C2</td><td class="num">−00:41.6</td><td class="num">20:29:04</td><td class="num">—</td></tr>
-              <tr><td>Max</td><td class="num">−01:21</td><td class="num">20:29:44</td><td class="num">5.9°</td></tr>
-              <tr><td>C3</td><td class="num">−02:05</td><td class="num">20:30:28</td><td class="num">—</td></tr>
-              <tr><td>C4</td><td class="num">−53:37</td><td class="num">21:22:00</td><td class="num">—</td></tr>
-              <tr><td>Sunset</td><td class="num">−51:37</td><td class="num">21:20:00</td><td class="num">0°</td></tr>
-            </tbody>
-          </table>
-          <div class="circ">
-            <div><span>Duration</span><b>1m 24s</b></div>
-            <div><span>Magnitude</span><b>1.039</b></div>
-            <div><span>Obscuration</span><b>100%</b></div>
-            <div><span>Sun az</span><b>296°</b></div>
+        <div class="pane" id="paneContacts">
+          <div class="contacts">
+            <table>
+              <thead><tr><th>Event</th><th class="num">T</th><th class="num">Time</th><th class="num">Alt</th></tr></thead>
+              <tbody>
+                <tr><td>C1</td><td class="num">+53:23</td><td class="num">19:35:00</td><td class="num">—</td></tr>
+                <tr class="next"><td>C2</td><td class="num">−00:41.6</td><td class="num">20:29:04</td><td class="num">—</td></tr>
+                <tr><td>Max</td><td class="num">−01:21</td><td class="num">20:29:44</td><td class="num">5.9°</td></tr>
+                <tr><td>C3</td><td class="num">−02:05</td><td class="num">20:30:28</td><td class="num">—</td></tr>
+                <tr><td>C4</td><td class="num">−53:37</td><td class="num">21:22:00</td><td class="num">—</td></tr>
+                <tr><td>Sunset</td><td class="num">−51:37</td><td class="num">21:20:00</td><td class="num">0°</td></tr>
+              </tbody>
+            </table>
+            <div class="circ">
+              <div><span>Duration</span><b>1m 24s</b></div>
+              <div><span>Magnitude</span><b>1.039</b></div>
+              <div><span>Obscuration</span><b>100%</b></div>
+              <div><span>Sun az</span><b>296°</b></div>
+            </div>
           </div>
         </div>
         <div class="hsplit" id="hsplitLeft"><div class="grip"><i></i><i></i><i></i></div></div>
