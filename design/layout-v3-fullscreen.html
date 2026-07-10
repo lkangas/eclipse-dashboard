@@ -154,11 +154,16 @@
   .modeswitch button.sim.on{background:var(--ink); color:#fff;}
   .modeswitch button.sim.confirm{background:var(--accent); color:#000; font-weight:700;}
 
-  /* toggles the arcsinh "test" curve on/off; styled to match the mode
-     buttons (same family of control) rather than a small dev-only pill */
-  .stretchbtn{flex:0 0 auto; background:none; border:1px solid var(--line); border-radius:8px;
-             padding:10px 16px; font-weight:500; font-size:14px; color:var(--muted); cursor:pointer;}
-  .stretchbtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
+  /* Picks how much the timeline curve favors totality: Real (linear, true
+     spacing), Stretch, or Stretch+ (more aggressive -- same arcsinh curve,
+     smaller K). Same segmented-pill pattern as Live/Sim -- one control
+     family already established, no new interaction to learn -- with all
+     three states visible and one click away, rather than cycling a single
+     button through them. */
+  .curveswitch{display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; flex:0 0 auto;}
+  .curveswitch button{background:none; border:none; padding:10px 4px; width:74px; font-weight:500; font-size:13px;
+                      color:var(--muted); cursor:pointer;}
+  .curveswitch button.on{background:var(--ink); color:#fff;}
 
   /* Sim-only: real-time playback of the sim clock. Hidden entirely in Live,
      which has no pause concept -- it's always just "now". */
@@ -298,7 +303,11 @@
         <div class="clabels" id="clabels"></div>
         <div class="cursor" id="cursor"></div>
       </div>
-      <button class="stretchbtn" id="curveToggle">Stretch</button>
+      <div class="curveswitch">
+        <button class="on" id="curveReal">Real</button>
+        <button id="curveStretch">Stretch</button>
+        <button id="curveStretchPlus">Stretch+</button>
+      </div>
     </div>
   </div>
 
@@ -370,19 +379,22 @@ devToggle.onclick = ()=>{ dualState = !dualState; renderCountdown(); };
 const T = { c1: 70500, c2: 73744, max: 73784, c3: 73828, c4: 76920 };
 const MARGIN = 30 * 60; // comfortable margin shown before C1 / after C4
 const domainStart = T.c1 - MARGIN, domainEnd = T.c4 + MARGIN;
-const K = 60; // "real" curve: identity (linear). "stretch" curve: arcsinh,
-              // symmetric around max by construction (asinh is an odd
-              // function of (t - max)) -- near-linear within about +-K
-              // seconds of max, compressing increasingly beyond that, so
-              // C2/Max/C3 (a couple minutes apart) get comfortable click
-              // targets without the C1..C2 / C3..C4 partial phases (each
-              // most of an hour) taking over the whole track.
+// "real": identity (linear, true spacing). "stretch"/"stretchplus": arcsinh,
+// symmetric around max by construction (asinh is an odd function of
+// (t - max)) -- near-linear within about +-K seconds of max, compressing
+// increasingly beyond that, so C2/Max/C3 (a couple minutes apart) get
+// comfortable click targets without the C1..C2 / C3..C4 partial phases
+// (each most of an hour) taking over the whole track. stretchplus reuses
+// the exact same curve with a smaller K -- more aggressive, "focus on
+// totality even better" -- rather than a different shape entirely.
+const K_STRETCH = 60, K_STRETCH_PLUS = 20;
 function realWarp(t){ return t; }
-function stretchWarp(t){ return Math.asinh((t - T.max) / K); }
+function stretchWarp(t, k){ return Math.asinh((t - T.max) / k); }
 
-let stretchOn = false;
-function warp(t){ return stretchOn ? stretchWarp(t) : realWarp(t); }
-function unwarp(w){ return stretchOn ? T.max + Math.sinh(w) * K : w; }
+let curveLevel = 'real'; // 'real' | 'stretch' | 'stretchplus'
+function currentK(){ return curveLevel === 'stretchplus' ? K_STRETCH_PLUS : K_STRETCH; }
+function warp(t){ return curveLevel === 'real' ? realWarp(t) : stretchWarp(t, currentK()); }
+function unwarp(w){ return curveLevel === 'real' ? w : T.max + Math.sinh(w) * currentK(); }
 function trackBounds(){ return [warp(domainStart), warp(domainEnd)]; }
 function pct(t){ const [lo, hi] = trackBounds(); return (warp(t) - lo) / (hi - lo) * 100; }
 function fmtHM(t){ const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
@@ -396,7 +408,9 @@ const totband = document.getElementById('totband');
 const clinesEl = document.getElementById('clines');
 const clabelsEl = document.getElementById('clabels');
 const cursor = document.getElementById('cursor');
-const curveToggle = document.getElementById('curveToggle');
+const curveReal = document.getElementById('curveReal');
+const curveStretch = document.getElementById('curveStretch');
+const curveStretchPlus = document.getElementById('curveStretchPlus');
 const TICK_DEFS = [
   { key: 'c1', lab: 'C1' }, { key: 'c2', lab: 'C2' }, { key: 'max', lab: 'Max' },
   { key: 'c3', lab: 'C3' }, { key: 'c4', lab: 'C4' },
@@ -426,7 +440,7 @@ function renderHourTicks(){
     tick.style.left = p + '%';
     ticksEl.appendChild(tick);
 
-    const showLabel = isHour || !stretchOn || (t >= hourBefore && t <= hourAfter);
+    const showLabel = isHour || curveLevel === 'real' || (t >= hourBefore && t <= hourAfter);
     if(showLabel){
       const lab = document.createElement('div');
       lab.className = 'hour-lab' + (isHour ? '' : ' min10');
@@ -440,7 +454,7 @@ function renderHourTicks(){
   // mark, +-1 block either side (e.g. max at 20:29:44 rounds to 20:30,
   // giving a 20:20-20:40 window). Minute-only labels ("23", not "20:23"),
   // since they're all inside a single displayed hour already.
-  if(stretchOn){
+  if(curveLevel !== 'real'){
     const maxRound10 = Math.round(T.max / 600) * 600;
     const winStart = Math.max(domainStart, maxRound10 - 600);
     const winEnd = Math.min(domainEnd, maxRound10 + 600);
@@ -535,11 +549,16 @@ function renderTimebar(){
   renderCursor();
 }
 
-curveToggle.onclick = () => {
-  stretchOn = !stretchOn;
-  curveToggle.classList.toggle('on', stretchOn);
+function setCurveLevel(level){
+  curveLevel = level;
+  curveReal.classList.toggle('on', level === 'real');
+  curveStretch.classList.toggle('on', level === 'stretch');
+  curveStretchPlus.classList.toggle('on', level === 'stretchplus');
   renderTimebar();
-};
+}
+curveReal.onclick = () => setCurveLevel('real');
+curveStretch.onclick = () => setCurveLevel('stretch');
+curveStretchPlus.onclick = () => setCurveLevel('stretchplus');
 
 // Drawn identically in Live and Sim -- the track only RESPONDS to pointer
 // input in Sim; the request was that nothing should look different, only
