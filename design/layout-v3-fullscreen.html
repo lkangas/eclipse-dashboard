@@ -15,7 +15,12 @@
   body{background:var(--screen); color:var(--ink);
        font-family:-apple-system,"Segoe UI",Roboto,system-ui,sans-serif;}
 
-  .app{width:100vw; height:100vh; display:flex; flex-direction:column;}
+  /* height/width:100% (not 100vh/100vw) -- viewport units have known rounding
+     quirks under browser zoom combined with OS-level DPI scaling, which can
+     leave a sliver of gap or a tiny overflow at the window edge. Percentage
+     sizing against the already-100%-tall html/body chain is the more robust
+     pattern and isn't subject to that class of bug. */
+  .app{width:100%; height:100%; display:flex; flex-direction:column;}
   .topbar{flex:0 0 34px; display:flex; align-items:center; gap:20px; padding:0 14px;
           font-size:13px; color:var(--muted); border-bottom:1px solid var(--line);}
   .topbar b{color:var(--ink); font-weight:500;}
@@ -69,7 +74,11 @@
      Sized off the PANEL's own size (container query), not the viewport, and
      against BOTH its width and height -- otherwise shrinking the browser's
      height (or dragging a panel shorter) does nothing, since cqw alone only
-     tracks width. Each property picks whichever axis is more constraining. */
+     tracks width. Each property picks whichever axis is more constraining.
+     Ceilings are intentionally generous (not a small fixed max) so this
+     keeps growing to fill a large panel on a big/high-res screen instead of
+     capping out early -- unlike the topbar/table/tabs, which stay at a fixed
+     size and rely on browser zoom (Ctrl+wheel) if the user wants them bigger. */
   #paneCountdown{container-type:size; container-name:countdown;}
   .countdown{display:flex; flex-direction:column; align-items:center; justify-content:center;
              height:100%; gap:14px; padding:10px;}
@@ -77,10 +86,10 @@
            gap:6px; min-width:0;}
   .numwrap .numline{font-family:"SF Mono","Cascadia Mono",Consolas,monospace;
                     font-weight:500; letter-spacing:-.5px; white-space:nowrap;
-                    font-size:max(20px, min(14cqw, 20cqh, 64px));}
-  .numwrap.dual .numline{font-size:max(16px, min(16cqw, 12cqh, 42px));}
-  .countdown svg{width:max(50px, min(40cqw, 56cqh, 180px));
-                 height:max(50px, min(40cqw, 56cqh, 180px)); flex-shrink:0;}
+                    font-size:max(20px, min(14cqw, 20cqh, 220px));}
+  .numwrap.dual .numline{font-size:max(16px, min(16cqw, 12cqh, 145px));}
+  .countdown svg{width:max(50px, min(40cqw, 56cqh, 500px));
+                 height:max(50px, min(40cqw, 56cqh, 500px)); flex-shrink:0;}
 
   /* MAX and C3 (during totality) go side by side once there's room, else stacked */
   @container countdown (min-width: 500px){
