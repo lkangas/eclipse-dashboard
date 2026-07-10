@@ -9,6 +9,7 @@
     --screen:#ffffff; --zone:#eeedea; --line:#e3e2de; --divider:#f2f1ee;
     --ink:#20201e; --muted:#93908a;
     --accent:#e0952f; --accent-bg:#fbf1de; --accent-ink:#7a4d12;
+    --live-bg:#e6f4ea; --live-ink:#1f6b34;
   }
   *{box-sizing:border-box;}
   html,body{margin:0; height:100%; overflow:hidden;}
@@ -131,6 +132,41 @@
   .fovbox{position:absolute; inset:18% 14%; border:1px dashed var(--muted); border-radius:2px;}
   .fovbox::after{content:''; position:absolute; left:50%; top:50%; width:16px; height:16px;
                  margin:-8px 0 0 -8px; border-radius:50%; border:1px solid var(--ink);}
+
+  /* --- bottom time bar ---
+     Live/Sim is deliberately the most visually forceful control on screen --
+     leaving Live during the actual event by accident is the one mistake this
+     UI should make hard. Pressing Sim while Live never switches immediately;
+     it arms (button becomes "Confirm", amber) and needs a second press within
+     a few seconds, or it quietly reverts. Live always switches back in a
+     single press -- returning to truth should never have friction, only
+     leaving it. */
+  .timebar{flex:0 0 68px; display:flex; align-items:center; gap:18px; padding:0 16px;
+           border-top:1px solid var(--line);}
+
+  .modeswitch{display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; flex:0 0 auto;}
+  .modeswitch button{background:none; border:none; padding:10px 20px; font-weight:500; font-size:14px;
+                     color:var(--muted); cursor:pointer;}
+  .modeswitch button.live.on{background:var(--live-bg); color:var(--live-ink); font-weight:700;}
+  .modeswitch button.live.on::before{content:'\25CF '; }
+  .modeswitch button.sim.on{background:var(--ink); color:#fff;}
+  .modeswitch button.sim.confirm{background:var(--accent); color:#000; font-weight:700;}
+
+  /* review-only: swap which curve maps time to slider position (see script) */
+  .curvetoggle{flex:0 0 auto;}
+
+  .slidertrack{flex:1; position:relative; height:36px;}
+  .totband{position:absolute; height:8px; top:14px; background:var(--accent-bg); border-radius:4px;}
+  .ticks{position:absolute; inset:0;}
+  .tick{position:absolute; top:12px; width:1px; height:12px; background:var(--muted);}
+  .tick-lab{position:absolute; top:26px; transform:translateX(-50%); font-size:10px; color:var(--muted); white-space:nowrap;}
+
+  .scrub{-webkit-appearance:none; position:absolute; top:14px; left:0; width:100%; height:8px;
+        margin:0; background:var(--line); border-radius:4px; outline:none; z-index:2;}
+  .scrub::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+    background:var(--ink); border:3px solid #fff; box-shadow:0 0 0 1px var(--line); cursor:pointer; margin-top:-5px;}
+
+  .liveMarker{position:absolute; top:6px; bottom:6px; width:2px; background:var(--live-ink); z-index:2;}
 </style>
 </head>
 <body>
@@ -198,6 +234,20 @@
         </div>
       </div>
     </div>
+
+    <div class="timebar">
+      <div class="modeswitch">
+        <button class="live on" id="liveBtn">Live</button>
+        <button class="sim" id="simBtn">Sim</button>
+      </div>
+      <div class="slidertrack">
+        <div class="totband" id="totband"></div>
+        <div class="ticks" id="ticks"></div>
+        <input type="range" class="scrub" id="scrub" min="0" max="1" step="any" value="0" style="display:none;">
+        <div class="liveMarker" id="liveMarker"></div>
+      </div>
+      <button class="devtoggle curvetoggle" id="curveToggle">test curve</button>
+    </div>
   </div>
 
 <script>
@@ -261,6 +311,116 @@ function renderCountdown(){
   }
 }
 devToggle.onclick = ()=>{ dualState = !dualState; renderCountdown(); };
+
+// --- Time slider: two curves over the same C1..C4 timeline ---
+// Times as seconds-since-midnight, matching the contact table's displayed
+// wall-clock values (Zaragoza reference data used throughout this mock).
+const T = { c1: 70500, c2: 73744, max: 73784, c3: 73828, c4: 76920 };
+const MARGIN = 30 * 60; // comfortable margin shown before C1 / after C4
+const domainStart = T.c1 - MARGIN, domainEnd = T.c4 + MARGIN;
+const K = 60; // "real" curve: identity (linear). "test" curve: arcsinh,
+              // symmetric around max by construction (asinh is an odd
+              // function of (t - max)) -- near-linear within about +-K
+              // seconds of max, compressing increasingly beyond that, so
+              // C2/Max/C3 (a couple minutes apart) get comfortable click
+              // targets without the C1..C2 / C3..C4 partial phases (each
+              // most of an hour) taking over the whole track.
+function realWarp(t){ return t; }
+function testWarp(t){ return Math.asinh((t - T.max) / K); }
+
+let curveMode = 'real';
+function warp(t){ return curveMode === 'real' ? realWarp(t) : testWarp(t); }
+function unwarp(w){ return curveMode === 'real' ? w : T.max + Math.sinh(w) * K; }
+function trackBounds(){ return [warp(domainStart), warp(domainEnd)]; }
+function pct(t){ const [lo, hi] = trackBounds(); return (warp(t) - lo) / (hi - lo) * 100; }
+
+const scrub = document.getElementById('scrub');
+const ticksEl = document.getElementById('ticks');
+const totband = document.getElementById('totband');
+const liveMarker = document.getElementById('liveMarker');
+const curveToggle = document.getElementById('curveToggle');
+const TICK_DEFS = [
+  { key: 'c1', lab: 'C1' }, { key: 'c2', lab: 'C2' }, { key: 'max', lab: 'Max' },
+  { key: 'c3', lab: 'C3' }, { key: 'c4', lab: 'C4' },
+];
+
+let simTime = T.c2 - 41; // matches the "now" reference used elsewhere in this mock
+
+function renderTicks(){
+  ticksEl.innerHTML = '';
+  for(const { key, lab } of TICK_DEFS){
+    const p = pct(T[key]);
+    const tick = document.createElement('div');
+    tick.className = 'tick'; tick.style.left = p + '%';
+    ticksEl.appendChild(tick);
+    const label = document.createElement('div');
+    label.className = 'tick-lab'; label.style.left = p + '%'; label.textContent = lab;
+    ticksEl.appendChild(label);
+  }
+  const p1 = pct(T.c2), p2 = pct(T.c3);
+  totband.style.left = p1 + '%';
+  totband.style.width = (p2 - p1) + '%';
+}
+
+function renderTimebar(){
+  const [lo, hi] = trackBounds();
+  scrub.min = lo; scrub.max = hi;
+  scrub.value = warp(simTime);
+  renderTicks();
+  liveMarker.style.left = pct(simTime) + '%';
+}
+
+scrub.oninput = () => {
+  simTime = unwarp(+scrub.value);
+  liveMarker.style.left = pct(simTime) + '%';
+  // Later: this drives the countdown / contacts / sky / map from simTime.
+};
+
+curveToggle.onclick = () => {
+  curveMode = curveMode === 'real' ? 'test' : 'real';
+  curveToggle.textContent = curveMode === 'real' ? 'test curve' : 'real curve';
+  renderTimebar();
+};
+
+// --- Live / Sim mode ---
+const liveBtn = document.getElementById('liveBtn');
+const simBtn = document.getElementById('simBtn');
+let timeMode = 'live';
+let confirmPending = false;
+let confirmTimer = null;
+
+function renderTimeMode(){
+  liveBtn.classList.toggle('on', timeMode === 'live');
+  simBtn.classList.toggle('on', timeMode === 'sim');
+  simBtn.classList.toggle('confirm', confirmPending);
+  simBtn.textContent = confirmPending ? 'Confirm' : 'Sim';
+  scrub.style.display = timeMode === 'sim' ? 'block' : 'none';
+  liveMarker.style.display = timeMode === 'live' ? 'block' : 'none';
+}
+
+liveBtn.onclick = () => {
+  clearTimeout(confirmTimer);
+  confirmPending = false;
+  timeMode = 'live';
+  renderTimeMode();
+};
+
+simBtn.onclick = () => {
+  if(timeMode === 'sim') return;
+  if(!confirmPending){
+    confirmPending = true;
+    renderTimeMode();
+    confirmTimer = setTimeout(() => { confirmPending = false; renderTimeMode(); }, 3000);
+  } else {
+    clearTimeout(confirmTimer);
+    confirmPending = false;
+    timeMode = 'sim';
+    renderTimeMode();
+  }
+};
+
+renderTimebar();
+renderTimeMode();
 </script>
 </body>
 </html>
