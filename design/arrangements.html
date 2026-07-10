@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eclipse — layout arrangements</title>
+<style>
+  :root{
+    --bg:#f4f3f1; --screen:#ffffff; --zone:#eeedea; --line:#e3e2de;
+    --ink:#20201e; --muted:#93908a;
+    --accent:#e0952f; --accent-bg:#fbf1de; --accent-ink:#7a4d12;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--ink);
+       font-family:-apple-system,"Segoe UI",Roboto,system-ui,sans-serif;
+       padding:28px; }
+  h1{font-weight:500; font-size:20px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:14px; margin:0 0 22px;}
+  .grid{display:flex; flex-wrap:wrap; gap:22px;}
+  .card{flex:1 1 340px; max-width:420px;}
+  .cap{font-weight:500; font-size:15px; margin:12px 2px 2px;}
+  .capsub{color:var(--muted); font-size:13px; margin:0 2px;}
+
+  .screen{background:var(--screen); border:1px solid var(--line); border-radius:12px;
+          overflow:hidden; height:250px; display:flex; flex-direction:column;}
+  .bar{display:flex; align-items:center; justify-content:space-between;
+       padding:0 14px; height:38px; font-size:14px; color:var(--muted); flex:0 0 auto;}
+  .bar.b{border-top:1px solid var(--line);}
+  .zone{background:var(--zone); display:flex; align-items:center; justify-content:center;
+        color:var(--muted); font-size:15px; margin:8px; border-radius:8px;}
+  .hero{background:var(--accent-bg); color:var(--accent-ink);
+        display:flex; flex-direction:column; align-items:center; justify-content:center;
+        margin:8px; border-radius:8px;}
+  .hero .big{font-size:30px; font-weight:500; letter-spacing:-.5px;}
+  .hero .small{font-size:14px;}
+  .sun{width:70px; height:70px; border-radius:50%; background:#f0c063; }
+  .strip{background:var(--accent-bg); color:var(--accent-ink); text-align:center;
+         font-size:15px; font-weight:500; padding:8px; flex:0 0 auto;}
+  .row{display:flex; gap:8px; margin:0 8px 8px;}
+  .row .zone{flex:1; margin:0; height:36px; font-size:13px;}
+  .split{display:flex; flex:1; gap:0;}
+  .split .zone,.split .hero{flex:1;}
+  .pill-row{display:flex; gap:6px; margin-top:6px;}
+  .pill{background:#ececea; color:#77746e; border-radius:20px; padding:2px 10px; font-size:12px;}
+</style>
+</head>
+<body>
+  <h1>Top-level arrangements</h1>
+  <p class="sub">Light, minimal. The amber block is the one thing each layout puts front and centre. Pick a direction (or mix) and we build just that, then refine.</p>
+
+  <div class="grid">
+
+    <!-- A -->
+    <div class="card">
+      <div class="screen">
+        <div class="bar"><span>Zaragoza</span><span>20:29</span></div>
+        <div class="hero" style="flex:1"><div class="big">Totality in 4:12</div></div>
+        <div class="zone" style="flex:0 0 56px">Sun</div>
+        <div class="bar b"><span>Time</span></div>
+      </div>
+      <div class="cap">A · Countdown first</div>
+      <div class="capsub">One giant number: time to the next contact. Everything else small.</div>
+    </div>
+
+    <!-- B -->
+    <div class="card">
+      <div class="screen">
+        <div class="strip">Totality in 4:12</div>
+        <div class="zone" style="flex:1; flex-direction:column"><div class="sun"></div></div>
+        <div class="row"><div class="zone">Sun</div><div class="zone">Sky</div><div class="zone">Map</div></div>
+        <div class="bar b"><span>Time</span></div>
+      </div>
+      <div class="cap">B · The Sun fills the screen</div>
+      <div class="capsub">The view you're watching is the hero; the countdown is a thin strip on top.</div>
+    </div>
+
+    <!-- C -->
+    <div class="card">
+      <div class="screen">
+        <div class="bar"><span>Zaragoza</span><span>20:29</span></div>
+        <div class="split">
+          <div class="zone"><div class="sun"></div></div>
+          <div class="hero"><div class="big">4:12</div><div class="small">to totality</div>
+            <div class="pill-row"><span class="pill">C1</span><span class="pill">C2</span><span class="pill">C3</span><span class="pill">C4</span></div>
+          </div>
+        </div>
+        <div class="bar b"><span>Time</span></div>
+      </div>
+      <div class="cap">C · Split — Sun and countdown</div>
+      <div class="capsub">Sun on one side, countdown plus the four contacts on the other.</div>
+    </div>
+
+  </div>
+</body>
+</html>
