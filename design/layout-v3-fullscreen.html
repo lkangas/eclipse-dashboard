@@ -152,8 +152,13 @@
   .modeswitch button.sim.on{background:var(--ink); color:#fff;}
   .modeswitch button.sim.confirm{background:var(--accent); color:#000; font-weight:700;}
 
-  /* review-only: swap which curve maps time to slider position (see script) */
-  .curvetoggle{flex:0 0 auto;}
+  /* review-only: swap which curve maps time to slider position (see script).
+     .devtoggle (reused for the dashed-pill look) is position:absolute, which
+     only works pinned to a positioned ANCESTOR (the countdown panel, its
+     original use) -- .timebar isn't one, so left unoverridden this escaped
+     to the initial containing block and rendered pinned to the viewport's
+     top-right corner instead of sitting inline in the bottom bar. */
+  .curvetoggle{position:static; flex:0 0 auto;}
 
   .slidertrack{flex:1; position:relative; height:36px;}
   .totband{position:absolute; height:8px; top:14px; background:var(--accent-bg); border-radius:4px;}
