@@ -42,18 +42,20 @@
   .vsplit:hover .grip i, .hsplit:hover .grip i{background:var(--muted);}
 
   /* --- contacts table ---
-     #paneContacts is the sized container; .contacts (a child, not the same
-     element) reads that size and scales EVERYTHING via one --tscale factor,
-     so the whole block shrinks together to fit available height (or width)
-     instead of ever scrolling or clipping. Knee points: full size while
-     height >= ~340px (comfortable) or width >= ~300px, easing down to a
-     0.4 floor at the panel's practical minimum (140px, set by the drag
-     handles). overflow stays hidden on the container -- CSS size containment
-     requires that -- but it should never actually trigger since content is
-     scaled to always fit; verified empirically down to the 140px minimum. */
-  #paneContacts{container-type:size; container-name:contacts;}
+     Sized off --pw/--ph, JS-measured and zoom-compensated (see script) rather
+     than native CSS container-query units (cqw/cqh) -- those respond to ANY
+     change in the panel's CSS-pixel size, and browser zoom genuinely changes
+     that (fewer/more CSS pixels fit the window), so cqw/cqh can't tell "you
+     dragged the panel smaller" apart from "you zoomed in". --pw/--ph cancel
+     the zoom component out, so this only reacts to a genuine drag-resize --
+     the table's font otherwise just follows ordinary browser zoom, same as
+     any plain px value. Knee points: full size while height >= ~340px
+     (comfortable) or width >= ~300px, easing down to a 0.4 floor at the
+     panel's practical minimum (140px, set by the drag handles). Defaults on
+     --pw/--ph cover the instant before JS's first measurement lands. */
+  #paneContacts{--pw:717px; --ph:419px;}
   .contacts{
-    --tscale: max(0.4, min(1, calc(100cqw / 300px), calc(100cqh / 340px)));
+    --tscale: max(0.4, min(1, calc(var(--pw) / 300px), calc(var(--ph) / 340px)));
     padding: calc(14px*var(--tscale)) 14px calc(8px*var(--tscale));
   }
   table{width:100%; border-collapse:collapse; font-size:calc(14px*var(--tscale));}
@@ -71,30 +73,30 @@
   .circ b{font-size:calc(15px*var(--tscale)); font-weight:500; font-variant-numeric:tabular-nums;}
 
   /* --- countdown + schematic ---
-     Sized off the PANEL's own size (container query), not the viewport, and
-     against BOTH its width and height -- otherwise shrinking the browser's
-     height (or dragging a panel shorter) does nothing, since cqw alone only
-     tracks width. Each property picks whichever axis is more constraining.
-     Ceilings are intentionally generous (not a small fixed max) so this
-     keeps growing to fill a large panel on a big/high-res screen instead of
-     capping out early -- unlike the topbar/table/tabs, which stay at a fixed
-     size and rely on browser zoom (Ctrl+wheel) if the user wants them bigger. */
-  #paneCountdown{container-type:size; container-name:countdown;}
+     Sized entirely off --pw/--ph (JS-measured, zoom-compensated -- see the
+     script and the note above the table). This panel should NEVER visibly
+     react to browser zoom, only to being genuinely dragged bigger/smaller,
+     which native cqw/cqh units can't tell apart (zoom really does change a
+     panel's CSS-pixel size, same as a drag would). Each property picks
+     whichever axis (width/height) is more constraining. Ceilings are
+     intentionally generous so this keeps growing to fill a large panel on a
+     big/high-res screen instead of capping out early. */
+  #paneCountdown{--pw:717px; --ph:419px;}
   .countdown{display:flex; flex-direction:column; align-items:center; justify-content:center;
              height:100%; gap:14px; padding:10px;}
   .numwrap{display:flex; flex-direction:column; align-items:center; justify-content:center;
            gap:6px; min-width:0;}
   .numwrap .numline{font-family:"SF Mono","Cascadia Mono",Consolas,monospace;
                     font-weight:500; letter-spacing:-.5px; white-space:nowrap;
-                    font-size:max(20px, min(14cqw, 20cqh, 220px));}
-  .numwrap.dual .numline{font-size:max(16px, min(16cqw, 12cqh, 145px));}
-  .countdown svg{width:max(50px, min(40cqw, 56cqh, 500px));
-                 height:max(50px, min(40cqw, 56cqh, 500px)); flex-shrink:0;}
+                    font-size:max(20px, min(calc(var(--pw) * 0.14), calc(var(--ph) * 0.20), 220px));}
+  .numwrap.dual .numline{font-size:max(16px, min(calc(var(--pw) * 0.16), calc(var(--ph) * 0.12), 145px));}
+  .countdown svg{width:max(50px, min(calc(var(--pw) * 0.40), calc(var(--ph) * 0.56), 500px));
+                 height:max(50px, min(calc(var(--pw) * 0.40), calc(var(--ph) * 0.56), 500px)); flex-shrink:0;}
 
-  /* MAX and C3 (during totality) go side by side once there's room, else stacked */
-  @container countdown (min-width: 500px){
-    .numwrap.dual{flex-direction:row; gap:28px;}
-  }
+  /* MAX and C3 (during totality) go side by side once there's room, else
+     stacked -- toggled by JS (.wide class) alongside --pw/--ph, so this is
+     also zoom-invariant rather than a native (zoom-reactive) @container query. */
+  #paneCountdown.wide .numwrap.dual{flex-direction:row; gap:28px;}
 
   /* review-only control, not final UI */
   .devtoggle{position:absolute; top:10px; right:12px; z-index:2; background:none;
@@ -208,6 +210,11 @@ function drag(handle, axis, growEl, shrinkEl, sizeProp){
     function apply(g, s){
       growEl.style.flex = g + ' 0 0';
       shrinkEl.style.flex = s + ' 0 0';
+      // Drive --pw/--ph updates directly rather than relying solely on
+      // ResizeObserver -- it's the right general mechanism (also catches a
+      // real window resize or zoom), but shouldn't be the ONLY path to a
+      // correct result for the case we can verify most directly: a drag.
+      zoomInvariantMeasurers.forEach(m => m());
     }
     apply(g0, s0);
     document.body.style.cursor = getComputedStyle(handle).cursor;
@@ -227,6 +234,37 @@ function drag(handle, axis, growEl, shrinkEl, sizeProp){
 drag(document.getElementById('vsplit'), 'x', document.getElementById('colLeft'), document.getElementById('colRight'), 'width');
 drag(document.getElementById('hsplitLeft'), 'y', document.getElementById('paneContacts'), document.getElementById('paneCountdown'), 'height');
 drag(document.getElementById('hsplitRight'), 'y', document.getElementById('paneMap'), document.getElementById('paneSky'), 'height');
+
+// Zoom-invariant panel sizing: --pw/--ph track a panel's CSS-pixel size the
+// same way cqw/cqh would, EXCEPT compensated by devicePixelRatio (which
+// changes with browser zoom, and with OS DPI scaling) so a zoom change alone
+// cancels out and leaves --pw/--ph unchanged. Only a genuine resize (drag,
+// or an actual window resize) moves them. baselineDPR is whatever zoom the
+// page happened to load at; --pw/--ph track deviations from that baseline.
+const baselineDPR = window.devicePixelRatio;
+const zoomInvariantMeasurers = [];
+function observeZoomInvariantSize(el, onSize){
+  const measure = () => {
+    const r = el.getBoundingClientRect();
+    const factor = window.devicePixelRatio / baselineDPR;
+    onSize(r.width * factor, r.height * factor);
+  };
+  new ResizeObserver(measure).observe(el);
+  window.addEventListener('resize', measure);
+  zoomInvariantMeasurers.push(measure);
+  measure();
+}
+observeZoomInvariantSize(document.getElementById('paneContacts'), (w, h) => {
+  const el = document.getElementById('paneContacts');
+  el.style.setProperty('--pw', w + 'px');
+  el.style.setProperty('--ph', h + 'px');
+});
+observeZoomInvariantSize(document.getElementById('paneCountdown'), (w, h) => {
+  const el = document.getElementById('paneCountdown');
+  el.style.setProperty('--pw', w + 'px');
+  el.style.setProperty('--ph', h + 'px');
+  el.classList.toggle('wide', w >= 500);
+});
 
 document.getElementById('tabWide').onclick = ()=>{ document.getElementById('tabWide').classList.add('on'); document.getElementById('tabAll').classList.remove('on'); document.getElementById('fovbox').style.display='block'; };
 document.getElementById('tabAll').onclick = ()=>{ document.getElementById('tabAll').classList.add('on'); document.getElementById('tabWide').classList.remove('on'); document.getElementById('fovbox').style.display='none'; };
