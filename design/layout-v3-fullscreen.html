@@ -6,7 +6,7 @@
 <title>Eclipse dashboard</title>
 <style>
   :root{
-    --screen:#ffffff; --zone:#eeedea; --line:#e3e2de;
+    --screen:#ffffff; --zone:#eeedea; --line:#e3e2de; --divider:#f2f1ee;
     --ink:#20201e; --muted:#93908a;
     --accent:#e0952f; --accent-bg:#fbf1de; --accent-ink:#7a4d12;
   }
@@ -28,16 +28,16 @@
   .pane{min-height:140px; position:relative; overflow:hidden;}
 
   .vsplit{flex:0 0 6px; cursor:col-resize; display:flex; align-items:center; justify-content:center;
-          background:var(--screen);}
+          background:var(--divider);}
   .hsplit{flex:0 0 6px; cursor:row-resize; display:flex; align-items:center; justify-content:center;
-          background:var(--screen);}
+          background:var(--divider);}
   .grip{display:flex; gap:3px;}
   .vsplit .grip{flex-direction:column;}
   .grip i{width:3px; height:3px; border-radius:50%; background:var(--line);}
   .vsplit:hover .grip i, .hsplit:hover .grip i{background:var(--muted);}
 
   /* --- contacts table --- */
-  .contacts{padding:14px 14px 8px; display:flex; align-items:center;}
+  .contacts{padding:14px 14px 8px; overflow:auto;}
   table{width:100%; border-collapse:collapse; font-size:14px;}
   td,th{padding:6px 10px; text-align:left; border-bottom:1px solid var(--line);}
   th{color:var(--muted); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.4px;}
