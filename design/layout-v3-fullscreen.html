@@ -186,14 +186,30 @@
   </div>
 
 <script>
+// Panel sizes are stored as flex-grow RATIOS (basis:0), not fixed pixels or
+// even percentages of the container. Fixed pixels are correct only at the
+// zoom level they were dragged at -- browser zoom changes how many CSS
+// pixels fit in the window, so a panel pinned to (say) "300px" stops being
+// the same fraction of the window once zoom changes that count, and the
+// whole grid drifts off the edges. Percentages of the container have a
+// subtler version of the same problem: they'd have to also account for the
+// splitter's fixed 6px, which isn't part of either percentage -- get that
+// wrong and the two panels' percentages plus the splitter add up to more
+// than 100%, overflowing the container. flex-grow sidesteps both problems:
+// the browser reserves the splitter's fixed 6px first, then divides
+// whatever's left between the two panels by ratio, automatically, at any
+// container size.
 function drag(handle, axis, growEl, shrinkEl, sizeProp){
   handle.addEventListener('pointerdown', e=>{
     handle.setPointerCapture(e.pointerId);
     const start = axis==='x' ? e.clientX : e.clientY;
     const g0 = growEl.getBoundingClientRect()[sizeProp];
     const s0 = shrinkEl.getBoundingClientRect()[sizeProp];
-    growEl.style.flex = '0 0 ' + g0 + 'px';
-    shrinkEl.style.flex = '0 0 ' + s0 + 'px';
+    function apply(g, s){
+      growEl.style.flex = g + ' 0 0';
+      shrinkEl.style.flex = s + ' 0 0';
+    }
+    apply(g0, s0);
     document.body.style.cursor = getComputedStyle(handle).cursor;
     function move(e){
       const pos = axis==='x' ? e.clientX : e.clientY;
@@ -201,8 +217,7 @@ function drag(handle, axis, growEl, shrinkEl, sizeProp){
       const min = 140;
       let g = g0 + d, s = s0 - d;
       if(g < min || s < min) return;
-      growEl.style.flex = '0 0 ' + g + 'px';
-      shrinkEl.style.flex = '0 0 ' + s + 'px';
+      apply(g, s);
     }
     function up(){ document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.body.style.cursor=''; }
     document.addEventListener('pointermove', move);
