@@ -182,7 +182,9 @@
   .slidertrack{flex:1; position:relative; height:100%; touch-action:none;
               user-select:none; -webkit-user-select:none;}
   .hourlabels{position:absolute; left:0; right:0; top:0; height:16px;}
-  .hour-lab{position:absolute; top:0; transform:translateX(-50%); font-size:10px; color:var(--muted); white-space:nowrap;}
+  .hour-lab{position:absolute; top:0; transform:translateX(-50%); font-size:10px; font-weight:500;
+           color:var(--ink); white-space:nowrap;}
+  .hour-lab.min10{font-size:9px; font-weight:400; color:var(--muted);}
 
   .axisline{position:absolute; left:0; right:0; top:30px; height:1px; background:var(--line);}
   .ticks{position:absolute; left:0; right:0; top:0; height:100%;}
@@ -391,14 +393,14 @@ const TICK_DEFS = [
 
 let simTime = T.c2 - 41; // matches the "now" reference used elsewhere in this mock
 
-// Full-hour marks get a text timestamp; the 10-min marks in between are
-// unlabeled tick marks only (a label on every one would be unreadable
-// clutter). On the linear curve all 10-min ticks show. On the stretch
-// curve, only the ones within the hour bracket immediately surrounding max
-// are kept -- that's the region actually being expanded, so they're
-// meaningful there; everywhere else is compressed enough that a grid of
-// 10-min ticks would just be noise, so only the (always-shown) hour ticks
-// remain for orientation further out.
+// Tick MARKS: every 10-min step, in both curves, always -- these were
+// already correct and unaffected by this pass. Tick LABELS (the text
+// timestamps) are what's conditional: hour ticks always get one; 10-min
+// ticks get one too on the linear curve (all of them), but on the stretch
+// curve only within the hour bracket immediately surrounding max -- that's
+// the region actually being expanded, so a label is useful there; further
+// out the compression makes a 10-min-by-10-min timestamp meaningless, so
+// only the (always-labeled) hour ticks orient the viewer.
 function renderHourTicks(){
   hourLabelsEl.innerHTML = ''; ticksEl.innerHTML = '';
   const hourBefore = Math.floor(T.max / 3600) * 3600;
@@ -406,15 +408,18 @@ function renderHourTicks(){
   const first = Math.ceil(domainStart / 600) * 600;
   for(let t = first; t <= domainEnd; t += 600){
     const isHour = t % 3600 === 0;
-    if(!isHour && stretchOn && (t < hourBefore || t > hourAfter)) continue;
     const p = pct(t);
+
     const tick = document.createElement('div');
     tick.className = 'tick' + (isHour ? ' hour' : '');
     tick.style.left = p + '%';
     ticksEl.appendChild(tick);
-    if(isHour){
+
+    const showLabel = isHour || !stretchOn || (t >= hourBefore && t <= hourAfter);
+    if(showLabel){
       const lab = document.createElement('div');
-      lab.className = 'hour-lab'; lab.style.left = p + '%'; lab.textContent = fmtHM(t);
+      lab.className = 'hour-lab' + (isHour ? '' : ' min10');
+      lab.style.left = p + '%'; lab.textContent = fmtHM(t);
       hourLabelsEl.appendChild(lab);
     }
   }
