@@ -143,7 +143,7 @@
      single press -- returning to truth should never have friction, only
      leaving it. Fixed min-width on both buttons so arming ("Sim" -> "Confirm",
      a longer, bolder label) never resizes the control. */
-  .timebar{flex:0 0 76px; display:flex; align-items:center; gap:16px; padding:0 16px;
+  .timebar{flex:0 0 84px; display:flex; align-items:center; gap:16px; padding:0 16px;
            border-top:1px solid var(--line); user-select:none; -webkit-user-select:none;}
 
   .modeswitch{display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; flex:0 0 auto;}
@@ -170,8 +170,10 @@
   /* Timeline, in three vertically distinct, non-overlapping bands so the
      cursor (confined to the middle band) can never overlap a label:
        0-16px   hour labels (text)
-       16-44px  axis + tick marks + C1..C4/Max lines + the cursor
-       46-60px  C1..C4/Max text labels, all in a single row -- C2/Max/C3
+       16-60px  axis + tick marks + C1..C4/Max lines + the cursor -- given
+                more room (was 16-44px) so all of these could be made
+                taller/more visible
+       62-76px  C1..C4/Max text labels, all in a single row -- C2/Max/C3
                 (which can sit only seconds apart on the linear curve) are
                 kept side by side rather than stacked: Max stays at its true
                 position, C2/C3 are pushed away from it by the same
@@ -187,7 +189,7 @@
   .hour-lab.min10{font-size:9px; font-weight:400; color:var(--muted);}
   .hour-lab.min1{font-size:8px; font-weight:400; color:var(--muted);}
 
-  .axisline{position:absolute; left:0; right:0; top:30px; height:1px; background:var(--line);}
+  .axisline{position:absolute; left:0; right:0; top:38px; height:1px; background:var(--line);}
   .ticks{position:absolute; left:0; right:0; top:0; height:100%;}
   /* width:2px, not 1px -- these sit at percentage-based (often fractional
      pixel) positions, and a 1px-wide mark at a fractional offset gets
@@ -195,15 +197,15 @@
      rendering faint and inconsistently thin/thick depending on the exact
      sub-pixel alignment. 2px guarantees at least one full solid pixel of
      coverage regardless of position, so every tick reads the same. */
-  .tick{position:absolute; top:27px; width:2px; height:7px; background:var(--ink);}
-  .tick.hour{top:23px; height:14px; background:var(--ink);}
-  .tick.min1{top:28px; height:4px;}
+  .tick{position:absolute; top:32px; width:2px; height:12px; background:var(--ink);}
+  .tick.hour{top:28px; height:20px; background:var(--ink);}
+  .tick.min1{top:35px; height:6px;}
 
-  .totband{position:absolute; height:12px; top:24px; background:var(--accent-bg); border-radius:3px;}
+  .totband{position:absolute; height:16px; top:30px; background:var(--accent-bg); border-radius:3px;}
   .clines{position:absolute; left:0; right:0; top:0; height:100%;}
-  .cline{position:absolute; top:19px; width:2px; height:22px; background:var(--cline);}
+  .cline{position:absolute; top:22px; width:2px; height:32px; background:var(--cline);}
 
-  .clabels{position:absolute; left:0; right:0; top:46px; height:14px;}
+  .clabels{position:absolute; left:0; right:0; top:62px; height:14px;}
   .clabel{position:absolute; top:0; transform:translateX(-50%); font-size:11px; font-weight:500;
          color:var(--ink); white-space:nowrap;}
 
@@ -212,7 +214,7 @@
      differs. Confined vertically to the axis/tick band (see above), so it
      can never overlap the hour labels above or the C1..C4 labels below,
      wherever it's positioned. */
-  .cursor{position:absolute; top:17px; width:2px; height:26px; background:#c22; z-index:3; pointer-events:none;}
+  .cursor{position:absolute; top:20px; width:2px; height:36px; background:#c22; z-index:3; pointer-events:none;}
 </style>
 </head>
 <body>
