@@ -14,9 +14,9 @@ from Spain. Three facts dominate every design choice:
    build time. See `docs/PLAN.md` §3.
 2. **The Sun is extremely low — a sunset eclipse.** Totality crosses Spain
    ~18:26–18:33 UT (20:26–20:33 **CEST**), with the Sun at only **~12° on the
-   NW Atlantic coast down to ~2° over the Balearics**. The hero view is a
-   *zoomed, low-on-the-horizon* Sun, and **horizon obstruction is a first-class
-   concern** — a single hill can hide the whole event.
+   NW Atlantic coast down to ~2° over the Balearics**. The wide Sun view frames
+   the low, setting Sun with room around it, and **horizon obstruction is a
+   first-class concern** — a single hill can hide the whole event.
 3. **Geometry from Besselian elements**, reduced to local circumstances per the
    standard (Explanatory Supplement / Meeus) method — ported from the user's
    existing Python, validated against it.
@@ -195,16 +195,18 @@ A `clock` store exposing the "current simulated instant" plus mode:
 
 Canvas 2D. Shared projection module supports two selectable orientations:
 
-- **All-sky map** — full hemisphere, **alt-az** (horizon-based) or
+- **All-sky view** — full hemisphere, **alt-az** (horizon-based) or
   **equatorial** (RA/Dec) orientation toggle; stars from the bundled HYG subset
   (size ∝ magnitude, tinted by B-V), planets and Sun/Moon from astronomy-engine
   (with phase), constellation lines optional, horizon + cardinal points,
   atmospheric extinction dimming near the horizon.
-- **Zoomed setting-Sun view** — the hero panel: a narrow-field, gnomonic view
-  centered on the Sun, showing the Moon's disk overlapping the Sun (correct
-  size/orientation from parallax-corrected positions), nearby stars/planets
-  (e.g. anything catchable in the darkened sky), the **horizon line**, and the
-  Sun's track toward setting. Drives the "what will I actually see" intuition.
+- **Wide view** — a *wider*-than-the-camera view of the sky around the low
+  setting Sun (not the camera's actual framing), showing the Moon's disk
+  overlapping the Sun (correct size/orientation from parallax-corrected
+  positions), nearby stars/planets, the horizon line, and the Sun's track
+  toward setting. A **FOV box overlay** marks where the user's fixed camera
+  framing sits within that wider context, for tuning composition ahead of
+  the event. Wide/All-sky are tabbed for now (§10).
 
 Both update reactively from `clock` + `observer`. Contact geometry (Moon-Sun
 overlap, position angles) comes from §4 so the sky view and the contact
@@ -229,9 +231,17 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
 
 ## 9. Contacts & sound warnings (`src/contacts/`)
 
-- **Contacts list** — C1 (first), C2 (totality start), max, C3 (totality end),
-  C4 (last), each with UT + CEST + a live countdown; totality duration
-  highlighted; "no totality here" state when the observer is outside the path.
+- **Contacts table** — compact, EO-inspired: Event / T± / time / altitude for
+  C1, C2, Max, C3, C4, Sunset (columns still draft — confirm what's essential).
+  Below it, a small **local circumstances** strip: totality **duration**,
+  **magnitude**, **obscuration**, **Sun azimuth** at max (list still draft —
+  confirm which metrics matter beyond these).
+- **Big countdown display** — large text, no separate label line: `EVENT±ttt`
+  (e.g. `C2−00:41.6`), paired with the flat monochrome Sun/Moon schematic (§10).
+  **Display logic**: normally show only the *one* next upcoming event
+  (`C1−ttt` before C1, `C2−ttt` before C2, `C4−ttt` after C3, …). **Exception:**
+  between C2 and C3 (during totality) show *two* lines, `MAX±ttt` and `C3−ttt`,
+  since both are live-relevant while totality is running.
 - **Configurable sound warnings** — per-contact, user-set lead times (e.g. beep
   at C2−2m, spoken countdown C2−10s, distinct tone at C2/C3). Web Audio for
   precise scheduled tones; optional **SpeechSynthesis** for spoken calls
@@ -245,10 +255,26 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
 
 ## 10. UI layout
 
-A dashboard grid (responsive, dark, field-readable): top bar = observer + clock
-+ LIVE toggle; left = contacts list & sound config; center = zoomed setting-Sun
-(hero) with a tab to the all-sky map; right = eclipse-path map + location
-picker; bottom = time slider. Layout finalized in step 2 (mock).
+**Light theme, deliberately bare** — only attention-grabbing content, no
+decorative micro-text or panel chrome (no title bars, no in-panel labels;
+content is self-evident, same spirit as Eclipse Orchestrator). Iterated as
+`design/*.html` wireframes before touching real code; current arrangement
+(`design/layout-v3-fullscreen.html`) is a 2×2 quadrant grid, filling the
+browser viewport (Chrome app-mode target), with **every divider a real
+drag handle** (panels resizable; reordering deferred):
+
+- top bar: observer name/coords + UT/CEST clocks (slim, always visible)
+- top-left: contacts table + local circumstances (§9)
+- bottom-left: big countdown + flat monochrome Sun/Moon schematic (§9) —
+  circles only, no gradients/photorealism, no separate label line
+- top-right: eclipse-path map (§8, always visible)
+- bottom-right: Wide / All-sky (§7), tabbed for now — open question whether
+  both need to be visible simultaneously instead
+- time slider: deferred from the current mock, to be added along the bottom
+
+Panel positions (which content sits in which quadrant) are easy to revisit —
+already swapped once — because sizing no longer depends on which specific
+panel occupies a slot (`flex:1 1 0` default on every pane).
 
 ---
 
