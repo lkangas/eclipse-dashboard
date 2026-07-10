@@ -142,8 +142,8 @@
      single press -- returning to truth should never have friction, only
      leaving it. Fixed min-width on both buttons so arming ("Sim" -> "Confirm",
      a longer, bolder label) never resizes the control. */
-  .timebar{flex:0 0 100px; display:flex; align-items:center; gap:16px; padding:0 16px;
-           border-top:1px solid var(--line);}
+  .timebar{flex:0 0 76px; display:flex; align-items:center; gap:16px; padding:0 16px;
+           border-top:1px solid var(--line); user-select:none; -webkit-user-select:none;}
 
   .modeswitch{display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; flex:0 0 auto;}
   .modeswitch button{background:none; border:none; padding:10px 4px; width:88px; font-weight:500; font-size:14px;
@@ -170,16 +170,16 @@
      cursor (confined to the middle band) can never overlap a label:
        0-16px   hour labels (text)
        16-44px  axis + tick marks + C1..C4/Max lines + the cursor
-       46-88px  C1..C4/Max text labels, in up to 3 rows (JS-assigned by
-                measuring each label's REAL rendered width and greedily
-                packing rows so none collide -- close labels, e.g. C2/Max/C3
-                on the linear curve, stagger into extra rows instead of
-                overlapping; well-spread labels all land in row 0). 3 rows
-                is enough for this data: C1/C4 are always far from
-                everything by construction (the margin plus each partial
-                phase is tens of minutes), so at most the middle three
-                (C2/Max/C3) can ever mutually collide. */
-  .slidertrack{flex:1; position:relative; height:100%; touch-action:none;}
+       46-60px  C1..C4/Max text labels, all in a single row -- C2/Max/C3
+                (which can sit only seconds apart on the linear curve) are
+                kept side by side rather than stacked: Max stays at its true
+                position, C2/C3 are pushed away from it by the same
+                distance on each side (symmetric), only as far as actually
+                needed to clear the overlap, and never less than their
+                natural spacing -- so the stretch curve, where they're
+                already well separated, is left untouched. */
+  .slidertrack{flex:1; position:relative; height:100%; touch-action:none;
+              user-select:none; -webkit-user-select:none;}
   .hourlabels{position:absolute; left:0; right:0; top:0; height:16px;}
   .hour-lab{position:absolute; top:0; transform:translateX(-50%); font-size:10px; color:var(--muted); white-space:nowrap;}
 
@@ -192,11 +192,9 @@
   .clines{position:absolute; left:0; right:0; top:0; height:100%;}
   .cline{position:absolute; top:19px; width:1px; height:22px; background:var(--muted);}
 
-  .clabels{position:absolute; left:0; right:0; top:46px; height:42px;}
+  .clabels{position:absolute; left:0; right:0; top:46px; height:14px;}
   .clabel{position:absolute; top:0; transform:translateX(-50%); font-size:11px; font-weight:500;
          color:var(--ink); white-space:nowrap;}
-  .clabel.row1{top:14px;}
-  .clabel.row2{top:28px;}
 
   /* Custom-drawn (not a native range input) so it renders identically in
      Live and Sim -- only whether the track responds to pointer input
@@ -412,39 +410,51 @@ function renderHourTicks(){
   }
 }
 
-// C1..C4/Max: greedy row assignment using each label's REAL measured width
-// (not an estimate), so close labels (C2/Max/C3 on the linear curve) stagger
-// into a second row instead of overlapping, while well-spread labels (the
-// stretch curve, or C1/C4 either way) all land in row 0 automatically.
+// C1..C4/Max labels: all on a single row. C1/C4 always render at their true
+// position (they're never close to anything, by construction of the domain).
+// C2/Max/C3 can sit only seconds apart on the linear curve, so instead of
+// stacking them, Max stays anchored at its true position and C2/C3 are each
+// pushed away from it by the SAME distance (symmetric), using each label's
+// REAL measured width (not an estimate) to find the minimum distance that
+// clears the overlap -- and never less than their natural/true spacing, so
+// the stretch curve, where they're already comfortably spread, is untouched.
 function renderCLines(){
   clinesEl.innerHTML = ''; clabelsEl.innerHTML = '';
   const items = TICK_DEFS.map(({ key, lab }) => ({ key, lab, p: pct(T[key]) }));
 
+  // vertical lines always mark each contact's TRUE position
   for(const it of items){
     const line = document.createElement('div');
     line.className = 'cline'; line.style.left = it.p + '%';
     clinesEl.appendChild(line);
   }
 
-  const els = items.map(it => {
+  const byKey = {};
+  for(const it of items){
     const el = document.createElement('div');
-    el.className = 'clabel'; el.style.left = it.p + '%'; el.textContent = it.lab;
+    el.className = 'clabel'; el.textContent = it.lab;
     clabelsEl.appendChild(el);
-    return el;
-  });
+    byKey[it.key] = { el, p: it.p };
+  }
+
   const trackW = slidertrack.getBoundingClientRect().width;
-  const rowRightEdge = [];
+  const pxOf = key => byKey[key].p / 100 * trackW;
+  const widthOf = key => byKey[key].el.getBoundingClientRect().width;
   const PAD = 6;
-  items.forEach((it, i) => {
-    const el = els[i];
-    const w = el.getBoundingClientRect().width;
-    const centerPx = it.p / 100 * trackW;
-    const leftPx = centerPx - w / 2, rightPx = centerPx + w / 2;
-    let row = 0;
-    while(rowRightEdge[row] !== undefined && leftPx < rowRightEdge[row] + PAD) row++;
-    rowRightEdge[row] = rightPx;
-    if(row > 0) el.classList.add('row' + row);
-  });
+
+  const mx = pxOf('max'), wMax = widthOf('max');
+  const c2px = pxOf('c2'), wC2 = widthOf('c2');
+  const c3px = pxOf('c3'), wC3 = widthOf('c3');
+  const neededLeft = wMax / 2 + wC2 / 2 + PAD;
+  const neededRight = wMax / 2 + wC3 / 2 + PAD;
+  const trueLeft = mx - c2px, trueRight = c3px - mx;
+  const D = Math.max(neededLeft, neededRight, trueLeft, trueRight);
+
+  byKey.c1.el.style.left = byKey.c1.p + '%';
+  byKey.c2.el.style.left = ((mx - D) / trackW * 100) + '%';
+  byKey.max.el.style.left = (mx / trackW * 100) + '%';
+  byKey.c3.el.style.left = ((mx + D) / trackW * 100) + '%';
+  byKey.c4.el.style.left = byKey.c4.p + '%';
 
   const p1 = pct(T.c2), p2 = pct(T.c3);
   totband.style.left = p1 + '%';
@@ -478,6 +488,9 @@ function trackPointerToTime(clientX){
 }
 slidertrack.addEventListener('pointerdown', e => {
   if(timeMode !== 'sim') return;
+  e.preventDefault(); // belt-and-suspenders alongside user-select:none above --
+                       // without this, dragging across the tick/hour labels
+                       // triggers native text selection instead of just scrubbing
   pauseClock(); // dragging always pauses -- see the clock block below
   slidertrack.setPointerCapture(e.pointerId);
   simTime = trackPointerToTime(e.clientX);
