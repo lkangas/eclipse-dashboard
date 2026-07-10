@@ -57,37 +57,44 @@ atmospheric **extinction/reddening** modeled at low altitude.
 
 ## 2. Architecture & run model
 
-**Recommendation: a single-page app served from `http://localhost`, making zero
-network requests.** `localhost` is a browser "secure context," so **device
-geolocation and USB serial GPS work**; `file://` cannot do geolocation and is
-unreliable for serial. "Offline" and "needs localhost" are not in conflict — a
-local static server never touches the network.
+The app is a **static single-page app with no backend** — the *same build* is
+either served over the network (remote prototype review) or served locally (the
+eclipse). It makes **zero network requests at runtime** either way.
 
-Three run modes, in increasing capability:
+**Feature gate:** geolocation and USB serial GPS need a browser "secure
+context" = **HTTPS or `localhost`** — *not* `file://`, *not* plain
+`http://<ip>`.
 
-| Mode | How | Geolocation | Serial GPS | Effort |
+| Purpose | Served how | Secure ctx | Geo / Serial | Runtime net |
 |---|---|---|---|---|
-| **A. `file://`** | double-click `index.html` | ❌ blocked | ⚠️ unreliable | none |
-| **B. localhost (recommended)** | `npm run preview` / bundled 1-file static server | ✅ | ✅ | trivial |
-| **C. Desktop app (future)** | Tauri/Electron wrapper, double-click `.exe` | ✅ | ✅ | higher |
+| **Prototype review, any machine** | VPS over **HTTPS** (or tunnel) | ✅ | ✅ remotely | loads over net (fine for review) |
+| **The eclipse (offline, local)** | local server on `http://localhost` | ✅ | ✅ | none |
+| Quick peek | `file://` double-click | ⚠️ | ❌ / ⚠️ | none |
+| Best field UX (future) | Tauri/Electron portable `.exe` | ✅ (app scheme) | ✅ | none |
 
-Plan: build for **B**, keep **A** working in degraded form (manual + map coords
-still fine), and leave **C** as a later upgrade for the cleanest field
-experience (double-click executable, no browser, custom `app://` secure scheme).
+- **VPS review works** and is a good way to share across machines, but **must be
+  HTTPS** (Caddy auto-TLS + a domain, or a Cloudflare/Tailscale tunnel); plain
+  `http://<vps-ip>` disables geolocation/serial. Web Serial still works against a
+  remote HTTPS site — the USB device is on the *client* and the browser mediates.
+- **The eclipse must be local/offline** — trivial, it's the same static `dist/`.
 
-### Stack (proposed — see decisions §14)
+**Local server on Win11 without admin — yes.** A high port (≥1024) bound to
+`127.0.0.1` needs no elevation and raises no firewall prompt (loopback isn't
+filtered; the prompt only appears for `0.0.0.0` binds). Zero-install option:
+`python -m http.server 8000 --bind 127.0.0.1` (Python already present). `vite
+preview` / `npx serve` also work (Node installs per-user, no admin). Most
+bulletproof for the event: a **portable Tauri/Electron `.exe`** — no server, no
+install, no admin, offline, double-click (deferred to a later milestone).
 
-- **Vite + TypeScript.** Vite's dev/preview server *is* a localhost secure
-  context; `vite build` emits static files. TypeScript pays for itself in the
-  math + data code.
-- **Svelte** for UI/state (tiny compiled runtime, reactive stores map perfectly
-  to "current time" / "observer" / "settings"). Rendering-heavy views are plain
-  **Canvas 2D** regardless of framework.
-- **astronomy-engine** (MIT, ~116 KB, 0 deps) for all Sun/Moon/planet/star
-  positions, alt-az, rise/set, parallax, phase, angular size — ±1′ accuracy, no
-  runtime data files.
+### Stack (decided)
+
+- **Vite + TypeScript + Svelte**; Canvas 2D for the sky and map views. Vite's
+  dev/preview server is itself a localhost secure context; `vite build` emits the
+  static files served in every mode above.
+- **astronomy-engine** (MIT, ~116 KB, 0 deps) — Sun/Moon/planet/star positions,
+  alt-az, rise/set, parallax, phase, angular size (±1′, no runtime data files).
 - **d3-geo + d3-zoom + topojson-client** (BSD) for the map, rendered to Canvas.
-- No online maps, no tile servers, no CDNs — everything vendored locally.
+- No online maps, tile servers, or CDNs — everything vendored locally.
 
 ---
 
@@ -296,17 +303,21 @@ Frequent commits throughout; remote added when appointed.
 
 ---
 
-## 14. Open decisions (need your call)
+## 14. Decisions
 
-1. **Stack** — OK with **Vite + TypeScript + Svelte**, Canvas 2D rendering?
-   (Alternatives: Preact/Solid/vanilla.)
-2. **Run model** — target **localhost server (B)** now, desktop app (C) later?
-3. **Map extent** — Spain-only, **Iberia + W-Mediterranean + Balearics
-   (proposed)**, or the whole path incl. Iceland/Atlantic?
+Resolved:
+
+1. **Stack** — ✅ **Vite + TypeScript + Svelte**, Canvas 2D rendering.
+2. **Deployment** — ✅ same static build; **HTTPS on a VPS for remote review**,
+   **local `http://localhost` for the offline eclipse** (no admin needed);
+   portable **Tauri/Electron** desktop build a later upgrade.
+3. **Map extent** — ✅ **Iberia (incl. mainland Portugal) + W-Mediterranean +
+   Balearics.**
+
+Still open:
+
 4. **Elements source** — generate from your Python (preferred) vs. bundle NASA
-   SEdata set? (Depends on seeing the Python — deps? shadow output? license?)
-5. **Portugal** — include mainland Portugal coverage? (NASA lists it in the path
-   description; totality there unconfirmed.)
+   SEdata set? Depends on seeing the Python — deps? shadow output? license?
 
 ---
 
