@@ -10,6 +10,7 @@
     --ink:#20201e; --muted:#93908a;
     --accent:#e0952f; --accent-bg:#fbf1de; --accent-ink:#7a4d12;
     --live-bg:#e6f4ea; --live-ink:#1f6b34;
+    --cline:#3467c8;
   }
   *{box-sizing:border-box;}
   html,body{margin:0; height:100%; overflow:hidden;}
@@ -190,7 +191,7 @@
 
   .totband{position:absolute; height:12px; top:24px; background:var(--accent-bg); border-radius:3px;}
   .clines{position:absolute; left:0; right:0; top:0; height:100%;}
-  .cline{position:absolute; top:19px; width:1px; height:22px; background:var(--muted);}
+  .cline{position:absolute; top:19px; width:2px; height:22px; background:var(--cline);}
 
   .clabels{position:absolute; left:0; right:0; top:46px; height:14px;}
   .clabel{position:absolute; top:0; transform:translateX(-50%); font-size:11px; font-weight:500;
@@ -391,13 +392,22 @@ const TICK_DEFS = [
 let simTime = T.c2 - 41; // matches the "now" reference used elsewhere in this mock
 
 // Full-hour marks get a text timestamp; the 10-min marks in between are
-// unlabeled tick marks only (a label on every one would be unreadable clutter).
+// unlabeled tick marks only (a label on every one would be unreadable
+// clutter). On the linear curve all 10-min ticks show. On the stretch
+// curve, only the ones within the hour bracket immediately surrounding max
+// are kept -- that's the region actually being expanded, so they're
+// meaningful there; everywhere else is compressed enough that a grid of
+// 10-min ticks would just be noise, so only the (always-shown) hour ticks
+// remain for orientation further out.
 function renderHourTicks(){
   hourLabelsEl.innerHTML = ''; ticksEl.innerHTML = '';
+  const hourBefore = Math.floor(T.max / 3600) * 3600;
+  const hourAfter = hourBefore + 3600;
   const first = Math.ceil(domainStart / 600) * 600;
   for(let t = first; t <= domainEnd; t += 600){
-    const p = pct(t);
     const isHour = t % 3600 === 0;
+    if(!isHour && stretchOn && (t < hourBefore || t > hourAfter)) continue;
+    const p = pct(t);
     const tick = document.createElement('div');
     tick.className = 'tick' + (isHour ? ' hour' : '');
     tick.style.left = p + '%';
