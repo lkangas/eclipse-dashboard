@@ -121,6 +121,8 @@ local assets under `src/data/`:
    central line + N/S umbral & penumbral limits as GeoJSON; and umbral shadow
    outlines on a **dense UT grid** (e.g. every 10–30 s) as JSON, so the map's
    moving shadow needs no runtime projection port (slider interpolates frames).
+   Also where the **map rotation angle** (§8) would be computed and baked in —
+   a fixed constant for this one event, not a runtime calculation.
 5. Emit a `NOTICE` bundling all data licenses (all redistributable).
 
 Everything downloaded here is checked for license and vendored; the shipped app
@@ -226,6 +228,16 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
   frames, §3.4). The umbra is a long, thin, fast ellipse here because the Sun is
   so low.
 - Click anywhere → sets observer → recomputes local circumstances live.
+- **Map rotation (future/noted, not built yet)** — the map panel is generally
+  wide and rectangular, but the centerline crosses Spain on a shallow diagonal;
+  rendering it that way wastes panel space in the corners. Idea: rotate the
+  whole projection (at **build time**, not runtime — this is a fixed rotation
+  for this one event) so the centerline renders **horizontal**, using the
+  panel's shape fully. Rotation angle derived from **two chosen points on the
+  centerline** (e.g. two specific times along the umbra's track); which two
+  points is a **build-time config**, ideally with a small helper tool to
+  preview/tune the rotation before locking it in, rather than hand-picking
+  lat/lon by trial and error.
 
 ---
 
