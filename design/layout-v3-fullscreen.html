@@ -25,7 +25,7 @@
   .col{display:flex; flex-direction:column; min-width:160px;}
   .col.left{flex:1 1 0;}
   .col.right{flex:1 1 0;}
-  .pane{min-height:140px; position:relative; overflow:hidden;}
+  .pane{flex:1 1 0; min-height:140px; position:relative; overflow:hidden;}
 
   .vsplit{flex:0 0 6px; cursor:col-resize; display:flex; align-items:center; justify-content:center;
           background:var(--divider);}
@@ -87,15 +87,6 @@
           </table>
         </div>
         <div class="hsplit" id="hsplitLeft"><div class="grip"><i></i><i></i><i></i></div></div>
-        <div class="pane map" id="paneMap">
-          <svg viewBox="0 0 200 140"><path d="M20,110 30,70 55,40 90,25 130,20 165,35 180,55" fill="none" stroke="#b9b6ae" stroke-width="2"/>
-            <ellipse cx="95" cy="34" rx="16" ry="5" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>
-        </div>
-      </div>
-
-      <div class="vsplit" id="vsplit"><div class="grip"><i></i><i></i><i></i></div></div>
-
-      <div class="col right" id="colRight">
         <div class="pane" id="paneCountdown">
           <div class="countdown">
             <div class="evt">C2 · totality begins</div>
@@ -105,6 +96,15 @@
               <circle cx="53" cy="61" r="45.3" fill="#20201e"/>
             </svg>
           </div>
+        </div>
+      </div>
+
+      <div class="vsplit" id="vsplit"><div class="grip"><i></i><i></i><i></i></div></div>
+
+      <div class="col right" id="colRight">
+        <div class="pane map" id="paneMap">
+          <svg viewBox="0 0 200 140"><path d="M20,110 30,70 55,40 90,25 130,20 165,35 180,55" fill="none" stroke="#b9b6ae" stroke-width="2"/>
+            <ellipse cx="95" cy="34" rx="16" ry="5" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>
         </div>
         <div class="hsplit" id="hsplitRight"><div class="grip"><i></i><i></i><i></i></div></div>
         <div class="pane" id="paneSky">
@@ -145,8 +145,8 @@ function drag(handle, axis, growEl, shrinkEl, sizeProp){
   });
 }
 drag(document.getElementById('vsplit'), 'x', document.getElementById('colLeft'), document.getElementById('colRight'), 'width');
-drag(document.getElementById('hsplitLeft'), 'y', document.getElementById('paneContacts'), document.getElementById('paneMap'), 'height');
-drag(document.getElementById('hsplitRight'), 'y', document.getElementById('paneCountdown'), document.getElementById('paneSky'), 'height');
+drag(document.getElementById('hsplitLeft'), 'y', document.getElementById('paneContacts'), document.getElementById('paneCountdown'), 'height');
+drag(document.getElementById('hsplitRight'), 'y', document.getElementById('paneMap'), document.getElementById('paneSky'), 'height');
 
 document.getElementById('tabHero').onclick = ()=>{ document.getElementById('tabHero').classList.add('on'); document.getElementById('tabAll').classList.remove('on'); document.getElementById('fovbox').style.display='block'; };
 document.getElementById('tabAll').onclick = ()=>{ document.getElementById('tabAll').classList.add('on'); document.getElementById('tabHero').classList.remove('on'); document.getElementById('fovbox').style.display='none'; };
