@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eclipse Dashboard — 2026-08-12 Spain (MOCK)</title>
+<style>
+  /* ============================================================
+     Eclipse Dashboard — visual mock (build-free).
+     Sections here map 1:1 to future Svelte components:
+       .topbar   -> TopBar.svelte
+       #contacts -> ContactsPanel.svelte + SoundConfig.svelte
+       #center   -> SunZoom.svelte / AllSky.svelte
+       #right    -> PathMap.svelte + LocationPicker.svelte
+       .transport-> TimeSlider.svelte
+     Data + logic below map to src/stores + src/eclipse (stubbed).
+     ============================================================ */
+  :root {
+    --bg: #070b12;
+    --panel: #0f1621;
+    --panel-2: #131d2b;
+    --line: #223047;
+    --text: #c9d6e8;
+    --muted: #7f90a8;
+    --dim: #55647c;
+    --accent: #ffb020;     /* sun / amber */
+    --accent-2: #56b6ff;   /* info / equatorial */
+    --hot: #ff5252;        /* totality / warnings */
+    --ok: #45d67a;
+    --live: #ff3b3b;
+    --sky-day: #2a4a7a;
+    --sky-tot: #05070d;
+    --font: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  /* Night-vision mode: preserve dark adaptation in the field */
+  body.night {
+    --bg:#0a0000; --panel:#180404; --panel-2:#1e0606; --line:#3a0d0d;
+    --text:#ff6a5a; --muted:#b34a42; --dim:#7a3330; --accent:#ff5a3c;
+    --accent-2:#ff7a5a; --hot:#ff2a2a; --ok:#ff6a5a;
+  }
+  body.night canvas { filter: saturate(0.2) sepia(1) hue-rotate(-25deg) brightness(0.85); }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--font);
+    font-size: 13px; line-height: 1.4; overflow: hidden;
+    display: grid; grid-template-rows: auto 1fr auto; height: 100vh;
+  }
+  h1,h2,h3 { margin: 0; font-weight: 600; }
+  button { font-family: inherit; color: var(--text); cursor: pointer; }
+  .mono { font-family: var(--mono); }
+
+  /* ---- Topbar ---- */
+  .topbar {
+    display: flex; align-items: center; gap: 18px; padding: 8px 14px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, #000 32%, transparent 33%),
+                radial-gradient(circle at 62% 42%, var(--accent) 46%, #7a4d00 60%, transparent 62%);
+    box-shadow: 0 0 14px rgba(255,176,32,.4);
+  }
+  .brand b { font-size: 14px; letter-spacing: .3px; }
+  .brand span { color: var(--muted); font-size: 11px; }
+  .mockflag {
+    font-size: 10px; color: #000; background: var(--accent);
+    padding: 1px 6px; border-radius: 4px; font-weight: 700; letter-spacing:.5px;
+  }
+  .topbar .spacer { flex: 1; }
+  .obs-summary { display:flex; flex-direction:column; line-height:1.25; }
+  .obs-summary .name { font-weight:600; }
+  .obs-summary .co { color: var(--muted); font-size:11px; }
+  .clocks { display:flex; gap:16px; }
+  .clock { text-align:right; }
+  .clock .lab { color: var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:.6px; }
+  .clock .val { font-size: 18px; }
+  .clock .val.cest { color: var(--accent); }
+
+  .modeswitch { display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .modeswitch button { background: transparent; border: none; padding: 7px 14px; font-weight:600; color: var(--muted); }
+  .modeswitch button.on { background: var(--accent-2); color:#04121f; }
+  .modeswitch button.live.on { background: var(--live); color:#fff; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,59,59,.5);} 50%{box-shadow:0 0 0 5px rgba(255,59,59,0);} }
+
+  .icon-btn { background: var(--panel-2); border:1px solid var(--line); border-radius:7px; padding:6px 9px; }
+  .icon-btn:hover { border-color: var(--muted); }
+
+  /* ---- Main grid ---- */
+  main { display: grid; grid-template-columns: 270px 1fr 340px; gap: 10px; padding: 10px; min-height: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-height: 0; display:flex; flex-direction:column; }
+  .panel > .head { display:flex; align-items:center; justify-content:space-between; padding: 9px 12px; border-bottom:1px solid var(--line); }
+  .panel > .head h2 { font-size: 12px; text-transform: uppercase; letter-spacing:.7px; color: var(--muted); }
+  .panel > .body { padding: 10px 12px; overflow:auto; min-height:0; }
+
+  /* ---- Contacts ---- */
+  .contact { display:grid; grid-template-columns: 30px 1fr auto; align-items:center; gap:8px;
+             padding: 9px 8px; border-radius: 8px; border:1px solid transparent; }
+  .contact + .contact { margin-top: 6px; }
+  .contact.next { border-color: var(--accent); background: rgba(255,176,32,.06); }
+  .contact.total { background: rgba(255,82,82,.08); border-color: rgba(255,82,82,.35); }
+  .contact .badge { width:28px; height:28px; border-radius:50%; display:grid; place-items:center;
+                    font-weight:700; background: var(--panel-2); border:1px solid var(--line); }
+  .contact.total .badge { background: var(--hot); color:#fff; border-color: var(--hot); }
+  .contact .cname { font-weight:600; }
+  .contact .csub { color: var(--muted); font-size:11px; }
+  .contact .ctime { text-align:right; }
+  .contact .ctime .cd { font-size:14px; }
+  .contact .ctime .cd.soon { color: var(--accent); }
+  .contact .ctime .abs { color: var(--dim); font-size:10px; }
+  .snd { margin-left:2px; }
+  .snd input { accent-color: var(--accent); }
+
+  .totbar { margin: 10px 2px 2px; padding: 8px 10px; border-radius:8px; background: rgba(255,82,82,.1);
+            border:1px solid rgba(255,82,82,.3); text-align:center; }
+  .totbar .big { font-size: 20px; color: var(--hot); font-weight:700; }
+  .totbar .lab { color: var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.6px; }
+
+  .sound-cfg { margin-top: 12px; border-top:1px dashed var(--line); padding-top:10px; }
+  .row { display:flex; align-items:center; gap:8px; margin: 6px 0; }
+  .row label { color: var(--muted); flex:1; }
+  .row input[type=number]{ width:52px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:5px; padding:3px 5px; }
+  .btn { background: var(--panel-2); border:1px solid var(--line); border-radius:7px; padding:7px 10px; font-weight:600; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); color:#000; border-color: var(--accent); }
+  .btn.wide { width:100%; }
+  .btn.armed { background: var(--ok); color:#04121f; border-color: var(--ok); }
+
+  /* ---- Center ---- */
+  #center { position: relative; }
+  .tabs { display:flex; gap:4px; }
+  .tabs button { background: transparent; border:1px solid var(--line); border-bottom:none;
+                 border-radius:7px 7px 0 0; padding:6px 12px; color: var(--muted); font-weight:600; }
+  .tabs button.on { background: var(--panel); color: var(--text); }
+  .viewwrap { position: relative; flex:1; min-height:0; }
+  .viewwrap canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .view-controls { position:absolute; top:10px; right:12px; z-index:3; display:flex; gap:6px; align-items:center; }
+  .seg { display:flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; background: rgba(6,10,18,.7); backdrop-filter: blur(3px); }
+  .seg button { background:transparent; border:none; padding:5px 10px; color: var(--muted); font-weight:600; font-size:12px; }
+  .seg button.on { background: var(--accent-2); color:#04121f; }
+  .seg button.on.eq { background: var(--accent-2); }
+  .view-badge { position:absolute; left:12px; top:10px; z-index:3; background: rgba(6,10,18,.6);
+                border:1px solid var(--line); border-radius:7px; padding:5px 9px; color:var(--muted); font-size:11px; }
+  .view-badge b { color: var(--text); }
+  .legendline { position:absolute; left:12px; bottom:10px; z-index:3; color: var(--dim); font-size:11px; }
+
+  /* ---- Right / location ---- */
+  #map-wrap { position:relative; flex:1 1 55%; min-height:180px; }
+  #map-wrap canvas { position:absolute; inset:0; width:100%; height:100%; }
+  .loc { padding: 10px 12px; border-top:1px solid var(--line); }
+  .loc h3 { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin-bottom:8px; }
+  .coordgrid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .coordgrid input { background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:6px; font-family:var(--mono); }
+  .srcbtns { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; }
+  .srcbtns .btn { display:flex; align-items:center; justify-content:center; gap:6px; font-size:12px; }
+  .src-pill { display:inline-block; font-size:10px; padding:1px 6px; border-radius:4px; background:var(--panel-2); border:1px solid var(--line); color:var(--muted); }
+  .cityselect { width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:7px; margin-bottom:8px; }
+  .warn { margin-top:8px; font-size:11px; padding:7px 9px; border-radius:7px; background: rgba(255,82,82,.1); border:1px solid rgba(255,82,82,.3); color:#ffb0b0; }
+  .warn.ok { background: rgba(69,214,122,.08); border-color: rgba(69,214,122,.3); color:#a9ecc2; }
+
+  /* ---- Transport ---- */
+  .transport { display:flex; align-items:center; gap:14px; padding: 9px 16px; background: linear-gradient(0deg, var(--panel-2), var(--panel)); border-top:1px solid var(--line); }
+  .transport .tbtn { background: var(--panel-2); border:1px solid var(--line); border-radius:8px; width:34px; height:32px; display:grid; place-items:center; font-size:14px; }
+  .transport .tbtn.play { background: var(--accent); color:#000; border-color:var(--accent); width:40px; }
+  .sliderwrap { flex:1; position:relative; }
+  .slidertrack-labels { display:flex; justify-content:space-between; color:var(--dim); font-size:10px; margin-bottom:2px; }
+  input[type=range].scrub { width:100%; -webkit-appearance:none; height:26px; background:transparent; }
+  input[type=range].scrub::-webkit-slider-runnable-track { height:6px; border-radius:3px;
+    background: linear-gradient(90deg, var(--line) 0 var(--p1,20%), var(--hot) var(--p1,20%) var(--p2,24%), var(--line) var(--p2,24%) 100%); }
+  input[type=range].scrub::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; margin-top:-5px; border-radius:50%; background:var(--accent); border:2px solid #000; box-shadow:0 0 6px rgba(255,176,32,.7); }
+  .ticks { position:absolute; inset:0 0 auto 0; height:6px; pointer-events:none; }
+  .tick { position:absolute; top:0; width:2px; height:12px; background: var(--accent); transform:translateY(-3px); }
+  .tick.tot { background: var(--hot); }
+  .tick-lab { position:absolute; top:14px; transform:translateX(-50%); font-size:9px; color:var(--muted); }
+  .speedsel { display:flex; align-items:center; gap:6px; }
+  .speedsel select { background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:5px; }
+  .snaps { display:flex; gap:4px; }
+  .snaps button { background:var(--panel-2); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:11px; font-weight:600; color:var(--muted); }
+  .snaps button:hover { color:var(--text); border-color:var(--muted); }
+
+  .live-note { color: var(--live); font-weight:600; }
+  .hint { color: var(--dim); font-size: 11px; }
+</style>
+</head>
+<body>
+
+<!-- ============ TOPBAR ============ -->
+<header class="topbar">
+  <div class="brand">
+    <div class="glyph"></div>
+    <div>
+      <b>Eclipse Dashboard</b> <span class="mono">2026-08-12 · Spain</span><br>
+      <span>Total solar eclipse observing console</span>
+    </div>
+  </div>
+  <span class="mockflag">MOCK · STUB DATA</span>
+  <div class="spacer"></div>
+
+  <div class="obs-summary">
+    <span class="name" id="obsName">Zaragoza</span>
+    <span class="co mono" id="obsCoord">41.649°N, 0.888°W · 199 m</span>
+  </div>
+
+  <div class="clocks">
+    <div class="clock"><div class="lab">UTC</div><div class="val mono" id="clkUT">18:29:44</div></div>
+    <div class="clock"><div class="lab">Local · CEST</div><div class="val mono cest" id="clkLocal">20:29:44</div></div>
+  </div>
+
+  <div class="modeswitch" title="SIM lets you scrub time; LIVE locks to the real clock for the eclipse">
+    <button id="modeSim" class="on">◱ SIM</button>
+    <button id="modeLive" class="live">● LIVE</button>
+  </div>
+
+  <button class="icon-btn" id="nightBtn" title="Night-vision (red) mode — preserves dark adaptation">◑</button>
+</header>
+
+<!-- ============ MAIN ============ -->
+<main>
+  <!-- LEFT: contacts + sound -->
+  <section class="panel" id="contacts">
+    <div class="head"><h2>Contacts</h2><span class="src-pill" id="contactState">total eclipse</span></div>
+    <div class="body">
+      <div id="contactList"><!-- filled by JS --></div>
+
+      <div class="totbar">
+        <div class="big mono" id="totDur">1m 24s</div>
+        <div class="lab">totality duration · Sun alt <span id="sunAltInline">5.9°</span></div>
+      </div>
+
+      <div class="sound-cfg">
+        <div class="row" style="justify-content:space-between">
+          <strong>Sound warnings</strong>
+          <button class="btn" id="armBtn">Enable sound</button>
+        </div>
+        <div class="hint" style="margin-bottom:6px">Per-contact spoken + tone alerts. Lead time in seconds.</div>
+        <div id="soundRows"></div>
+        <button class="btn wide" id="testBeep" style="margin-top:8px">▶ Test tone</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- CENTER: sky views -->
+  <section class="panel" id="center">
+    <div class="head">
+      <div class="tabs">
+        <button id="tabSun" class="on">☀ Setting Sun (zoom)</button>
+        <button id="tabSky">✦ All-sky</button>
+      </div>
+      <span class="hint" id="centerHint">Hero view — the low Sun near the WNW horizon</span>
+    </div>
+    <div class="viewwrap" id="viewwrap">
+      <div class="view-badge" id="viewBadge">Field of view <b>6°</b> · centered on Sun</div>
+      <div class="view-controls" id="skyControls" style="display:none">
+        <div class="seg" title="Projection orientation">
+          <button id="orAlt" class="on">Alt-Az</button>
+          <button id="orEq" class="eq">Equatorial</button>
+        </div>
+      </div>
+      <canvas id="sunCanvas"></canvas>
+      <canvas id="skyCanvas" style="display:none"></canvas>
+      <div class="legendline" id="legendLine">Moon advancing across the Sun · corona appears at totality</div>
+    </div>
+  </section>
+
+  <!-- RIGHT: map + location -->
+  <section class="panel" id="right">
+    <div class="head"><h2>Eclipse path & shadow</h2><span class="src-pill">Iberia · W-Med · Balearics</span></div>
+    <div id="map-wrap"><canvas id="mapCanvas"></canvas></div>
+    <div class="loc">
+      <h3>Observer location</h3>
+      <select class="cityselect" id="citySelect"></select>
+      <div class="coordgrid">
+        <input id="latIn" value="41.6490" title="Latitude °N">
+        <input id="lonIn" value="-0.8880" title="Longitude °E">
+      </div>
+      <div class="srcbtns">
+        <button class="btn" id="geoBtn">📍 My location</button>
+        <button class="btn" id="gpsBtn">🛰 USB GPS</button>
+        <button class="btn" id="pickBtn">🗺 Pick on map</button>
+        <button class="btn" id="applyBtn">✓ Apply coords</button>
+      </div>
+      <div class="warn" id="horizonWarn">⚠ Sun only <b>5.9°</b> up at totality — you need a clear WNW horizon (no hills/buildings).</div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ TRANSPORT ============ -->
+<footer class="transport">
+  <div class="snaps">
+    <button data-snap="c1">C1</button>
+    <button data-snap="c2">C2</button>
+    <button data-snap="max">Max</button>
+    <button data-snap="c3">C3</button>
+    <button data-snap="c4">C4</button>
+  </div>
+  <button class="tbtn" id="stepBack" title="−10 s">⏮</button>
+  <button class="tbtn play" id="playBtn" title="Play/Pause">▶</button>
+  <button class="tbtn" id="stepFwd" title="+10 s">⏭</button>
+  <div class="sliderwrap">
+    <div class="slidertrack-labels"><span id="winStart">19:05 CEST</span><span id="simReadout" class="mono">— SIM —</span><span id="winEnd">21:52 CEST</span></div>
+    <input type="range" class="scrub" id="scrub" min="0" max="10000" value="5000">
+    <div class="ticks" id="ticks"></div>
+  </div>
+  <div class="speedsel">
+    <span class="hint">speed</span>
+    <select id="speedSel">
+      <option value="1">1×</option>
+      <option value="10">10×</option>
+      <option value="60" selected>60×</option>
+      <option value="300">300×</option>
+      <option value="1800">1800×</option>
+    </select>
+  </div>
+</footer>
+
+<script>
+/* ============================================================
+   DATA (stub) — verified 2026-08-12 figures for Spanish sites.
+   Times are CEST (UTC+2) wall-clock on the eclipse day.
+   -> future: src/data/cities.json + computed from Besselian core
+   ============================================================ */
+const EDAY = [2026, 7, 12]; // month 0-indexed (August)
+function cest(h, m, s){ return Date.UTC(EDAY[0], EDAY[1], EDAY[2], h - 2, m, s||0); } // -> UTC ms
+
+// C1/C4 approximate where only partial-begin/end published.
+const CITIES = [
+  { id:'coruna',  name:'A Coruña',  lat:43.3623, lon:-8.4115, alt:5,   sunAlt:12.0, edge:false,
+    c1:cest(19,31,0), c2:cest(20,27,43), max:cest(20,28,21), c3:cest(20,28,59), c4:cest(21,22,0) },
+  { id:'oviedo',  name:'Oviedo',    lat:43.3619, lon:-5.8494, alt:232, sunAlt:10.2, edge:false,
+    c1:cest(19,31,30),c2:cest(20,27,6),  max:cest(20,28,0),  c3:cest(20,28,54), c4:cest(21,21,30) },
+  { id:'gijon',   name:'Gijón',     lat:43.5322, lon:-5.6611, alt:3,   sunAlt:10.1, edge:false,
+    c1:cest(19,31,20),c2:cest(20,26,49), max:cest(20,27,42), c3:cest(20,28,34), c4:cest(21,21,20) },
+  { id:'leon',    name:'León',      lat:42.5987, lon:-5.5671, alt:837, sunAlt:9.6,  edge:false,
+    c1:cest(19,32,30),c2:cest(20,28,21), max:cest(20,29,14), c3:cest(20,30,6),  c4:cest(21,21,40) },
+  { id:'burgos',  name:'Burgos',    lat:42.3439, lon:-3.6969, alt:861, sunAlt:8.2,  edge:false,
+    c1:cest(19,33,0), c2:cest(20,28,25), max:cest(20,29,16), c3:cest(20,30,8),  c4:cest(21,20,0) },
+  { id:'santander',name:'Santander',lat:43.4623, lon:-3.8099, alt:15,  sunAlt:8.8,  edge:false,
+    c1:cest(19,32,0), c2:cest(20,26,58), max:cest(20,27,30), c3:cest(20,28,1),  c4:cest(21,20,30) },
+  { id:'bilbao',  name:'Bilbao (edge!)', lat:43.2630, lon:-2.9350, alt:19, sunAlt:8.2, edge:true,
+    c1:cest(19,32,40),c2:cest(20,27,24), max:cest(20,27,38), c3:cest(20,27,53), c4:cest(21,20,10) },
+  { id:'zaragoza',name:'Zaragoza',  lat:41.6490, lon:-0.8880, alt:199, sunAlt:5.9,  edge:false,
+    c1:cest(19,35,0), c2:cest(20,29,4),  max:cest(20,29,44), c3:cest(20,30,28), c4:cest(21,22,0) },
+  { id:'valencia',name:'Valencia (edge!)', lat:39.4699, lon:-0.3763, alt:15, sunAlt:4.0, edge:true,
+    c1:cest(19,37,0), c2:cest(20,32,25), max:cest(20,32,55), c3:cest(20,33,24), c4:cest(21,22,30) },
+  { id:'penis',   name:'Peñíscola',  lat:40.3585, lon:0.4064, alt:12, sunAlt:4.4,  edge:false,
+    c1:cest(19,36,0), c2:cest(20,31,40), max:cest(20,32,30), c3:cest(20,33,19), c4:cest(21,22,30) },
+  { id:'palma',   name:'Palma de Mallorca', lat:39.5696, lon:2.6502, alt:13, sunAlt:2.4, edge:false,
+    c1:cest(19,38,0), c2:cest(20,31,5),  max:cest(20,31,53), c3:cest(20,32,41), c4:cest(21,23,0) },
+];
+const CONTACTS = [
+  { key:'c1',  label:'C1 · First contact',  sub:'partial begins',  total:false },
+  { key:'c2',  label:'C2 · Second contact', sub:'TOTALITY begins',  total:true },
+  { key:'max', label:'Maximum',             sub:'greatest eclipse', total:true },
+  { key:'c3',  label:'C3 · Third contact',  sub:'TOTALITY ends',    total:true },
+  { key:'c4',  label:'C4 · Fourth contact', sub:'partial ends',     total:false },
+];
+
+/* ============================================================
+   STATE  (-> future: src/stores/{observer,clock,settings}.ts)
+   ============================================================ */
+const S = {
+  city: CITIES.find(c=>c.id==='zaragoza'),
+  mode: 'sim',            // 'sim' | 'live'
+  playing: false,
+  speed: 60,
+  simTime: 0,             // UTC ms
+  view: 'sun',            // 'sun' | 'sky'
+  orient: 'altaz',        // 'altaz' | 'eq'
+  night: false,
+  soundArmed: false,
+  sound: { c1:{on:true,lead:60}, c2:{on:true,lead:20}, c3:{on:true,lead:10}, c4:{on:false,lead:30} },
+};
+function windowBounds(){ return { start: S.city.c1 - 30*60000, end: S.city.c4 + 30*60000 }; }
+S.simTime = S.city.max;
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp = (a,b,t)=>a+(b-a)*t;
+const smooth = t => t<=0?0 : t>=1?1 : t*t*(3-2*t);
+function pad(n){ return String(n).padStart(2,'0'); }
+function fmtClock(ms, tzOffsetH){ const d=new Date(ms + (tzOffsetH||0)*3600000);
+  return pad(d.getUTCHours())+':'+pad(d.getUTCMinutes())+':'+pad(d.getUTCSeconds()); }
+function fmtHM(ms, tzOffsetH){ const d=new Date(ms+(tzOffsetH||0)*3600000);
+  return pad(d.getUTCHours())+':'+pad(d.getUTCMinutes()); }
+function fmtCountdown(deltaMs){
+  const past = deltaMs < 0; let s = Math.round(Math.abs(deltaMs)/1000);
+  const h=Math.floor(s/3600); s-=h*3600; const m=Math.floor(s/60); s-=m*60;
+  const core = (h>0? h+'h ':'') + (h>0||m>0? m+'m ':'') + s+'s';
+  return (past?'−':'T−')+core;
+}
+function fmtDur(ms){ const s=Math.round(ms/1000); const m=Math.floor(s/60); return m+'m '+(s-m*60)+'s'; }
+
+/* eclipse phase model from the city's contact times */
+function phase(t){
+  const c=S.city;
+  if (t < c.c1) return { name:'before', cover:0, tot:false };
+  if (t < c.c2) return { name:'partial-1', cover: (t-c.c1)/(c.c2-c.c1), tot:false };
+  if (t <= c.c3) return { name:'total', cover:1, tot:true, totT:(t-c.c2)/(c.c3-c.c2) };
+  if (t < c.c4) return { name:'partial-2', cover: 1-(t-c.c3)/(c.c4-c.c3), tot:false };
+  return { name:'after', cover:0, tot:false };
+}
+
+/* ============================================================
+   TOPBAR + PANELS RENDER
+   ============================================================ */
+function renderTop(){
+  const c=S.city;
+  $('#obsName').textContent = c.name.replace(' (edge!)','');
+  $('#obsCoord').textContent = `${c.lat.toFixed(3)}°N, ${Math.abs(c.lon).toFixed(3)}°${c.lon<0?'W':'E'} · ${c.alt} m`;
+  $('#clkUT').textContent = fmtClock(S.simTime, 0);
+  $('#clkLocal').textContent = fmtClock(S.simTime, 2);
+  $('#sunAltInline').textContent = c.sunAlt.toFixed(1)+'°';
+}
+function renderContacts(){
+  const c=S.city, t=S.simTime;
+  // determine "next" upcoming contact
+  const order=['c1','c2','max','c3','c4'];
+  let nextKey=null; for(const k of order){ if(c[k] >= t){ nextKey=k; break; } }
+  const list=$('#contactList'); list.innerHTML='';
+  for(const def of CONTACTS){
+    const time=c[def.key]; const dt=time - t;
+    const el=document.createElement('div');
+    el.className='contact'+(def.total?' total':'')+(def.key===nextKey?' next':'');
+    const soon = dt>=0 && dt < 120000;
+    el.innerHTML = `
+      <div class="badge">${def.key==='max'?'✷':def.key.toUpperCase().replace('C','')}</div>
+      <div><div class="cname">${def.label}</div><div class="csub">${def.sub}</div></div>
+      <div class="ctime">
+        <div class="cd mono ${soon?'soon':''}">${fmtCountdown(dt)}</div>
+        <div class="abs mono">${fmtHM(time,2)} CEST · ${fmtHM(time,0)} UT</div>
+      </div>`;
+    list.appendChild(el);
+  }
+  const ph=phase(t);
+  $('#contactState').textContent = ph.name==='total'?'● in totality':ph.name.replace('-',' ');
+  $('#totDur').textContent = fmtDur(c.c3 - c.c2);
+  $('#sunAltInline').textContent = c.sunAlt.toFixed(1)+'°';
+}
+function renderSoundRows(){
+  const wrap=$('#soundRows'); wrap.innerHTML='';
+  [['c1','C1'],['c2','C2 (totality!)'],['c3','C3'],['c4','C4']].forEach(([k,lab])=>{
+    const cfg=S.sound[k];
+    const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<span class="snd"><input type="checkbox" ${cfg.on?'checked':''} data-snd="${k}"></span>
+      <label>${lab}</label>
+      <span class="hint">lead</span>
+      <input type="number" value="${cfg.lead}" min="0" max="600" data-lead="${k}"> <span class="hint">s</span>`;
+    wrap.appendChild(row);
+  });
+  wrap.querySelectorAll('[data-snd]').forEach(x=>x.onchange=e=>{ S.sound[e.target.dataset.snd].on=e.target.checked; });
+  wrap.querySelectorAll('[data-lead]').forEach(x=>x.onchange=e=>{ S.sound[e.target.dataset.lead].lead=+e.target.value; });
+}
+function renderHorizonWarn(){
+  const c=S.city; const w=$('#horizonWarn');
+  if(c.sunAlt < 6){ w.className='warn'; w.innerHTML=`⚠ Sun only <b>${c.sunAlt.toFixed(1)}°</b> up at totality — essentially a setting-Sun eclipse. A clear sea/WNW horizon is essential.`; }
+  else { w.className='warn'; w.innerHTML=`⚠ Sun <b>${c.sunAlt.toFixed(1)}°</b> up at totality — confirm an unobstructed WNW horizon (no hills, trees, buildings).`; }
+}
+
+/* ============================================================
+   TRANSPORT
+   ============================================================ */
+function renderTransport(){
+  const {start,end}=windowBounds();
+  const t=clamp(S.simTime,start,end);
+  const p=(t-start)/(end-start);
+  const scrub=$('#scrub'); if(document.activeElement!==scrub) scrub.value=Math.round(p*10000);
+  $('#winStart').textContent=fmtHM(start,2)+' CEST';
+  $('#winEnd').textContent=fmtHM(end,2)+' CEST';
+  $('#simReadout').innerHTML = S.mode==='live'
+     ? '<span class="live-note">● LIVE — locked to real clock</span>'
+     : '— SIM · '+fmtClock(S.simTime,2)+' CEST —';
+  // color totality band on track
+  const c=S.city;
+  const p1=((c.c2-start)/(end-start))*100, p2=((c.c3-start)/(end-start))*100;
+  scrub.style.setProperty('--p1',p1.toFixed(2)+'%');
+  scrub.style.setProperty('--p2',p2.toFixed(2)+'%');
+}
+function buildTicks(){
+  const {start,end}=windowBounds(); const c=S.city; const box=$('#ticks'); box.innerHTML='';
+  [['c1','C1',false],['c2','C2',true],['c3','C3',true],['c4','C4',false]].forEach(([k,lab,tot])=>{
+    const p=((c[k]-start)/(end-start))*100;
+    const t=document.createElement('div'); t.className='tick'+(tot?' tot':''); t.style.left=p+'%'; box.appendChild(t);
+    const l=document.createElement('div'); l.className='tick-lab'; l.style.left=p+'%'; l.textContent=lab; box.appendChild(l);
+  });
+}
+
+/* ============================================================
+   CANVAS: setting-Sun zoom (hero)
+   ============================================================ */
+function setupCanvas(cv){
+  const dpr=window.devicePixelRatio||1; const r=cv.getBoundingClientRect();
+  cv.width=Math.max(1,r.width*dpr); cv.height=Math.max(1,r.height*dpr);
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); return {ctx,w:r.width,h:r.height};
+}
+function drawSun(){
+  const cv=$('#sunCanvas'); const {ctx,w,h}=setupCanvas(cv);
+  const ph=phase(S.simTime);
+  // sky brightness: bright normally, plunges through totality
+  const c=S.city;
+  let dark; // 0 bright .. 1 fully dark
+  if(ph.name==='before'||ph.name==='after') dark=0;
+  else if(ph.name==='partial-1') dark=0.15*ph.cover;
+  else if(ph.name==='partial-2') dark=0.15*ph.cover;
+  else dark=1; // totality
+  // sharpen the plunge right around C2/C3
+  const near=(t,a,b)=>smooth((t-a)/(b-a));
+  if(S.simTime>c.c2-90000 && S.simTime<c.c2) dark=Math.max(dark, 0.15+0.85*near(S.simTime,c.c2-90000,c.c2));
+  if(S.simTime>c.c3 && S.simTime<c.c3+90000) dark=Math.max(0, 1-0.85*near(S.simTime,c.c3,c.c3+90000)-0.0);
+
+  // sky gradient (twilight tones near horizon, blue up top), darkened by `dark`
+  const top=mix('#123', '#000', dark), midc=mix('#2a4a7a','#05070d',dark);
+  const horizon=mix('#c86a2a','#1a0d08',dark);
+  const g=ctx.createLinearGradient(0,0,0,h);
+  g.addColorStop(0,top); g.addColorStop(0.6,midc); g.addColorStop(0.92,horizon); g.addColorStop(1,'#0a0603');
+  ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
+
+  // stars/planets appear as it darkens (during totality)
+  if(dark>0.4){ ctx.save(); ctx.globalAlpha=(dark-0.4)/0.6;
+    const pts=[[0.2,0.25,'Vega'],[0.7,0.2,'Deneb'],[0.82,0.45,'Altair'],[0.13,0.55,''],[0.9,0.6,'♀'],[0.33,0.15,'']];
+    for(const [px,py,lab] of pts){ const x=px*w,y=py*h;
+      ctx.fillStyle= lab==='♀'?'#fff6d0':'#dfe8ff'; ctx.beginPath(); ctx.arc(x,y,lab==='♀'?2.6:1.6,0,7); ctx.fill();
+      if(lab){ ctx.fillStyle='rgba(210,220,255,.7)'; ctx.font='10px sans-serif'; ctx.fillText(lab,x+5,y+3); } }
+    ctx.restore(); }
+
+  // horizon line (Sun is very low!) — draw a distant ridge
+  const hy=h*0.82;
+  ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.beginPath(); ctx.moveTo(0,hy); ctx.lineTo(w,hy); ctx.stroke();
+  ctx.fillStyle=mix('#0c0a08','#000',dark); ctx.beginPath(); ctx.moveTo(0,hy);
+  for(let x=0;x<=w;x+=20){ ctx.lineTo(x, hy + Math.sin(x*0.01)*4 + (x/w)*6); } ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.fill();
+
+  // Sun + Moon geometry, centered; Sun sits above horizon
+  const cx=w*0.5, cy=h*0.42, R=Math.min(w,h)*0.16;    // sun radius px
+  const Rm=R*1.031;                                     // moon radius (mag ~1.03)
+  // Moon center offset along a diagonal; distance driven by phase
+  let sep; // in units of R
+  if(ph.name==='before') sep=2.2;
+  else if(ph.name==='partial-1') sep=lerp(1.031+1, 1.031-1, ph.cover);
+  else if(ph.name==='total') sep=Math.abs(0.03); // fully covered
+  else if(ph.name==='partial-2') sep=lerp(1.031-1, 1.031+1, 1-ph.cover);
+  else sep=2.2;
+  const ang=-0.6; // approach angle
+  const mx=cx+Math.cos(ang)*sep*R, my=cy+Math.sin(ang)*sep*R;
+
+  if(ph.tot){
+    // corona
+    ctx.save();
+    const cg=ctx.createRadialGradient(cx,cy,Rm*0.98,cx,cy,Rm*3.2);
+    cg.addColorStop(0,'rgba(255,255,255,.9)'); cg.addColorStop(0.15,'rgba(240,245,255,.35)');
+    cg.addColorStop(0.5,'rgba(200,220,255,.12)'); cg.addColorStop(1,'rgba(200,220,255,0)');
+    ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(cx,cy,Rm*3.2,0,7); ctx.fill();
+    // streamers
+    ctx.strokeStyle='rgba(230,240,255,.25)';
+    for(let i=0;i<12;i++){ const a=i/12*Math.PI*2; const l=Rm*(1.8+Math.random()*1.2);
+      ctx.beginPath(); ctx.moveTo(cx+Math.cos(a)*Rm,cy+Math.sin(a)*Rm); ctx.lineTo(cx+Math.cos(a)*l,cy+Math.sin(a)*l); ctx.stroke(); }
+    ctx.restore();
+    // black moon disk
+    ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(cx,cy,Rm,0,7); ctx.fill();
+    // chromosphere hint at very start/end of totality
+    if(ph.totT<0.08||ph.totT>0.92){ ctx.strokeStyle='rgba(255,80,60,.8)'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.arc(cx,cy,Rm,ph.totT<0.5?-0.6:2.5,ph.totT<0.5?0.3:3.4); ctx.stroke(); ctx.lineWidth=1; }
+  } else {
+    // bright Sun disk (reddened at low altitude), clipped by Moon
+    const sg=ctx.createRadialGradient(cx-R*0.2,cy-R*0.2,R*0.2,cx,cy,R);
+    const sunCol = c.sunAlt<6? '#ff8a3c' : '#ffd36b';
+    sg.addColorStop(0,'#fff7e0'); sg.addColorStop(0.7,sunCol); sg.addColorStop(1,mix(sunCol,'#7a2e00',0.5));
+    ctx.save();
+    ctx.shadowColor='rgba(255,150,40,.6)'; ctx.shadowBlur=30;
+    ctx.fillStyle=sg; ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.fill();
+    ctx.restore();
+    // Moon disk (dark) overlapping
+    if(ph.cover>0){ ctx.fillStyle=mix('#0c0a08','#000',dark*0.5+0.3);
+      ctx.beginPath(); ctx.arc(mx,my,Rm,0,7); ctx.fill(); }
+  }
+
+  // FOV / alt label
+  ctx.fillStyle='rgba(255,255,255,.5)'; ctx.font='11px monospace';
+  ctx.fillText(`Sun alt ${c.sunAlt.toFixed(1)}°  ·  az ~290° (WNW)`, 14, h-14);
+}
+
+/* ============================================================
+   CANVAS: all-sky (alt-az / equatorial)
+   ============================================================ */
+const STARS=[ // [az°, alt°, mag, name]
+  [40,78,0.0,'Vega'],[95,60,0.8,'Altair'],[70,72,1.2,'Deneb'],[260,35,-0.05,'Arcturus'],
+  [200,55,1.0,'Antares'],[150,40,1.2,'Spica'],[300,30,1.9,''],[20,50,2.1,''],[120,30,2.2,''],
+  [330,45,2.0,''],[240,65,1.9,''],[80,40,2.3,''],[180,70,2.4,''],[10,25,2.5,''],[290,20,2.6,''],
+  [55,20,2.2,''],[210,25,2.3,''],[140,60,2.1,''],[100,15,2.7,''],[350,60,2.4,''] ];
+const PLANETS=[ [292,7,'♀ Venus','#fff2c0'],[110,45,'♃ Jupiter','#ffe6b0'],[175,30,'♄ Saturn','#e8d9a0'],[300,3,'☿ Mercury','#d8d8d8'] ];
+function drawSky(){
+  const cv=$('#skyCanvas'); const {ctx,w,h}=setupCanvas(cv);
+  ctx.fillStyle='#04060c'; ctx.fillRect(0,0,w,h);
+  const cx=w/2, cy=h/2, R=Math.min(w,h)/2-16;
+  const ph=phase(S.simTime); const twilight = ph.tot?0.0: 0.5; // darker during totality
+  // sky disk
+  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,R);
+  g.addColorStop(0, ph.tot?'#05070e':'#0a1836'); g.addColorStop(1, ph.tot?'#02030a':'#071022');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.fill();
+
+  const eq = S.orient==='eq';
+  const rot = eq ? -0.6 : 0;  // fake: rotate field for equatorial framing
+  // project az/alt to disk (zenith center). For 'eq' we tilt so the pole is offset.
+  function proj(az, alt){
+    let a=(az)*Math.PI/180 + rot;
+    let rr=(90-alt)/90*R;
+    if(eq){ // shift center toward north celestial pole (~ lat 41 -> pole alt 41 at az 0)
+      const px=cx+Math.sin(a)*rr, py=cy-Math.cos(a)*rr;
+      // tilt around horizontal axis a touch
+      return [px, cy + (py-cy)*0.96 - 8];
+    }
+    return [cx+Math.sin(a)*rr, cy-Math.cos(a)*rr];
+  }
+  // grid
+  ctx.strokeStyle='rgba(120,150,200,.14)'; ctx.lineWidth=1;
+  for(let alt=0;alt<90;alt+=30){ const rr=(90-alt)/90*R; ctx.beginPath(); ctx.arc(cx,cy,rr,0,7); ctx.stroke(); }
+  for(let az=0;az<360;az+=30){ const [x,y]=proj(az,0); ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x,y); ctx.stroke(); }
+
+  // horizon ring + cardinal points (alt-az) or note (eq)
+  ctx.strokeStyle='rgba(255,255,255,.35)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.stroke(); ctx.lineWidth=1;
+  ctx.fillStyle='rgba(200,215,240,.8)'; ctx.font='12px sans-serif'; ctx.textAlign='center';
+  const card = eq ? [] : [['N',0],['E',90],['S',180],['W',270]];
+  for(const [lab,az] of card){ const [x,y]=proj(az,-3); ctx.fillText(lab, x + (az===90?8:az===270?-8:0), y + (az===0?-4:az===180?12:4)); }
+  ctx.textAlign='left';
+
+  // stars
+  for(const [az,alt,mag,name] of STARS){ const [x,y]=proj(az,alt); const rr=Math.max(0.6, 2.6-mag*0.5);
+    ctx.fillStyle='#eaf0ff'; ctx.globalAlpha=clamp(1.1-mag*0.18,0.3,1); ctx.beginPath(); ctx.arc(x,y,rr,0,7); ctx.fill(); ctx.globalAlpha=1;
+    if(name){ ctx.fillStyle='rgba(200,215,255,.75)'; ctx.font='10px sans-serif'; ctx.fillText(name,x+5,y+3); } }
+  // planets
+  for(const [az,alt,name,col] of PLANETS){ const [x,y]=proj(az,alt);
+    ctx.fillStyle=col; ctx.beginPath(); ctx.arc(x,y,3,0,7); ctx.fill();
+    ctx.fillStyle='rgba(255,240,200,.85)'; ctx.font='11px sans-serif'; ctx.fillText(name,x+6,y+3); }
+  // Sun + Moon (together, low, WNW az~292 alt~sunAlt)
+  const [sx,sy]=proj(292, S.city.sunAlt);
+  ctx.fillStyle= ph.tot?'#111':'#ffb020'; ctx.strokeStyle='#ffcf7a';
+  ctx.beginPath(); ctx.arc(sx,sy,7,0,7); ctx.fill(); if(!ph.tot){ctx.stroke();}
+  ctx.fillStyle='rgba(255,200,120,.9)'; ctx.font='11px sans-serif'; ctx.fillText('☉ Sun', sx+9, sy+3);
+
+  // orientation label
+  ctx.fillStyle='rgba(255,255,255,.5)'; ctx.font='11px monospace';
+  ctx.fillText(eq?'Equatorial (RA/Dec) framing':'Alt-Az (horizon) framing', 14, h-14);
+}
+
+/* ============================================================
+   CANVAS: path map + moving umbra
+   ============================================================ */
+// crude Iberia outline in lon/lat, just for the mock silhouette
+const IBERIA=[[-9.3,43.8],[-8.9,42.5],[-9.5,41.9],[-8.9,41.9],[-8.8,40.2],[-9.5,38.7],[-8.9,37.0],
+  [-7.4,37.2],[-6.3,36.9],[-5.6,36.0],[-4.4,36.7],[-2.9,36.7],[-1.9,37.2],[-0.7,37.6],[-0.3,38.8],
+  [0.2,39.0],[0.0,40.0],[0.9,41.0],[2.2,41.3],[3.2,41.9],[3.3,42.4],[1.6,42.6],[0.7,42.7],[-0.7,43.0],
+  [-1.8,43.4],[-3.8,43.5],[-5.9,43.6],[-7.6,43.7],[-9.3,43.8]];
+const BALEARICS=[[2.65,39.57],[3.05,39.7],[4.0,39.9],[1.43,38.9]];
+// stylized central line (Galicia -> Balearics) as lon/lat waypoints
+const CENTERLINE=[[-8.6,43.3],[-6.5,42.9],[-4.3,42.4],[-2.0,41.6],[0.2,40.6],[2.0,39.8],[3.6,39.2]];
+// umbra sweeps the country roughly 18:26 -> 18:33 UT
+const UMBRA_ENTER=Date.UTC(2026,7,12,18,26,0), UMBRA_EXIT=Date.UTC(2026,7,12,18,33,0);
+
+let mapProj=null;
+function drawMap(){
+  const cv=$('#mapCanvas'); const {ctx,w,h}=setupCanvas(cv);
+  ctx.fillStyle='#050912'; ctx.fillRect(0,0,w,h);
+  // simple equirect projection fit to bbox
+  const bb={minLon:-10,maxLon:5,minLat:35.5,maxLat:44.5};
+  const pad=10;
+  const sx=(w-2*pad)/(bb.maxLon-bb.minLon), sy=(h-2*pad)/(bb.maxLat-bb.minLat);
+  const sc=Math.min(sx,sy);
+  const ox=pad+((w-2*pad)-sc*(bb.maxLon-bb.minLon))/2;
+  const oy=pad+((h-2*pad)-sc*(bb.maxLat-bb.minLat))/2;
+  const P=([lon,lat])=>[ox+(lon-bb.minLon)*sc, oy+(bb.maxLat-lat)*sc];
+  mapProj={P, inv:(x,y)=>[ (x-ox)/sc+bb.minLon, bb.maxLat-(y-oy)/sc ]};
+
+  // sea
+  ctx.fillStyle='#071426'; ctx.fillRect(0,0,w,h);
+  // land
+  ctx.beginPath(); IBERIA.forEach((pt,i)=>{ const [x,y]=P(pt); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.closePath();
+  ctx.fillStyle='#12202f'; ctx.fill(); ctx.strokeStyle='#2a4a63'; ctx.stroke();
+  BALEARICS.forEach(pt=>{ const [x,y]=P(pt); ctx.fillStyle='#12202f'; ctx.strokeStyle='#2a4a63';
+    ctx.beginPath(); ctx.arc(x,y,3,0,7); ctx.fill(); ctx.stroke(); });
+
+  // path limits (offset the centerline north/south ~1.4°)
+  function offsetLine(dLat){ return CENTERLINE.map(([lo,la])=>[lo,la+dLat]); }
+  const north=offsetLine(1.35), south=offsetLine(-1.35);
+  ctx.fillStyle='rgba(120,90,255,.10)';
+  ctx.beginPath(); [...north, ...south.slice().reverse()].forEach((pt,i)=>{ const [x,y]=P(pt); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.closePath(); ctx.fill();
+  const drawLine=(pts,style,wd,dash)=>{ ctx.strokeStyle=style; ctx.lineWidth=wd; ctx.setLineDash(dash||[]);
+    ctx.beginPath(); pts.forEach((pt,i)=>{ const [x,y]=P(pt); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=1; };
+  drawLine(north,'rgba(150,120,255,.5)',1,[5,4]);
+  drawLine(south,'rgba(150,120,255,.5)',1,[5,4]);
+  drawLine(CENTERLINE,'rgba(180,160,255,.9)',2);
+
+  // moving umbra ellipse (only while umbra is over the country)
+  const t=S.simTime;
+  if(t>=UMBRA_ENTER-30000 && t<=UMBRA_EXIT+30000){
+    const f=clamp((t-UMBRA_ENTER)/(UMBRA_EXIT-UMBRA_ENTER),0,1);
+    // interpolate along centerline
+    const seg=f*(CENTERLINE.length-1); const i=Math.min(CENTERLINE.length-2,Math.floor(seg)); const ft=seg-i;
+    const lon=lerp(CENTERLINE[i][0],CENTERLINE[i+1][0],ft), lat=lerp(CENTERLINE[i][1],CENTERLINE[i+1][1],ft);
+    const [x,y]=P([lon,lat]);
+    // long thin ellipse (low sun -> stretched)
+    const dx=P(CENTERLINE[i+1])[0]-P(CENTERLINE[i])[0], dy=P(CENTERLINE[i+1])[1]-P(CENTERLINE[i])[1];
+    const ang=Math.atan2(dy,dx);
+    ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
+    const rg=ctx.createRadialGradient(0,0,4,0,0,60);
+    rg.addColorStop(0,'rgba(20,10,40,.85)'); rg.addColorStop(1,'rgba(60,40,120,.15)');
+    ctx.fillStyle=rg; ctx.beginPath(); ctx.ellipse(0,0,58,15,0,0,7); ctx.fill();
+    ctx.strokeStyle='rgba(180,160,255,.9)'; ctx.beginPath(); ctx.ellipse(0,0,58,15,0,0,7); ctx.stroke();
+    ctx.restore();
+  }
+
+  // observer marker
+  const [ox2,oy2]=P([S.city.lon,S.city.lat]);
+  ctx.strokeStyle='#ffb020'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(ox2,oy2,6,0,7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ox2-9,oy2); ctx.lineTo(ox2+9,oy2); ctx.moveTo(ox2,oy2-9); ctx.lineTo(ox2,oy2+9); ctx.stroke(); ctx.lineWidth=1;
+  ctx.fillStyle='#ffcf7a'; ctx.font='11px sans-serif'; ctx.fillText(S.city.name.replace(' (edge!)',''), ox2+10, oy2-8);
+
+  // clock stamp
+  ctx.fillStyle='rgba(255,255,255,.45)'; ctx.font='11px monospace';
+  ctx.fillText(fmtClock(t,0)+' UT', 12, h-12);
+}
+
+/* ============================================================
+   MAIN RENDER + LOOP
+   ============================================================ */
+function renderAll(){ renderTop(); renderContacts(); renderHorizonWarn(); renderTransport();
+  if(S.view==='sun') drawSun(); else drawSky(); drawMap(); }
+
+let last=performance.now();
+function loop(now){
+  const dt=(now-last)/1000; last=now;
+  if(S.mode==='live'){ S.simTime = Date.now(); }
+  else if(S.playing){ S.simTime += dt*1000*S.speed;
+    const {end}=windowBounds(); if(S.simTime>end){ S.simTime=end; S.playing=false; $('#playBtn').textContent='▶'; } }
+  if(S.playing || S.mode==='live' || dirtyOnce){ dirtyOnce=false; renderAll(); maybeBeep(); }
+  requestAnimationFrame(loop);
+}
+let dirtyOnce=true;
+function markDirty(){ dirtyOnce=true; }
+
+/* ============================================================
+   SOUND (WebAudio) — arms on user gesture (autoplay policy)
+   ============================================================ */
+let actx=null; const beeped={};
+function ensureAudio(){ if(!actx){ actx=new (window.AudioContext||window.webkitAudioContext)(); } if(actx.state==='suspended') actx.resume(); }
+function beep(freq, dur, type){ if(!actx) return; const o=actx.createOscillator(), g=actx.createGain();
+  o.type=type||'sine'; o.frequency.value=freq||880; o.connect(g); g.connect(actx.destination);
+  g.gain.setValueAtTime(0.0001,actx.currentTime); g.gain.exponentialRampToValueAtTime(0.3,actx.currentTime+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,actx.currentTime+(dur||0.15)); o.start(); o.stop(actx.currentTime+(dur||0.15)+0.02); }
+function maybeBeep(){ if(!S.soundArmed || !actx) return; const c=S.city;
+  [['c1',c.c1],['c2',c.c2],['c3',c.c3],['c4',c.c4]].forEach(([k,tt])=>{
+    const cfg=S.sound[k]; if(!cfg.on) return; const trigger=tt-cfg.lead*1000;
+    if(S.simTime>=trigger && S.simTime<trigger+ (1000*Math.max(1,S.speed))*1.5 && !beeped[k]){
+      beeped[k]=true; if(k==='c2'){ beep(1200,0.5,'square'); setTimeout(()=>beep(1200,0.5,'square'),200);} else beep(760,0.18); } });
+}
+
+/* ============================================================
+   WIRING
+   ============================================================ */
+function fillCitySelect(){ const s=$('#citySelect'); s.innerHTML='';
+  CITIES.forEach(c=>{ const o=document.createElement('option'); o.value=c.id; o.textContent=`${c.name} — alt ${c.sunAlt.toFixed(1)}°, ${fmtDur(c.c3-c.c2)}`; s.appendChild(o); });
+  s.value=S.city.id; }
+function selectCity(id){ S.city=CITIES.find(c=>c.id===id)||S.city;
+  $('#latIn').value=S.city.lat.toFixed(4); $('#lonIn').value=S.city.lon.toFixed(4);
+  if(S.mode==='sim') S.simTime=S.city.max; Object.keys(beeped).forEach(k=>delete beeped[k]);
+  buildTicks(); markDirty(); }
+function setMode(m){ S.mode=m; $('#modeSim').classList.toggle('on',m==='sim'); $('#modeLive').classList.toggle('on',m==='live');
+  $('#scrub').disabled = (m==='live'); if(m==='sim'){ S.simTime=S.city.max; } markDirty(); }
+function setView(v){ S.view=v; $('#tabSun').classList.toggle('on',v==='sun'); $('#tabSky').classList.toggle('on',v==='sky');
+  $('#sunCanvas').style.display=v==='sun'?'block':'none'; $('#skyCanvas').style.display=v==='sky'?'block':'none';
+  $('#skyControls').style.display=v==='sky'?'flex':'none';
+  $('#viewBadge').style.display=v==='sun'?'block':'none';
+  $('#centerHint').textContent = v==='sun'?'Hero view — the low Sun near the WNW horizon':'Whole sky — stars & planets emerge at totality';
+  $('#legendLine').textContent = v==='sun'?'Moon advancing across the Sun · corona appears at totality':'Toggle Alt-Az ↔ Equatorial framing (top-right)';
+  markDirty(); }
+
+function wire(){
+  fillCitySelect(); renderSoundRows(); buildTicks();
+  $('#citySelect').onchange=e=>selectCity(e.target.value);
+  $('#modeSim').onclick=()=>setMode('sim'); $('#modeLive').onclick=()=>setMode('live');
+  $('#tabSun').onclick=()=>setView('sun'); $('#tabSky').onclick=()=>setView('sky');
+  $('#orAlt').onclick=()=>{ S.orient='altaz'; $('#orAlt').classList.add('on'); $('#orEq').classList.remove('on'); markDirty(); };
+  $('#orEq').onclick=()=>{ S.orient='eq'; $('#orEq').classList.add('on'); $('#orAlt').classList.remove('on'); markDirty(); };
+  $('#nightBtn').onclick=()=>{ S.night=!S.night; document.body.classList.toggle('night',S.night); markDirty(); };
+
+  $('#playBtn').onclick=()=>{ if(S.mode==='live') return; S.playing=!S.playing; $('#playBtn').textContent=S.playing?'⏸':'▶'; };
+  $('#stepBack').onclick=()=>{ S.simTime-=10000; markDirty(); };
+  $('#stepFwd').onclick=()=>{ S.simTime+=10000; markDirty(); };
+  $('#speedSel').onchange=e=>{ S.speed=+e.target.value; };
+  $('#scrub').oninput=e=>{ const {start,end}=windowBounds(); S.simTime=start+(end-start)*(+e.target.value/10000);
+    Object.keys(beeped).forEach(k=>delete beeped[k]); markDirty(); };
+  document.querySelectorAll('.snaps button').forEach(b=>b.onclick=()=>{ const k=b.dataset.snap; S.simTime=S.city[k]; markDirty(); });
+
+  $('#armBtn').onclick=()=>{ ensureAudio(); S.soundArmed=!S.soundArmed;
+    $('#armBtn').textContent=S.soundArmed?'✓ Sound armed':'Enable sound'; $('#armBtn').classList.toggle('armed',S.soundArmed);
+    if(S.soundArmed) beep(660,0.12); };
+  $('#testBeep').onclick=()=>{ ensureAudio(); beep(880,0.15); setTimeout(()=>beep(1180,0.15),160); };
+
+  // location source stubs
+  $('#geoBtn').onclick=()=>{ alert('MOCK: would call navigator.geolocation.getCurrentPosition().\nRequires localhost/HTTPS (secure context).'); };
+  $('#gpsBtn').onclick=()=>{ alert('MOCK: would open a USB serial port (Web Serial) and parse NMEA $GPGGA/$GPRMC for lat/lon + UTC.\nRequires localhost/HTTPS + a user gesture.'); };
+  $('#pickBtn').onclick=()=>{ alert('MOCK: click anywhere on the map to drop the observer (uses projection.invert()).'); };
+  $('#applyBtn').onclick=()=>{ const la=parseFloat($('#latIn').value), lo=parseFloat($('#lonIn').value);
+    if(isFinite(la)&&isFinite(lo)){ S.city={...S.city, id:'custom', name:'Custom', lat:la, lon:lo}; markDirty(); } };
+
+  // click-to-pick on the map
+  $('#mapCanvas').addEventListener('click', ev=>{ if(!mapProj) return; const r=ev.target.getBoundingClientRect();
+    const [lon,lat]=mapProj.inv(ev.clientX-r.left, ev.clientY-r.top);
+    // snap to nearest city for the mock
+    let best=null,bd=1e9; for(const c of CITIES){ const d=(c.lat-lat)**2+(c.lon-lon)**2; if(d<bd){bd=d;best=c;} }
+    if(best){ selectCity(best.id); $('#citySelect').value=best.id; } });
+
+  window.addEventListener('resize', markDirty);
+  new ResizeObserver(markDirty).observe($('#viewwrap'));
+  new ResizeObserver(markDirty).observe($('#map-wrap'));
+}
+
+selectCity(S.city.id);
+wire();
+setView('sun');
+renderAll();
+requestAnimationFrame(loop);
+function mix(a,b,t){ // hex mix
+  const pa=hx(a), pb=hx(b); const c=pa.map((v,i)=>Math.round(lerp(v,pb[i],clamp(t,0,1))));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+function hx(h){ h=h.replace('#',''); if(h.length===3) h=h.split('').map(x=>x+x).join('');
+  return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; }
+</script>
+</body>
+</html>
