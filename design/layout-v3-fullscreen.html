@@ -189,7 +189,13 @@
 
   .axisline{position:absolute; left:0; right:0; top:30px; height:1px; background:var(--line);}
   .ticks{position:absolute; left:0; right:0; top:0; height:100%;}
-  .tick{position:absolute; top:27px; width:1px; height:7px; background:var(--ink);}
+  /* width:2px, not 1px -- these sit at percentage-based (often fractional
+     pixel) positions, and a 1px-wide mark at a fractional offset gets
+     anti-aliased across two physical pixels at partial opacity each,
+     rendering faint and inconsistently thin/thick depending on the exact
+     sub-pixel alignment. 2px guarantees at least one full solid pixel of
+     coverage regardless of position, so every tick reads the same. */
+  .tick{position:absolute; top:27px; width:2px; height:7px; background:var(--ink);}
   .tick.hour{top:23px; height:14px; background:var(--ink);}
   .tick.min1{top:28px; height:4px;}
 
