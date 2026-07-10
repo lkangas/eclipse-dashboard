@@ -276,7 +276,7 @@
         <button class="live on" id="liveBtn">Live</button>
         <button class="sim" id="simBtn">Sim</button>
       </div>
-      <button class="playbtn" id="playBtn" title="Play/Pause" style="display:none;">⏸</button>
+      <button class="playbtn" id="playBtn" title="Play/Pause" style="visibility:hidden;">⏸</button>
       <div class="slidertrack" id="slidertrack">
         <div class="hourlabels" id="hourLabels"></div>
         <div class="axisline"></div>
@@ -543,7 +543,10 @@ function clockTick(now){
 }
 function renderPlayBtn(){
   playBtn.textContent = playing ? '⏸' : '▶';
-  playBtn.style.display = timeMode === 'sim' ? 'flex' : 'none';
+  // visibility, not display: Live still reserves the button's layout slot so
+  // the slidertrack (flex:1) doesn't change width -- and therefore doesn't
+  // reflow every tick/label position -- when switching modes.
+  playBtn.style.visibility = timeMode === 'sim' ? 'visible' : 'hidden';
 }
 playBtn.onclick = () => { playing ? pauseClock() : startClock(); };
 
