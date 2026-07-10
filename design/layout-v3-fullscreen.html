@@ -159,6 +159,13 @@
              padding:10px 16px; font-weight:500; font-size:14px; color:var(--muted); cursor:pointer;}
   .stretchbtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
 
+  /* Sim-only: real-time playback of the sim clock. Hidden entirely in Live,
+     which has no pause concept -- it's always just "now". */
+  .playbtn{flex:0 0 auto; width:40px; height:40px; border:1px solid var(--line); border-radius:8px;
+          background:none; color:var(--ink); font-size:14px; cursor:pointer;
+          display:flex; align-items:center; justify-content:center;}
+  .playbtn:hover{border-color:var(--muted);}
+
   /* Timeline, in three vertically distinct, non-overlapping bands so the
      cursor (confined to the middle band) can never overlap a label:
        0-16px   hour labels (text)
@@ -270,6 +277,7 @@
         <button class="live on" id="liveBtn">Live</button>
         <button class="sim" id="simBtn">Sim</button>
       </div>
+      <button class="playbtn" id="playBtn" title="Play/Pause" style="display:none;">⏸</button>
       <div class="slidertrack" id="slidertrack">
         <div class="hourlabels" id="hourLabels"></div>
         <div class="axisline"></div>
@@ -470,6 +478,7 @@ function trackPointerToTime(clientX){
 }
 slidertrack.addEventListener('pointerdown', e => {
   if(timeMode !== 'sim') return;
+  pauseClock(); // dragging always pauses -- see the clock block below
   slidertrack.setPointerCapture(e.pointerId);
   simTime = trackPointerToTime(e.clientX);
   renderCursor();
@@ -478,6 +487,42 @@ slidertrack.addEventListener('pointerdown', e => {
   document.addEventListener('pointermove', move);
   document.addEventListener('pointerup', up);
 });
+
+// --- Sim playback: real-time clock, pause/resume ---
+// Entering sim mode starts simTime at T-90s to C2 and plays forward in real
+// time (1 real second per 1 simulated second) until paused, dragged (which
+// always pauses -- see the pointerdown handler above), or it reaches the end
+// of the domain. Resuming continues forward from wherever it was left, not
+// back to the T-90s start -- that reset only happens on FRESH entry into sim.
+const playBtn = document.getElementById('playBtn');
+let playing = false;
+let lastTickWallClock = null;
+
+function startClock(){
+  playing = true;
+  lastTickWallClock = performance.now();
+  renderPlayBtn();
+  requestAnimationFrame(clockTick);
+}
+function pauseClock(){
+  if(!playing) return;
+  playing = false;
+  renderPlayBtn();
+}
+function clockTick(now){
+  if(!playing) return;
+  const dt = (now - lastTickWallClock) / 1000;
+  lastTickWallClock = now;
+  simTime += dt;
+  if(simTime >= domainEnd){ simTime = domainEnd; pauseClock(); }
+  renderCursor();
+  if(playing) requestAnimationFrame(clockTick);
+}
+function renderPlayBtn(){
+  playBtn.textContent = playing ? '⏸' : '▶';
+  playBtn.style.display = timeMode === 'sim' ? 'flex' : 'none';
+}
+playBtn.onclick = () => { playing ? pauseClock() : startClock(); };
 
 // --- Live / Sim mode ---
 const liveBtn = document.getElementById('liveBtn');
@@ -492,12 +537,14 @@ function renderTimeMode(){
   simBtn.classList.toggle('confirm', confirmPending);
   simBtn.textContent = confirmPending ? 'Confirm' : 'Sim';
   slidertrack.style.cursor = timeMode === 'sim' ? 'pointer' : 'default';
+  renderPlayBtn();
 }
 
 liveBtn.onclick = () => {
   clearTimeout(confirmTimer);
   confirmPending = false;
   timeMode = 'live';
+  pauseClock();
   renderTimeMode();
 };
 
@@ -512,6 +559,11 @@ simBtn.onclick = () => {
     confirmPending = false;
     timeMode = 'sim';
     renderTimeMode();
+    // Fresh entry into sim always starts here, running -- resuming after a
+    // pause/drag continues from wherever it was left instead (see playBtn).
+    simTime = T.c2 - 90;
+    renderCursor();
+    startClock();
   }
 };
 
