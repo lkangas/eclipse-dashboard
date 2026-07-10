@@ -228,16 +228,26 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
   frames, §3.4). The umbra is a long, thin, fast ellipse here because the Sun is
   so low.
 - Click anywhere → sets observer → recomputes local circumstances live.
-- **Map rotation (future/noted, not built yet)** — the map panel is generally
-  wide and rectangular, but the centerline crosses Spain on a shallow diagonal;
-  rendering it that way wastes panel space in the corners. Idea: rotate the
-  whole projection (at **build time**, not runtime — this is a fixed rotation
-  for this one event) so the centerline renders **horizontal**, using the
-  panel's shape fully. Rotation angle derived from **two chosen points on the
-  centerline** (e.g. two specific times along the umbra's track); which two
-  points is a **build-time config**, ideally with a small helper tool to
-  preview/tune the rotation before locking it in, rather than hand-picking
-  lat/lon by trial and error.
+- **Two map tabs (future/noted, not built yet)**:
+  1. **Spain (zoomed + rotated)** — the map panel is generally wide and
+     rectangular, but the centerline crosses Spain on a shallow diagonal;
+     rendering it that way wastes panel space in the corners. Idea: rotate
+     the whole projection (at **build time**, not runtime — this is a fixed
+     rotation for this one event) so the centerline renders **horizontal**,
+     using the panel's shape fully. Rotation angle derived from **two chosen
+     points on the centerline** (e.g. two specific times along the umbra's
+     track); which two points is a **build-time config**, ideally with a
+     small helper tool to preview/tune the rotation before locking it in,
+     rather than hand-picking lat/lon by trial and error.
+  2. **Global (whole path)** — the full path on a world/hemisphere view, from
+     wherever it starts to wherever it ends. Needs **much less offline map
+     detail** than the Spain tab (continent/coastline outlines only, no
+     province-level data). Because the 2026-08-12 path sits awkwardly close
+     to the North Pole (greatest eclipse is at ~65°N 25°W, off Iceland —
+     §1), a standard equirectangular/Mercator-style projection would distort
+     or clip it badly; needs a **special projection** for this tab. Candidate:
+     **stereographic, centered near the point of greatest eclipse**. Details
+     (exact center, framing) to be refined later.
 
 ---
 
