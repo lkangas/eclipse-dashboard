@@ -42,20 +42,28 @@
   .vsplit:hover .grip i, .hsplit:hover .grip i{background:var(--muted);}
 
   /* --- contacts table ---
-     Sized off --pw/--ph, JS-measured and zoom-compensated (see script) rather
-     than native CSS container-query units (cqw/cqh) -- those respond to ANY
-     change in the panel's CSS-pixel size, and browser zoom genuinely changes
-     that (fewer/more CSS pixels fit the window), so cqw/cqh can't tell "you
-     dragged the panel smaller" apart from "you zoomed in". --pw/--ph cancel
-     the zoom component out, so this only reacts to a genuine drag-resize --
-     the table's font otherwise just follows ordinary browser zoom, same as
-     any plain px value. Knee points: full size while height >= ~340px
-     (comfortable) or width >= ~300px, easing down to a 0.4 floor at the
-     panel's practical minimum (140px, set by the drag handles). Defaults on
-     --pw/--ph cover the instant before JS's first measurement lands. */
-  #paneContacts{--pw:717px; --ph:419px;}
+     Sized off native CSS container-query units (cqw/cqh) -- these are
+     PHYSICALLY zoom-invariant on their own: a panel that's a fixed
+     proportion of the window stays that same proportion at any zoom,
+     automatically, because the panel's own CSS-pixel size already shrinks
+     with zoom in exactly the way that cancels out. (An earlier attempt
+     tried to compensate this measurement with devicePixelRatio via JS --
+     that was solving a problem that didn't exist here, and depended on
+     JS timing that turned out to be unreliable in practice.)
+     The real zoom-inconsistency risk is the FIXED PIXEL LITERALS this gets
+     compared against (300px/340px below) -- those genuinely DO get
+     physically bigger with zoom, unlike the cqw/cqh terms. Left as plain
+     literals deliberately: the shrink-to-fit floor only matters in the
+     already-extreme small-panel case, and per instruction it's fine for
+     that to be imperfect at ridiculous zoom levels as long as it still
+     reliably shrinks rather than ever overflowing -- which pure native
+     container queries guarantee, with no dependency on any JS event
+     firing correctly. Ceiling stays at 1 (never grows past plain
+     14px/11px/etc, unlike the countdown panel, which should fill a large
+     panel -- the table shouldn't grow past a comfortable reading size). */
+  #paneContacts{container-type:size; container-name:contacts;}
   .contacts{
-    --tscale: max(0.4, min(1, calc(var(--pw) / 300px), calc(var(--ph) / 340px)));
+    --tscale: max(0.4, min(1, calc(100cqw / 300px), calc(100cqh / 340px)));
     padding: calc(14px*var(--tscale)) 14px calc(8px*var(--tscale));
   }
   table{width:100%; border-collapse:collapse; font-size:calc(14px*var(--tscale));}
@@ -73,30 +81,35 @@
   .circ b{font-size:calc(15px*var(--tscale)); font-weight:500; font-variant-numeric:tabular-nums;}
 
   /* --- countdown + schematic ---
-     Sized entirely off --pw/--ph (JS-measured, zoom-compensated -- see the
-     script and the note above the table). This panel should NEVER visibly
-     react to browser zoom, only to being genuinely dragged bigger/smaller,
-     which native cqw/cqh units can't tell apart (zoom really does change a
-     panel's CSS-pixel size, same as a drag would). Each property picks
-     whichever axis (width/height) is more constraining. Ceilings are
-     intentionally generous so this keeps growing to fill a large panel on a
-     big/high-res screen instead of capping out early. */
-  #paneCountdown{--pw:717px; --ph:419px;}
+     Sized off native cqw/cqh -- and, unlike the table, deliberately with NO
+     fixed-pixel ceiling anywhere in the formula. A ceiling is exactly what
+     broke zoom-invariance here before: cqw/cqh terms are physically
+     zoom-invariant on their own (see the note above the table), but a fixed
+     "220px" ceiling is not (fixed pixels genuinely get physically bigger
+     with zoom) -- so whenever the panel was big enough to hit that ceiling,
+     the result silently stopped being zoom-invariant and started tracking
+     zoom instead, which is exactly the "still zooms" symptom. Removing the
+     ceiling entirely removes the only zoom-reactive term in the formula, so
+     this is now zoom-invariant unconditionally, not just below some size.
+     The floor (20px/16px) is a plain literal and in principle has the same
+     issue in reverse, but it only matters in the already-extreme small-panel
+     case, which is an acceptable place for imperfection. */
+  #paneCountdown{container-type:size; container-name:countdown;}
   .countdown{display:flex; flex-direction:column; align-items:center; justify-content:center;
              height:100%; gap:14px; padding:10px;}
   .numwrap{display:flex; flex-direction:column; align-items:center; justify-content:center;
            gap:6px; min-width:0;}
   .numwrap .numline{font-family:"SF Mono","Cascadia Mono",Consolas,monospace;
                     font-weight:500; letter-spacing:-.5px; white-space:nowrap;
-                    font-size:max(20px, min(calc(var(--pw) * 0.14), calc(var(--ph) * 0.20), 220px));}
-  .numwrap.dual .numline{font-size:max(16px, min(calc(var(--pw) * 0.16), calc(var(--ph) * 0.12), 145px));}
-  .countdown svg{width:max(50px, min(calc(var(--pw) * 0.40), calc(var(--ph) * 0.56), 500px));
-                 height:max(50px, min(calc(var(--pw) * 0.40), calc(var(--ph) * 0.56), 500px)); flex-shrink:0;}
+                    font-size:max(20px, min(14cqw, 20cqh));}
+  .numwrap.dual .numline{font-size:max(16px, min(16cqw, 12cqh));}
+  .countdown svg{width:max(50px, min(40cqw, 56cqh));
+                 height:max(50px, min(40cqw, 56cqh)); flex-shrink:0;}
 
-  /* MAX and C3 (during totality) go side by side once there's room, else
-     stacked -- toggled by JS (.wide class) alongside --pw/--ph, so this is
-     also zoom-invariant rather than a native (zoom-reactive) @container query. */
-  #paneCountdown.wide .numwrap.dual{flex-direction:row; gap:28px;}
+  /* MAX and C3 (during totality) go side by side once there's room, else stacked */
+  @container countdown (min-width: 500px){
+    .numwrap.dual{flex-direction:row; gap:28px;}
+  }
 
   /* review-only control, not final UI */
   .devtoggle{position:absolute; top:10px; right:12px; z-index:2; background:none;
@@ -229,54 +242,6 @@ function drag(handle, axis, growEl, shrinkEl, sizeProp){
 drag(document.getElementById('vsplit'), 'x', document.getElementById('colLeft'), document.getElementById('colRight'), 'width');
 drag(document.getElementById('hsplitLeft'), 'y', document.getElementById('paneContacts'), document.getElementById('paneCountdown'), 'height');
 drag(document.getElementById('hsplitRight'), 'y', document.getElementById('paneMap'), document.getElementById('paneSky'), 'height');
-
-// Zoom-invariant panel sizing: --pw/--ph track a panel's CSS-pixel size the
-// same way cqw/cqh would, EXCEPT compensated by devicePixelRatio (which
-// changes with browser zoom, and with OS DPI scaling) so a zoom change alone
-// cancels out and leaves --pw/--ph unchanged. Only a genuine resize (drag,
-// or an actual window resize) moves them. baselineDPR is whatever zoom the
-// page happened to load at; --pw/--ph track deviations from that baseline.
-//
-// This runs as a continuous per-frame loop rather than off ResizeObserver /
-// the window 'resize' event. Those SHOULD fire for a real browser zoom, but
-// after this measured as stuck on a real laptop (content stayed sized for
-// whatever zoom the page happened to load at, only catching up to look
-// "right" by coincidence at some other zoom level), a loop that can never go
-// stale is the more dependable fix -- it re-measures every frame regardless
-// of which event would otherwise have been responsible for triggering it.
-// The work here is trivial (two getBoundingClientRect calls), so running it
-// at 60fps is not a meaningful cost, and it naturally pauses when the tab
-// isn't visible since requestAnimationFrame does.
-const baselineDPR = window.devicePixelRatio;
-const zoomInvariantTargets = [];
-function trackZoomInvariantSize(el, onSize){
-  zoomInvariantTargets.push({ el, onSize, lastW: null, lastH: null });
-}
-function zoomInvariantTick(){
-  const factor = window.devicePixelRatio / baselineDPR;
-  for(const t of zoomInvariantTargets){
-    const r = t.el.getBoundingClientRect();
-    const w = r.width * factor, h = r.height * factor;
-    if(t.lastW === null || Math.abs(w - t.lastW) > 0.25 || Math.abs(h - t.lastH) > 0.25){
-      t.lastW = w; t.lastH = h;
-      t.onSize(w, h);
-    }
-  }
-  requestAnimationFrame(zoomInvariantTick);
-}
-requestAnimationFrame(zoomInvariantTick);
-
-trackZoomInvariantSize(document.getElementById('paneContacts'), (w, h) => {
-  const el = document.getElementById('paneContacts');
-  el.style.setProperty('--pw', w + 'px');
-  el.style.setProperty('--ph', h + 'px');
-});
-trackZoomInvariantSize(document.getElementById('paneCountdown'), (w, h) => {
-  const el = document.getElementById('paneCountdown');
-  el.style.setProperty('--pw', w + 'px');
-  el.style.setProperty('--ph', h + 'px');
-  el.classList.toggle('wide', w >= 500);
-});
 
 document.getElementById('tabWide').onclick = ()=>{ document.getElementById('tabWide').classList.add('on'); document.getElementById('tabAll').classList.remove('on'); document.getElementById('fovbox').style.display='block'; };
 document.getElementById('tabAll').onclick = ()=>{ document.getElementById('tabAll').classList.add('on'); document.getElementById('tabWide').classList.remove('on'); document.getElementById('fovbox').style.display='none'; };
