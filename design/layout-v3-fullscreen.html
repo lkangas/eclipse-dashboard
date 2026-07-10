@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eclipse dashboard</title>
+<style>
+  :root{
+    --screen:#ffffff; --zone:#eeedea; --line:#e3e2de;
+    --ink:#20201e; --muted:#93908a;
+    --accent:#e0952f; --accent-bg:#fbf1de; --accent-ink:#7a4d12;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0; height:100%; overflow:hidden;}
+  body{background:var(--screen); color:var(--ink);
+       font-family:-apple-system,"Segoe UI",Roboto,system-ui,sans-serif;}
+
+  .app{width:100vw; height:100vh; display:flex; flex-direction:column;}
+  .topbar{flex:0 0 34px; display:flex; align-items:center; gap:20px; padding:0 14px;
+          font-size:13px; color:var(--muted); border-bottom:1px solid var(--line);}
+  .topbar b{color:var(--ink); font-weight:500;}
+  .topbar .fill{flex:1;}
+
+  .main{flex:1; display:flex; min-height:0;}
+  .col{display:flex; flex-direction:column; min-width:160px;}
+  .col.left{flex:1 1 0;}
+  .col.right{flex:1 1 0;}
+  .pane{min-height:140px; position:relative; overflow:hidden;}
+
+  .vsplit{flex:0 0 6px; cursor:col-resize; display:flex; align-items:center; justify-content:center;
+          background:var(--screen);}
+  .hsplit{flex:0 0 6px; cursor:row-resize; display:flex; align-items:center; justify-content:center;
+          background:var(--screen);}
+  .grip{display:flex; gap:3px;}
+  .vsplit .grip{flex-direction:column;}
+  .grip i{width:3px; height:3px; border-radius:50%; background:var(--line);}
+  .vsplit:hover .grip i, .hsplit:hover .grip i{background:var(--muted);}
+
+  /* --- contacts table --- */
+  .contacts{padding:14px 14px 8px; display:flex; align-items:center;}
+  table{width:100%; border-collapse:collapse; font-size:14px;}
+  td,th{padding:6px 10px; text-align:left; border-bottom:1px solid var(--line);}
+  th{color:var(--muted); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.4px;}
+  td.num{text-align:right; font-variant-numeric:tabular-nums;}
+  tr.next td{background:var(--accent-bg); color:var(--accent-ink); font-weight:500;}
+
+  /* --- countdown + schematic --- */
+  .countdown{display:flex; flex-direction:column; align-items:center; justify-content:center;
+             height:100%; gap:14px;}
+  .countdown .evt{font-size:16px; color:var(--muted);}
+  .countdown .num{font-family:"SF Mono","Cascadia Mono",Consolas,monospace;
+                  font-size:min(6vw,64px); font-weight:500; letter-spacing:-.5px;}
+  .countdown svg{width:min(20vw,180px); height:min(20vw,180px);}
+
+  /* --- map --- */
+  .map{background:var(--zone); height:100%; display:flex; align-items:center; justify-content:center;}
+  .map svg{width:70%; height:70%;}
+
+  /* --- hero/allsky --- */
+  .skywrap{height:100%; display:flex; flex-direction:column;}
+  .tabs{flex:0 0 32px; display:flex; gap:2px; padding:8px 14px 0;}
+  .tabs button{background:none; border:none; font-size:13px; color:var(--muted);
+               padding:4px 8px; border-bottom:2px solid transparent; cursor:pointer;}
+  .tabs button.on{color:var(--ink); border-bottom-color:var(--accent);}
+  .skyzone{flex:1; background:var(--zone); margin:0 14px 14px; border-radius:6px; position:relative;}
+  .fovbox{position:absolute; inset:18% 14%; border:1px dashed var(--muted); border-radius:2px;}
+  .fovbox::after{content:''; position:absolute; left:50%; top:50%; width:16px; height:16px;
+                 margin:-8px 0 0 -8px; border-radius:50%; border:1px solid var(--ink);}
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar"><b>Zaragoza</b><span>41.65°N 0.89°W</span><span class="fill"></span><span>20:28:23 CEST</span><span>18:28:23 UT</span></div>
+    <div class="main" id="main">
+      <div class="col left" id="colLeft">
+        <div class="pane contacts" id="paneContacts">
+          <table>
+            <thead><tr><th>Event</th><th class="num">T</th><th class="num">Time</th><th class="num">Alt</th></tr></thead>
+            <tbody>
+              <tr><td>C1</td><td class="num">+53:23</td><td class="num">19:35:00</td><td class="num">—</td></tr>
+              <tr class="next"><td>C2</td><td class="num">−00:41.6</td><td class="num">20:29:04</td><td class="num">—</td></tr>
+              <tr><td>Max</td><td class="num">−01:21</td><td class="num">20:29:44</td><td class="num">5.9°</td></tr>
+              <tr><td>C3</td><td class="num">−02:05</td><td class="num">20:30:28</td><td class="num">—</td></tr>
+              <tr><td>C4</td><td class="num">−53:37</td><td class="num">21:22:00</td><td class="num">—</td></tr>
+              <tr><td>Sunset</td><td class="num">−51:37</td><td class="num">21:20:00</td><td class="num">0°</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="hsplit" id="hsplitLeft"><div class="grip"><i></i><i></i><i></i></div></div>
+        <div class="pane map" id="paneMap">
+          <svg viewBox="0 0 200 140"><path d="M20,110 30,70 55,40 90,25 130,20 165,35 180,55" fill="none" stroke="#b9b6ae" stroke-width="2"/>
+            <ellipse cx="95" cy="34" rx="16" ry="5" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>
+        </div>
+      </div>
+
+      <div class="vsplit" id="vsplit"><div class="grip"><i></i><i></i><i></i></div></div>
+
+      <div class="col right" id="colRight">
+        <div class="pane" id="paneCountdown">
+          <div class="countdown">
+            <div class="evt">C2 · totality begins</div>
+            <div class="num">T−00:41.6</div>
+            <svg viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="44" fill="none" stroke="#20201e" stroke-width="1.5"/>
+              <circle cx="53" cy="61" r="45.3" fill="#20201e"/>
+            </svg>
+          </div>
+        </div>
+        <div class="hsplit" id="hsplitRight"><div class="grip"><i></i><i></i><i></i></div></div>
+        <div class="pane" id="paneSky">
+          <div class="skywrap">
+            <div class="tabs">
+              <button class="on" id="tabHero">Hero</button>
+              <button id="tabAll">All-sky</button>
+            </div>
+            <div class="skyzone" id="skyzone"><div class="fovbox" id="fovbox"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+function drag(handle, axis, growEl, shrinkEl, sizeProp){
+  handle.addEventListener('pointerdown', e=>{
+    handle.setPointerCapture(e.pointerId);
+    const start = axis==='x' ? e.clientX : e.clientY;
+    const g0 = growEl.getBoundingClientRect()[sizeProp];
+    const s0 = shrinkEl.getBoundingClientRect()[sizeProp];
+    growEl.style.flex = '0 0 ' + g0 + 'px';
+    shrinkEl.style.flex = '0 0 ' + s0 + 'px';
+    document.body.style.cursor = getComputedStyle(handle).cursor;
+    function move(e){
+      const pos = axis==='x' ? e.clientX : e.clientY;
+      const d = pos - start;
+      const min = 140;
+      let g = g0 + d, s = s0 - d;
+      if(g < min || s < min) return;
+      growEl.style.flex = '0 0 ' + g + 'px';
+      shrinkEl.style.flex = '0 0 ' + s + 'px';
+    }
+    function up(){ document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.body.style.cursor=''; }
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  });
+}
+drag(document.getElementById('vsplit'), 'x', document.getElementById('colLeft'), document.getElementById('colRight'), 'width');
+drag(document.getElementById('hsplitLeft'), 'y', document.getElementById('paneContacts'), document.getElementById('paneMap'), 'height');
+drag(document.getElementById('hsplitRight'), 'y', document.getElementById('paneCountdown'), document.getElementById('paneSky'), 'height');
+
+document.getElementById('tabHero').onclick = ()=>{ document.getElementById('tabHero').classList.add('on'); document.getElementById('tabAll').classList.remove('on'); document.getElementById('fovbox').style.display='block'; };
+document.getElementById('tabAll').onclick = ()=>{ document.getElementById('tabAll').classList.add('on'); document.getElementById('tabHero').classList.remove('on'); document.getElementById('fovbox').style.display='none'; };
+</script>
+</body>
+</html>
