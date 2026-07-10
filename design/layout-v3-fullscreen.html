@@ -672,8 +672,10 @@ renderTimebar();
 renderTimeMode();
 
 // --- Eclipse path map ---
-// Path coordinates (2-min steps) from NASA GSFC's path table for this eclipse:
-// https://eclipse.gsfc.nasa.gov/SEpath/SEpath2001/SE2026Aug12Tpath.html
+// Path coordinates (1-min steps) from ytliu's independent eclipse calculator
+// (JPL DE441, dT=69.2s -- cross-checked against NASA GSFC's VSOP87/dT=75.4s
+// path table and agrees to within ~2-4km/~2s over Spain):
+// http://ytliu.epizy.com/eclipse/one_solar_eclipse_general.html?ybeg=2001&ind=55&DE=441
 // Coastline is a hand-simplified placeholder, not real basemap data (that's a
 // build-time job later, PLAN.md §3) -- just enough to orient the real path.
 const MAP_LON_MIN = -10, MAP_LON_MAX = 6.5, MAP_LAT_MIN = 35.5, MAP_LAT_MAX = 44.5;
@@ -699,19 +701,29 @@ const BALEARICS = [
 ];
 
 // Northern limit, southern limit, central line -- decimal degrees, [lat, lon],
-// 18:18-18:32 UT plus the path's terminal "Limits" point (sun alt 0°, near
-// the Balearics). North limit has no further fix past 18:30 in NASA's table.
+// 18:18-18:33 UT plus the path's terminal "Limit" point (sun alt 0°, near the
+// Balearics). Northern limit has no further fix past 18:30; central line ends
+// at 18:32 (the Limit row); southern limit persists one minute longer still.
+// PATH_SOUTH's first 13 entries line up 1:1 with PATH_NORTH's timestamps
+// (18:18-18:30) so the band polygon below can zip them together directly.
 const PATH_NORTH = [
-  [49.3300,-11.5467],[48.2083,-10.2667],[47.0383,-8.8017],[45.8017,-7.0767],
-  [44.4567,-4.9483],[42.9083,-2.0850],[40.6650,3.2950]
+  [49.3533,-11.5883],[48.7983,-10.9700],[48.2333,-10.3133],[47.6567,-9.6100],
+  [47.0650,-8.8517],[46.4583,-8.0317],[45.8300,-7.1350],[45.1767,-6.1417],
+  [44.4883,-5.0217],[43.7533,-3.7317],[42.9467,-2.1833],[42.0167,-0.1800],
+  [40.7483,3.0400]
 ];
 const PATH_SOUTH = [
-  [49.1817,-16.7650],[48.1467,-15.6383],[47.0833,-14.3967],[45.9833,-13.0083],
-  [44.8317,-11.4200],[43.6067,-9.5517],[42.2633,-7.2367],[40.6833,-4.0400],[37.6900,4.5400]
+  [49.2050,-16.8017],[48.6900,-16.2517],[48.1700,-15.6767],[47.6417,-15.0733],
+  [47.1067,-14.4383],[46.5633,-13.7667],[46.0083,-13.0533],[45.4400,-12.2900],
+  [44.8583,-11.4717],[44.2583,-10.5833],[43.6350,-9.6100],[42.9850,-8.5300],
+  [42.2950,-7.3083],
+  [41.5517,-5.8850],[40.7233,-4.1417],[39.7283,-1.7783],[37.6900,4.5283]
 ];
 const PATH_CENTER = [
-  [49.2850,-14.2383],[48.2117,-13.0483],[47.1017,-11.7150],[45.9433,-10.1900],
-  [44.7133,-8.3983],[43.3717,-6.1883],[41.8167,-3.1850],[39.4083,2.9500],[38.6800,5.4150]
+  [49.3100,-14.2783],[48.7767,-13.7000],[48.2350,-13.0900],[47.6867,-12.4450],
+  [47.1267,-11.7600],[46.5550,-11.0283],[45.9700,-10.2417],[45.3667,-9.3883],
+  [44.7417,-8.4567],[44.0917,-7.4233],[43.4050,-6.2583],[42.6683,-4.9117],
+  [41.8567,-3.2833],[40.9050,-1.1433],[39.5150,2.6067],[38.6800,5.4017]
 ];
 
 function renderMap(){
