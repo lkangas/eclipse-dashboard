@@ -210,11 +210,6 @@ function drag(handle, axis, growEl, shrinkEl, sizeProp){
     function apply(g, s){
       growEl.style.flex = g + ' 0 0';
       shrinkEl.style.flex = s + ' 0 0';
-      // Drive --pw/--ph updates directly rather than relying solely on
-      // ResizeObserver -- it's the right general mechanism (also catches a
-      // real window resize or zoom), but shouldn't be the ONLY path to a
-      // correct result for the case we can verify most directly: a drag.
-      zoomInvariantMeasurers.forEach(m => m());
     }
     apply(g0, s0);
     document.body.style.cursor = getComputedStyle(handle).cursor;
@@ -241,25 +236,42 @@ drag(document.getElementById('hsplitRight'), 'y', document.getElementById('paneM
 // cancels out and leaves --pw/--ph unchanged. Only a genuine resize (drag,
 // or an actual window resize) moves them. baselineDPR is whatever zoom the
 // page happened to load at; --pw/--ph track deviations from that baseline.
+//
+// This runs as a continuous per-frame loop rather than off ResizeObserver /
+// the window 'resize' event. Those SHOULD fire for a real browser zoom, but
+// after this measured as stuck on a real laptop (content stayed sized for
+// whatever zoom the page happened to load at, only catching up to look
+// "right" by coincidence at some other zoom level), a loop that can never go
+// stale is the more dependable fix -- it re-measures every frame regardless
+// of which event would otherwise have been responsible for triggering it.
+// The work here is trivial (two getBoundingClientRect calls), so running it
+// at 60fps is not a meaningful cost, and it naturally pauses when the tab
+// isn't visible since requestAnimationFrame does.
 const baselineDPR = window.devicePixelRatio;
-const zoomInvariantMeasurers = [];
-function observeZoomInvariantSize(el, onSize){
-  const measure = () => {
-    const r = el.getBoundingClientRect();
-    const factor = window.devicePixelRatio / baselineDPR;
-    onSize(r.width * factor, r.height * factor);
-  };
-  new ResizeObserver(measure).observe(el);
-  window.addEventListener('resize', measure);
-  zoomInvariantMeasurers.push(measure);
-  measure();
+const zoomInvariantTargets = [];
+function trackZoomInvariantSize(el, onSize){
+  zoomInvariantTargets.push({ el, onSize, lastW: null, lastH: null });
 }
-observeZoomInvariantSize(document.getElementById('paneContacts'), (w, h) => {
+function zoomInvariantTick(){
+  const factor = window.devicePixelRatio / baselineDPR;
+  for(const t of zoomInvariantTargets){
+    const r = t.el.getBoundingClientRect();
+    const w = r.width * factor, h = r.height * factor;
+    if(t.lastW === null || Math.abs(w - t.lastW) > 0.25 || Math.abs(h - t.lastH) > 0.25){
+      t.lastW = w; t.lastH = h;
+      t.onSize(w, h);
+    }
+  }
+  requestAnimationFrame(zoomInvariantTick);
+}
+requestAnimationFrame(zoomInvariantTick);
+
+trackZoomInvariantSize(document.getElementById('paneContacts'), (w, h) => {
   const el = document.getElementById('paneContacts');
   el.style.setProperty('--pw', w + 'px');
   el.style.setProperty('--ph', h + 'px');
 });
-observeZoomInvariantSize(document.getElementById('paneCountdown'), (w, h) => {
+trackZoomInvariantSize(document.getElementById('paneCountdown'), (w, h) => {
   const el = document.getElementById('paneCountdown');
   el.style.setProperty('--pw', w + 'px');
   el.style.setProperty('--ph', h + 'px');
