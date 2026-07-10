@@ -140,38 +140,63 @@
      it arms (button becomes "Confirm", amber) and needs a second press within
      a few seconds, or it quietly reverts. Live always switches back in a
      single press -- returning to truth should never have friction, only
-     leaving it. */
-  .timebar{flex:0 0 68px; display:flex; align-items:center; gap:18px; padding:0 16px;
+     leaving it. Fixed min-width on both buttons so arming ("Sim" -> "Confirm",
+     a longer, bolder label) never resizes the control. */
+  .timebar{flex:0 0 100px; display:flex; align-items:center; gap:16px; padding:0 16px;
            border-top:1px solid var(--line);}
 
   .modeswitch{display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; flex:0 0 auto;}
-  .modeswitch button{background:none; border:none; padding:10px 20px; font-weight:500; font-size:14px;
+  .modeswitch button{background:none; border:none; padding:10px 4px; width:88px; font-weight:500; font-size:14px;
                      color:var(--muted); cursor:pointer;}
   .modeswitch button.live.on{background:var(--live-bg); color:var(--live-ink); font-weight:700;}
   .modeswitch button.live.on::before{content:'\25CF '; }
   .modeswitch button.sim.on{background:var(--ink); color:#fff;}
   .modeswitch button.sim.confirm{background:var(--accent); color:#000; font-weight:700;}
 
-  /* review-only: swap which curve maps time to slider position (see script).
-     .devtoggle (reused for the dashed-pill look) is position:absolute, which
-     only works pinned to a positioned ANCESTOR (the countdown panel, its
-     original use) -- .timebar isn't one, so left unoverridden this escaped
-     to the initial containing block and rendered pinned to the viewport's
-     top-right corner instead of sitting inline in the bottom bar. */
-  .curvetoggle{position:static; flex:0 0 auto;}
+  /* toggles the arcsinh "test" curve on/off; styled to match the mode
+     buttons (same family of control) rather than a small dev-only pill */
+  .stretchbtn{flex:0 0 auto; background:none; border:1px solid var(--line); border-radius:8px;
+             padding:10px 16px; font-weight:500; font-size:14px; color:var(--muted); cursor:pointer;}
+  .stretchbtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
 
-  .slidertrack{flex:1; position:relative; height:36px;}
-  .totband{position:absolute; height:8px; top:14px; background:var(--accent-bg); border-radius:4px;}
-  .ticks{position:absolute; inset:0;}
-  .tick{position:absolute; top:12px; width:1px; height:12px; background:var(--muted);}
-  .tick-lab{position:absolute; top:26px; transform:translateX(-50%); font-size:10px; color:var(--muted); white-space:nowrap;}
+  /* Timeline, in three vertically distinct, non-overlapping bands so the
+     cursor (confined to the middle band) can never overlap a label:
+       0-16px   hour labels (text)
+       16-44px  axis + tick marks + C1..C4/Max lines + the cursor
+       46-88px  C1..C4/Max text labels, in up to 3 rows (JS-assigned by
+                measuring each label's REAL rendered width and greedily
+                packing rows so none collide -- close labels, e.g. C2/Max/C3
+                on the linear curve, stagger into extra rows instead of
+                overlapping; well-spread labels all land in row 0). 3 rows
+                is enough for this data: C1/C4 are always far from
+                everything by construction (the margin plus each partial
+                phase is tens of minutes), so at most the middle three
+                (C2/Max/C3) can ever mutually collide. */
+  .slidertrack{flex:1; position:relative; height:100%; touch-action:none;}
+  .hourlabels{position:absolute; left:0; right:0; top:0; height:16px;}
+  .hour-lab{position:absolute; top:0; transform:translateX(-50%); font-size:10px; color:var(--muted); white-space:nowrap;}
 
-  .scrub{-webkit-appearance:none; position:absolute; top:14px; left:0; width:100%; height:8px;
-        margin:0; background:var(--line); border-radius:4px; outline:none; z-index:2;}
-  .scrub::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%;
-    background:var(--ink); border:3px solid #fff; box-shadow:0 0 0 1px var(--line); cursor:pointer; margin-top:-5px;}
+  .axisline{position:absolute; left:0; right:0; top:30px; height:1px; background:var(--line);}
+  .ticks{position:absolute; left:0; right:0; top:0; height:100%;}
+  .tick{position:absolute; top:27px; width:1px; height:7px; background:var(--line);}
+  .tick.hour{top:23px; height:14px; background:var(--muted);}
 
-  .liveMarker{position:absolute; top:6px; bottom:6px; width:2px; background:var(--live-ink); z-index:2;}
+  .totband{position:absolute; height:12px; top:24px; background:var(--accent-bg); border-radius:3px;}
+  .clines{position:absolute; left:0; right:0; top:0; height:100%;}
+  .cline{position:absolute; top:19px; width:1px; height:22px; background:var(--muted);}
+
+  .clabels{position:absolute; left:0; right:0; top:46px; height:42px;}
+  .clabel{position:absolute; top:0; transform:translateX(-50%); font-size:11px; font-weight:500;
+         color:var(--ink); white-space:nowrap;}
+  .clabel.row1{top:14px;}
+  .clabel.row2{top:28px;}
+
+  /* Custom-drawn (not a native range input) so it renders identically in
+     Live and Sim -- only whether the track responds to pointer input
+     differs. Confined vertically to the axis/tick band (see above), so it
+     can never overlap the hour labels above or the C1..C4 labels below,
+     wherever it's positioned. */
+  .cursor{position:absolute; top:17px; width:2px; height:26px; background:#c22; z-index:3; pointer-events:none;}
 </style>
 </head>
 <body>
@@ -245,13 +270,16 @@
         <button class="live on" id="liveBtn">Live</button>
         <button class="sim" id="simBtn">Sim</button>
       </div>
-      <div class="slidertrack">
-        <div class="totband" id="totband"></div>
+      <div class="slidertrack" id="slidertrack">
+        <div class="hourlabels" id="hourLabels"></div>
+        <div class="axisline"></div>
         <div class="ticks" id="ticks"></div>
-        <input type="range" class="scrub" id="scrub" min="0" max="1" step="any" value="0" style="display:none;">
-        <div class="liveMarker" id="liveMarker"></div>
+        <div class="totband" id="totband"></div>
+        <div class="clines" id="clines"></div>
+        <div class="clabels" id="clabels"></div>
+        <div class="cursor" id="cursor"></div>
       </div>
-      <button class="devtoggle curvetoggle" id="curveToggle">test curve</button>
+      <button class="stretchbtn" id="curveToggle">Stretch</button>
     </div>
   </div>
 
@@ -323,7 +351,7 @@ devToggle.onclick = ()=>{ dualState = !dualState; renderCountdown(); };
 const T = { c1: 70500, c2: 73744, max: 73784, c3: 73828, c4: 76920 };
 const MARGIN = 30 * 60; // comfortable margin shown before C1 / after C4
 const domainStart = T.c1 - MARGIN, domainEnd = T.c4 + MARGIN;
-const K = 60; // "real" curve: identity (linear). "test" curve: arcsinh,
+const K = 60; // "real" curve: identity (linear). "stretch" curve: arcsinh,
               // symmetric around max by construction (asinh is an odd
               // function of (t - max)) -- near-linear within about +-K
               // seconds of max, compressing increasingly beyond that, so
@@ -331,18 +359,23 @@ const K = 60; // "real" curve: identity (linear). "test" curve: arcsinh,
               // targets without the C1..C2 / C3..C4 partial phases (each
               // most of an hour) taking over the whole track.
 function realWarp(t){ return t; }
-function testWarp(t){ return Math.asinh((t - T.max) / K); }
+function stretchWarp(t){ return Math.asinh((t - T.max) / K); }
 
-let curveMode = 'real';
-function warp(t){ return curveMode === 'real' ? realWarp(t) : testWarp(t); }
-function unwarp(w){ return curveMode === 'real' ? w : T.max + Math.sinh(w) * K; }
+let stretchOn = false;
+function warp(t){ return stretchOn ? stretchWarp(t) : realWarp(t); }
+function unwarp(w){ return stretchOn ? T.max + Math.sinh(w) * K : w; }
 function trackBounds(){ return [warp(domainStart), warp(domainEnd)]; }
 function pct(t){ const [lo, hi] = trackBounds(); return (warp(t) - lo) / (hi - lo) * 100; }
+function fmtHM(t){ const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'); }
 
-const scrub = document.getElementById('scrub');
+const slidertrack = document.getElementById('slidertrack');
+const hourLabelsEl = document.getElementById('hourLabels');
 const ticksEl = document.getElementById('ticks');
 const totband = document.getElementById('totband');
-const liveMarker = document.getElementById('liveMarker');
+const clinesEl = document.getElementById('clines');
+const clabelsEl = document.getElementById('clabels');
+const cursor = document.getElementById('cursor');
 const curveToggle = document.getElementById('curveToggle');
 const TICK_DEFS = [
   { key: 'c1', lab: 'C1' }, { key: 'c2', lab: 'C2' }, { key: 'max', lab: 'Max' },
@@ -351,41 +384,100 @@ const TICK_DEFS = [
 
 let simTime = T.c2 - 41; // matches the "now" reference used elsewhere in this mock
 
-function renderTicks(){
-  ticksEl.innerHTML = '';
-  for(const { key, lab } of TICK_DEFS){
-    const p = pct(T[key]);
+// Full-hour marks get a text timestamp; the 10-min marks in between are
+// unlabeled tick marks only (a label on every one would be unreadable clutter).
+function renderHourTicks(){
+  hourLabelsEl.innerHTML = ''; ticksEl.innerHTML = '';
+  const first = Math.ceil(domainStart / 600) * 600;
+  for(let t = first; t <= domainEnd; t += 600){
+    const p = pct(t);
+    const isHour = t % 3600 === 0;
     const tick = document.createElement('div');
-    tick.className = 'tick'; tick.style.left = p + '%';
+    tick.className = 'tick' + (isHour ? ' hour' : '');
+    tick.style.left = p + '%';
     ticksEl.appendChild(tick);
-    const label = document.createElement('div');
-    label.className = 'tick-lab'; label.style.left = p + '%'; label.textContent = lab;
-    ticksEl.appendChild(label);
+    if(isHour){
+      const lab = document.createElement('div');
+      lab.className = 'hour-lab'; lab.style.left = p + '%'; lab.textContent = fmtHM(t);
+      hourLabelsEl.appendChild(lab);
+    }
   }
+}
+
+// C1..C4/Max: greedy row assignment using each label's REAL measured width
+// (not an estimate), so close labels (C2/Max/C3 on the linear curve) stagger
+// into a second row instead of overlapping, while well-spread labels (the
+// stretch curve, or C1/C4 either way) all land in row 0 automatically.
+function renderCLines(){
+  clinesEl.innerHTML = ''; clabelsEl.innerHTML = '';
+  const items = TICK_DEFS.map(({ key, lab }) => ({ key, lab, p: pct(T[key]) }));
+
+  for(const it of items){
+    const line = document.createElement('div');
+    line.className = 'cline'; line.style.left = it.p + '%';
+    clinesEl.appendChild(line);
+  }
+
+  const els = items.map(it => {
+    const el = document.createElement('div');
+    el.className = 'clabel'; el.style.left = it.p + '%'; el.textContent = it.lab;
+    clabelsEl.appendChild(el);
+    return el;
+  });
+  const trackW = slidertrack.getBoundingClientRect().width;
+  const rowRightEdge = [];
+  const PAD = 6;
+  items.forEach((it, i) => {
+    const el = els[i];
+    const w = el.getBoundingClientRect().width;
+    const centerPx = it.p / 100 * trackW;
+    const leftPx = centerPx - w / 2, rightPx = centerPx + w / 2;
+    let row = 0;
+    while(rowRightEdge[row] !== undefined && leftPx < rowRightEdge[row] + PAD) row++;
+    rowRightEdge[row] = rightPx;
+    if(row > 0) el.classList.add('row' + row);
+  });
+
   const p1 = pct(T.c2), p2 = pct(T.c3);
   totband.style.left = p1 + '%';
   totband.style.width = (p2 - p1) + '%';
 }
 
-function renderTimebar(){
-  const [lo, hi] = trackBounds();
-  scrub.min = lo; scrub.max = hi;
-  scrub.value = warp(simTime);
-  renderTicks();
-  liveMarker.style.left = pct(simTime) + '%';
+function renderCursor(){
+  cursor.style.left = pct(simTime) + '%';
 }
 
-scrub.oninput = () => {
-  simTime = unwarp(+scrub.value);
-  liveMarker.style.left = pct(simTime) + '%';
-  // Later: this drives the countdown / contacts / sky / map from simTime.
-};
+function renderTimebar(){
+  renderHourTicks();
+  renderCLines();
+  renderCursor();
+}
 
 curveToggle.onclick = () => {
-  curveMode = curveMode === 'real' ? 'test' : 'real';
-  curveToggle.textContent = curveMode === 'real' ? 'test curve' : 'real curve';
+  stretchOn = !stretchOn;
+  curveToggle.classList.toggle('on', stretchOn);
   renderTimebar();
 };
+
+// Drawn identically in Live and Sim -- the track only RESPONDS to pointer
+// input in Sim; the request was that nothing should look different, only
+// whether the cursor is draggable.
+function trackPointerToTime(clientX){
+  const r = slidertrack.getBoundingClientRect();
+  const frac = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+  const [lo, hi] = trackBounds();
+  return unwarp(lo + frac * (hi - lo));
+}
+slidertrack.addEventListener('pointerdown', e => {
+  if(timeMode !== 'sim') return;
+  slidertrack.setPointerCapture(e.pointerId);
+  simTime = trackPointerToTime(e.clientX);
+  renderCursor();
+  function move(e){ simTime = trackPointerToTime(e.clientX); renderCursor(); }
+  function up(){ document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); }
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+});
 
 // --- Live / Sim mode ---
 const liveBtn = document.getElementById('liveBtn');
@@ -399,8 +491,7 @@ function renderTimeMode(){
   simBtn.classList.toggle('on', timeMode === 'sim');
   simBtn.classList.toggle('confirm', confirmPending);
   simBtn.textContent = confirmPending ? 'Confirm' : 'Sim';
-  scrub.style.display = timeMode === 'sim' ? 'block' : 'none';
-  liveMarker.style.display = timeMode === 'live' ? 'block' : 'none';
+  slidertrack.style.cursor = timeMode === 'sim' ? 'pointer' : 'default';
 }
 
 liveBtn.onclick = () => {
