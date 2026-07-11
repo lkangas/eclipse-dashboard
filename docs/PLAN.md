@@ -318,7 +318,21 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
   **magnitude**, **obscuration**, **Sun azimuth** at max (list still draft —
   confirm which metrics matter beyond these). Magnitude/obscuration have no
   oracle yet (§4) — show as assumed/placeholder values, visually flagged as
-  provisional, until implemented.
+  provisional, until implemented. This default view (local circumstances
+  only) is intentionally scroll-free and must stay that way.
+- **Future: global circumstances toggle** — an optional expanded view of the
+  contacts table/panel showing the eclipse's *global* circumstances (not just
+  this observer's local C1–C4), modeled on the "Eclipse Times" section of
+  ytliu.epizy.com's calculator (already used as a cross-check reference,
+  §15) — e.g.
+  https://ytliu.epizy.com/eclipse/one_solar_eclipse_general.html?ybeg=2001&ind=55&DE=441.
+  The locally-computed circumstances (§4) would be interleaved within that
+  longer table rather than shown separately. Eventually extend the sound-
+  warnings toggle below to cover entries in this table too, not just local
+  contacts. Being long, it needs the fullscreen lightbox pattern noted in
+  §10 rather than an in-panel scrollbar — only this expanded view
+  scrolls/goes fullscreen, the default local-only view (above) does not.
+  Not started.
 - **Big countdown display** — large text, no separate label line: `EVENT±ttt`
   (e.g. `C2−00:41.6`), paired with the flat monochrome Sun/Moon schematic (§10).
   **Display logic**: normally show only the *one* next upcoming event
@@ -359,6 +373,12 @@ drag handle** (panels resizable; reordering deferred):
 Panel positions (which content sits in which quadrant) are easy to revisit —
 already swapped once — because sizing no longer depends on which specific
 panel occupies a slot (`flex:1 1 0` default on every pane).
+
+**Future: fullscreen lightbox.** Map and sky panels (both tabs of each —
+Spain/Global, Wide/All-sky) should be click-to-expand into a fullscreen
+lightbox view, for a closer look without resizing the whole 2×2 layout. The
+same pattern is also wanted for the §9 global-circumstances table. Not
+started.
 
 ---
 
