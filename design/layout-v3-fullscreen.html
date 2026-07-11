@@ -701,16 +701,20 @@ const BALEARICS = [
 
 // Northern limit, southern limit, central line -- decimal degrees, [lat, lon],
 // 18:18-18:33 UT plus the path's terminal "Limit" point (sun alt 0°, near the
-// Balearics). Northern limit has no further fix past 18:30; central line ends
-// at 18:32 (the Limit row); southern limit persists one minute longer still.
-// PATH_SOUTH's first 13 entries line up 1:1 with PATH_NORTH's timestamps
-// (18:18-18:30) so the band polygon below can zip them together directly.
+// Balearics). Northern limit has no further per-minute fix past 18:30, but the
+// Limit row gives its true final position -- PATH_NORTH_END bridges 18:30 to
+// that point with one straight segment (the real curve there is unknown, but
+// leaving it off entirely made the band stop ~2 minutes before the centerline
+// and shadow marker do, so the marker was drifting outside the band near the
+// end -- this is the fix for that). Central line ends at 18:32 (the Limit
+// row); southern limit persists one minute longer still.
 const PATH_NORTH = [
   [49.3533,-11.5883],[48.7983,-10.9700],[48.2333,-10.3133],[47.6567,-9.6100],
   [47.0650,-8.8517],[46.4583,-8.0317],[45.8300,-7.1350],[45.1767,-6.1417],
   [44.4883,-5.0217],[43.7533,-3.7317],[42.9467,-2.1833],[42.0167,-0.1800],
   [40.7483,3.0400]
 ];
+const PATH_NORTH_END = [39.7067,6.3283]; // "Limit" row's north-limit fix
 const PATH_SOUTH = [
   [49.2050,-16.8017],[48.6900,-16.2517],[48.1700,-15.6767],[47.6417,-15.0733],
   [47.1067,-14.4383],[46.5633,-13.7667],[46.0083,-13.0533],[45.4400,-12.2900],
@@ -732,7 +736,7 @@ const PATH_CENTER_UT = [
 
 function renderMap(){
   const svg = document.getElementById('mapsvg');
-  const band = PATH_NORTH.concat(PATH_SOUTH.slice(0, PATH_NORTH.length).slice().reverse());
+  const band = PATH_NORTH.concat([PATH_NORTH_END]).concat(PATH_SOUTH.slice().reverse());
   const parts = [];
   parts.push(`<polygon class="coast" points="${mapPts(COAST_IBERIA)}"/>`);
   for(const isl of BALEARICS){
