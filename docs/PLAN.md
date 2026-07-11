@@ -689,6 +689,42 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        the mock's original hand-picked placeholder, 45.3, almost
        exactly). `npm run test`: 55/55; `npm run check`: 0
        errors/warnings.
+     - ✅ **CountdownPanel layout fixes** (four issues found once the
+       schematic went real): (1) the Moon-offset clamp only bounded the
+       *center*, not the rendered disk (offset + Moon's own radius), so
+       near C1/C4 the disk could extend past the SVG viewBox and get
+       hard-clipped by its default overflow behavior -- fixed by
+       clamping `offset + moonRPx <= viewBoxHalf - margin`, computed
+       fresh each frame from the current Moon radius, and enlarged the
+       viewBox (120→160) for more travel room. (2) crossing into/out of
+       the C2-Max dual-line window changed `.numwrap`'s natural height,
+       shifting the SVG below it (parent flex column re-centers) --
+       fixed with a `min-height` on `.numwrap` reserved for the
+       dual-stacked worst case unconditionally, so single/dual/row/
+       stacked switches never change that box's height. (3) the
+       side-by-side-vs-stacked choice for the dual pair was a static
+       `@container (min-width: 500px)` rule that didn't know the
+       labels' actual rendered text width, clipping before the switch
+       -- replaced with a real measurement (label widths + gap vs.
+       available width) via a `ResizeObserver` on both labels and the
+       outer `.countdown` box (not `.numwrap` itself, which shrinks to
+       fit its own content in the center-aligned flex column and so
+       can never observe how much room is *actually* available --
+       caught this by testing the fix and finding row-mode could never
+       trigger). A ResizeObserver (not a tick-driven re-measure) is
+       required because the panel can sit paused for a long time and a
+       splitter-drag while paused must still flip back to stacked
+       immediately, not wait for the next countdown tick. (4) trimmed
+       `.countdown`'s padding/gap and let the SVG grow via `flex: 1 1
+       auto; width/height: 100%` instead of a fixed-ceiling `cqw`/`cqh`
+       formula, so the figure and text fill the panel with minimal
+       margin. Verified via direct DOM measurement (`getBoundingClientRect`
+       on the Moon disk vs. viewBox bounds, `.numwrap` height across
+       single/dual, row/stacked at several panel widths including the
+       exact width that used to clip) rather than screenshots, since
+       the in-app browser's screenshot tool has been non-functional all
+       session. `npm run test`: 55/55; `npm run check`: 0
+       errors/warnings.
    - ✅ Wire TimeBar to real contact times instead of `STUB_CONTACTS` --
      the `clock` store was redesigned around a real UTC epoch
      (`simTimeMs`, standard `Date` convention) plus a new `effectiveTime`

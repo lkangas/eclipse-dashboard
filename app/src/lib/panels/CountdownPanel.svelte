@@ -74,6 +74,56 @@
     return c3 ? 'C3' + formatCountdown((c3.getTime() - $effectiveTime.getTime()) / 1000) : '';
   });
 
+  // Side-by-side vs stacked for the dual line pair was previously a
+  // static `@container (min-width: 500px)` breakpoint -- but whether two
+  // labels actually FIT side by side depends on their real rendered
+  // text width (which varies with content, e.g. "MAX-01:21" vs
+  // "MAX-00:41.6") at the current cqw/cqh-scaled font size, not just
+  // raw container width. A fixed pixel breakpoint can't know that, so it
+  // was switching to "row" before there was actually room, clipping the
+  // text. Measured directly instead, same spirit as TimeBar's C-line
+  // label collision avoidance. The available width has to come from the
+  // outer .countdown box, not .numwrap itself: .numwrap sits in a
+  // center-aligned flex column, so it shrinks to fit its own content
+  // (stacked-mode width = the widest single line) rather than
+  // stretching to the panel's real width -- measuring numwrap's own
+  // rect would be circular and could never detect that more room is
+  // available.
+  //
+  // Uses a real ResizeObserver rather than re-measuring on every
+  // countdown tick: this panel can sit paused for a long time (Sim mode
+  // stopped mid-drag), and dragging the pane splitter narrower while
+  // paused must still flip back to stacked immediately -- a tick-driven
+  // re-measure would leave it wrongly stuck in "row" (and clipping)
+  // until the next text change. Observing the two labels themselves
+  // also catches text-width changes for free (digit count can change,
+  // e.g. "9.9s" -> "10.0s"), so there's no need to separately depend on
+  // maxText/c3Text.
+  let maxLabelEl: HTMLDivElement | undefined = $state();
+  let c3LabelEl: HTMLDivElement | undefined = $state();
+  let countdownEl: HTMLDivElement | undefined = $state();
+  let dualRow = $state(false);
+  const ROW_GAP_PX = 28;
+  const COUNTDOWN_PADDING_PX = 4;
+  $effect(() => {
+    if (phase.mode !== 'dual' || !maxLabelEl || !c3LabelEl || !countdownEl) return;
+    const maxEl = maxLabelEl;
+    const c3El = c3LabelEl;
+    const cdEl = countdownEl;
+    const measure = () => {
+      const w1 = maxEl.getBoundingClientRect().width;
+      const w2 = c3El.getBoundingClientRect().width;
+      const available = cdEl.getBoundingClientRect().width - 2 * COUNTDOWN_PADDING_PX;
+      dualRow = w1 + w2 + ROW_GAP_PX <= available;
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(maxEl);
+    ro.observe(c3El);
+    ro.observe(cdEl);
+    return () => ro.disconnect();
+  });
+
   // Real Sun/Moon schematic (PLAN.md §9/§10 -- "flat monochrome", still
   // no gradients/photorealism, just no longer a fixed placeholder).
   // Sun radius is pinned to SUN_R_PX; everything else (Moon's radius,
@@ -81,11 +131,15 @@
   // pixel factor, so relative sizes/positions stay physically correct
   // as the real angular radii/separation (stores/skyView.ts) change.
   // Far from any contact the true offset would be way off-canvas --
-  // clamped to MAX_OFFSET_PX (direction preserved) so the Moon always
-  // renders somewhere near the Sun rather than disappearing or blowing
-  // up the viewBox.
-  const SUN_R_PX = 44;
-  const MAX_OFFSET_PX = 68;
+  // clamped so the Moon always renders somewhere near the Sun rather
+  // than disappearing. The clamp accounts for the Moon's OWN radius
+  // (offset + moonRPx <= VIEWBOX_HALF - margin), not just its center --
+  // clamping only the center let the Moon's edge extend past the
+  // viewBox and get rectangularly clipped by the SVG's own boundary
+  // near C1/C4, where the true separation is largest.
+  const VIEWBOX_HALF = 80;
+  const SUN_R_PX = 50;
+  const EDGE_MARGIN_PX = 3;
   const schematic = $derived.by(() => {
     const { sun, moon, moonSunSeparationDeg } = $skyView;
     const pxPerDeg = SUN_R_PX / sun.angularRadiusDeg;
@@ -102,34 +156,35 @@
     let offsetX = dxDeg * pxPerDeg;
     let offsetY = -dyDeg * pxPerDeg;
     const offsetMag = Math.hypot(offsetX, offsetY);
-    if (offsetMag > MAX_OFFSET_PX) {
-      const scale = MAX_OFFSET_PX / offsetMag;
+    const maxOffset = Math.max(0, VIEWBOX_HALF - moonRPx - EDGE_MARGIN_PX);
+    if (offsetMag > maxOffset) {
+      const scale = maxOffset / offsetMag;
       offsetX *= scale;
       offsetY *= scale;
     }
 
     return {
       moonRPx,
-      moonCx: 60 + offsetX,
-      moonCy: 60 + offsetY,
+      moonCx: VIEWBOX_HALF + offsetX,
+      moonCy: VIEWBOX_HALF + offsetY,
       separationDeg: moonSunSeparationDeg,
     };
   });
 </script>
 
-<div class="countdown">
-  <div class="numwrap" class:dual>
+<div class="countdown" bind:this={countdownEl}>
+  <div class="numwrap" class:dual class:row={dual && dualRow}>
     {#if dual}
-      <div class="numline">{maxText}</div>
-      <div class="numline">{c3Text}</div>
+      <div class="numline" bind:this={maxLabelEl}>{maxText}</div>
+      <div class="numline" bind:this={c3LabelEl}>{c3Text}</div>
     {:else if phase.mode === 'none'}
       <div class="numline">Event ended</div>
     {:else}
       <div class="numline">{singleText}</div>
     {/if}
   </div>
-  <svg viewBox="0 0 120 120">
-    <circle cx="60" cy="60" r={SUN_R_PX} fill="none" stroke="#20201e" stroke-width="1.5" />
+  <svg viewBox="0 0 {VIEWBOX_HALF * 2} {VIEWBOX_HALF * 2}">
+    <circle cx={VIEWBOX_HALF} cy={VIEWBOX_HALF} r={SUN_R_PX} fill="none" stroke="#20201e" stroke-width="1.5" />
     <circle cx={schematic.moonCx} cy={schematic.moonCy} r={schematic.moonRPx} fill="#20201e" />
   </svg>
 </div>
@@ -145,18 +200,24 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     height: 100%;
-    gap: 14px;
-    padding: 10px;
+    gap: 4px;
+    padding: 4px;
   }
   .numwrap {
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 4px;
     min-width: 0;
+    /* Reserved for the DUAL-stacked worst case regardless of which mode
+       is actually showing, so switching between single/dual (or
+       stacked/row) never changes this box's height -- that height
+       change was what pushed the SVG below it up/down, reading as "the
+       moon jumped". */
+    min-height: calc(2 * max(16px, min(16cqw, 12cqh)) * 1.2 + 4px);
   }
   .numwrap .numline {
     font-family: 'SF Mono', 'Cascadia Mono', Consolas, monospace;
@@ -168,17 +229,15 @@
   .numwrap.dual .numline {
     font-size: max(16px, min(16cqw, 12cqh));
   }
-  .countdown svg {
-    width: max(50px, min(40cqw, 56cqh));
-    height: max(50px, min(40cqw, 56cqh));
-    flex-shrink: 0;
+  .numwrap.dual.row {
+    flex-direction: row;
+    gap: 28px;
   }
-  /* MAX and C3 (during totality) go side by side once there's room, else
-     stacked. */
-  @container (min-width: 500px) {
-    .numwrap.dual {
-      flex-direction: row;
-      gap: 28px;
-    }
+  .countdown svg {
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
   }
 </style>
