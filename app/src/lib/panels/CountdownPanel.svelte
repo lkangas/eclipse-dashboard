@@ -126,20 +126,33 @@
 
   // Real Sun/Moon schematic (PLAN.md §9/§10 -- "flat monochrome", still
   // no gradients/photorealism, just no longer a fixed placeholder).
-  // Sun radius is pinned to SUN_R_PX; everything else (Moon's radius,
-  // and the Sun-Moon offset) is scaled by the same real degrees-per-
-  // pixel factor, so relative sizes/positions stay physically correct
-  // as the real angular radii/separation (stores/skyView.ts) change.
-  // Far from any contact the true offset would be way off-canvas --
-  // clamped so the Moon always renders somewhere near the Sun rather
-  // than disappearing. The clamp accounts for the Moon's OWN radius
-  // (offset + moonRPx <= VIEWBOX_HALF - margin), not just its center --
-  // clamping only the center let the Moon's edge extend past the
-  // viewBox and get rectangularly clipped by the SVG's own boundary
-  // near C1/C4, where the true separation is largest.
-  const VIEWBOX_HALF = 80;
-  const SUN_R_PX = 50;
-  const EDGE_MARGIN_PX = 3;
+  // Sun radius is pinned to SUN_R_PX -- a fixed, deliberately large
+  // size (matching the original mock's hand-picked ~44px-in-120 scale)
+  // -- and everything else (Moon's radius, and the Sun-Moon offset) is
+  // scaled by the same real degrees-per-pixel factor, so relative
+  // sizes/positions stay physically correct as the real angular
+  // radii/separation (stores/skyView.ts) change.
+  //
+  // Deliberately UNCLAMPED: the Moon renders at its true scaled
+  // position, however far that is from the Sun. An earlier version
+  // clamped the offset to fit the Moon's whole disk inside the
+  // viewBox, which forced a much bigger viewBox to avoid clipping --
+  // shrinking the Sun to a small fraction of the panel to make room.
+  // The Moon doesn't need to stay fully visible: outside the C1-C4
+  // window (most of the time) it's simply not near the Sun, and the
+  // schematic showing "no Moon in view" is the physically honest
+  // picture, not a bug to hide. Close to C1/C4 the Moon's disk can
+  // partially exceed the viewBox and get clipped by the SVG's own box
+  // (`overflow: hidden` below) -- a partial circle/crescent at the
+  // frame edge, not a distortion of its position. That box is a
+  // separate flex child BELOW .numwrap, so this clipping can never
+  // cover the countdown text. Verified empirically across the whole
+  // C1-C4 window (moves continuously, not frozen) and cross-checked
+  // that the tangent-plane offset approximation used here matches the
+  // true spherical separation to well under a pixel at this event's
+  // real (low, sunset-limited) Sun altitude.
+  const VIEWBOX_HALF = 60;
+  const SUN_R_PX = 44;
   const schematic = $derived.by(() => {
     const { sun, moon, moonSunSeparationDeg } = $skyView;
     const pxPerDeg = SUN_R_PX / sun.angularRadiusDeg;
@@ -153,15 +166,8 @@
     if (dAz < -180) dAz += 360;
     const dxDeg = dAz * Math.cos(altRad);
     const dyDeg = moon.altitude - sun.altitude;
-    let offsetX = dxDeg * pxPerDeg;
-    let offsetY = -dyDeg * pxPerDeg;
-    const offsetMag = Math.hypot(offsetX, offsetY);
-    const maxOffset = Math.max(0, VIEWBOX_HALF - moonRPx - EDGE_MARGIN_PX);
-    if (offsetMag > maxOffset) {
-      const scale = maxOffset / offsetMag;
-      offsetX *= scale;
-      offsetY *= scale;
-    }
+    const offsetX = dxDeg * pxPerDeg;
+    const offsetY = -dyDeg * pxPerDeg;
 
     return {
       moonRPx,
@@ -239,5 +245,10 @@
     height: 100%;
     min-width: 0;
     min-height: 0;
+    /* Explicit, not relying on the browser default: the Moon is
+       unclamped and can render partway (or fully) outside the
+       viewBox near/outside C1-C4 -- this box is what gives that a
+       clean edge instead of bleeding into surrounding UI. */
+    overflow: hidden;
   }
 </style>

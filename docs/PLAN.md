@@ -725,6 +725,53 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        the in-app browser's screenshot tool has been non-functional all
        session. `npm run test`: 55/55; `npm run check`: 0
        errors/warnings.
+     - ✅ **CountdownPanel schematic geometry, round 2** -- the layout
+       fix above still clamped the Moon's offset to fit its whole disk
+       inside the viewBox, at a threshold (`viewBoxHalf - moonRPx -
+       margin`) far smaller than the true first/last-contact separation
+       (`sunRPx + moonRPx`). Symptom (user-reported): the Moon appeared
+       frozen/always-overlapping for almost the entire C1-C4 window,
+       only showing real motion for a few minutes around Max. First
+       fix: changed the clamp to the exact external-tangency distance
+       and enlarged the viewBox (120→340) to fit it without clipping --
+       verified this made the Moon move continuously and correctly
+       across the *whole* C1-C4 window (an independent adversarial
+       review cross-checked the tangent-plane-vs-spherical approximation
+       and the worst-case Moon-radius/viewBox math and confirmed both
+       hold, with the approximation error negligible at this event's
+       real low Sun altitude). But blowing up the viewBox to fit the
+       worst case shrank the Sun to a small fraction of the panel --
+       "way too small" (user feedback). Second fix, per direct user
+       instruction ("why can't you just make the sun a fixed size and
+       render the moon where it belongs ephemerides-wise -- moon
+       doesn't need to be completely visible, as long as it's not ugly
+       clipped and doesn't block the countdown text"): removed the
+       clamp entirely. Sun radius and viewBox reverted to the original
+       mock-matching scale (`SUN_R_PX=44`, viewBox 120, ratio 0.73 --
+       a prominently-sized Sun again), and the Moon now always renders
+       at its true scaled ephemeris position, however far that is.
+       Outside the ~2h event window (i.e. most of the time) the Moon is
+       simply off the Sun entirely and isn't drawn -- the physically
+       honest picture, not something to hide behind a clamp. Near
+       C1/C4 the Moon's disk can partially exceed the viewBox and gets
+       clipped by the SVG's own box (explicit `overflow: hidden`,
+       previously implicit) -- a partial-circle/crescent peeking in
+       from the edge, not a distortion of its position. That box is a
+       separate flex child below `.numwrap`, so this clipping can never
+       cover the countdown text (verified: clean 4px gap between
+       `.numwrap`'s bottom and the svg's top at every panel width
+       tried). `npm run test`: 55/55; `npm run check`: 0 errors/warnings.
+     - ✅ **TopBar clock didn't track sim mode** (user-reported: "the
+       now timestamp in the upper right corner doesn't update in sim
+       mode. It needs to. It should say SIM over there when in sim
+       mode") -- it read the plain `now` store (always real wall clock)
+       instead of `effectiveTime` (`clock`+`now` derived, tracks
+       `simTimeMs` while in sim mode). Swapped the import and added a
+       `{#if $clock.mode === 'sim'}SIM{/if}` badge next to the CEST/UT
+       spans. Verified in-browser: Live mode shows the real ticking
+       clock with no badge; entering Sim mode immediately shows the SIM
+       badge and jumps the displayed time to the sim clock's instant
+       (matched `freshSimStartMs()` exactly, C2-90s, on entry).
    - ✅ Wire TimeBar to real contact times instead of `STUB_CONTACTS` --
      the `clock` store was redesigned around a real UTC epoch
      (`simTimeMs`, standard `Date` convention) plus a new `effectiveTime`

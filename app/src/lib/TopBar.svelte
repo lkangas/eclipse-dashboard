@@ -1,6 +1,6 @@
 <script lang="ts">
   import { observer, setObserver } from '../stores/observer';
-  import { now } from '../stores/now';
+  import { clock, effectiveTime } from '../stores/clock';
 
   // Dev-only convenience: jumps the lat/lon fields to a preset site. Muted/
   // small on purpose -- the real input is lat/lon + map (PLAN.md §5).
@@ -52,9 +52,12 @@
     lonStr = o.lon.toFixed(2);
   });
 
-  // Real wall clock -- UT and CEST always shown together (PLAN.md §6).
-  // This is the topbar's "now" display, independent of the simulated
-  // clock in the time bar.
+  // UT and CEST always shown together (PLAN.md §6), tracking whatever
+  // instant is actually driving the rest of the app -- effectiveTime,
+  // not the real wall clock unconditionally. In sim mode this must show
+  // the simulated instant (and a SIM badge), otherwise the topbar clock
+  // visibly disagrees with every other panel while dragging/playing the
+  // time bar.
   const utFmt = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'UTC',
     hour: '2-digit',
@@ -94,8 +97,11 @@
   />
   <button class="geobtn" title="Use device location">⌖</button>
   <span class="fill"></span>
-  <span>{cestFmt.format($now)} CEST</span>
-  <span>{utFmt.format($now)} UT</span>
+  {#if $clock.mode === 'sim'}
+    <span class="simbadge">SIM</span>
+  {/if}
+  <span>{cestFmt.format($effectiveTime)} CEST</span>
+  <span>{utFmt.format($effectiveTime)} UT</span>
 </div>
 
 <style>
@@ -164,5 +170,14 @@
   }
   .geobtn:hover {
     border-color: var(--muted);
+  }
+  .simbadge {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--accent-ink);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 1px 5px;
   }
 </style>
