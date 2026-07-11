@@ -19,7 +19,7 @@ from skyfield.api import load
 from eclipse_calc import BesselianEclipse, Location, load_ephemeris
 
 DEFAULT_EPHEMERIS = Path(r"C:\Users\lauri.kangas\OneDrive\python\eclipse\de440s.bsp")
-FIXTURES = Path(__file__).resolve().parent.parent.parent / "test" / "fixtures"
+FIXTURES = Path(__file__).resolve().parent.parent.parent / "app" / "test" / "fixtures"
 OUTPUT = FIXTURES / "golden-vectors.json"
 ELEMENTS_OUTPUT = FIXTURES / "golden-elements.json"
 
