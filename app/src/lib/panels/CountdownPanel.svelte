@@ -190,8 +190,8 @@
     {/if}
   </div>
   <svg viewBox="0 0 {VIEWBOX_HALF * 2} {VIEWBOX_HALF * 2}">
-    <circle cx={VIEWBOX_HALF} cy={VIEWBOX_HALF} r={SUN_R_PX} fill="none" stroke="#20201e" stroke-width="1.5" />
-    <circle cx={schematic.moonCx} cy={schematic.moonCy} r={schematic.moonRPx} fill="#20201e" />
+    <circle cx={VIEWBOX_HALF} cy={VIEWBOX_HALF} r={SUN_R_PX} fill="#f6c445" />
+    <circle cx={schematic.moonCx} cy={schematic.moonCy} r={schematic.moonRPx} fill="#000000" />
   </svg>
 </div>
 
@@ -250,5 +250,11 @@
        viewBox near/outside C1-C4 -- this box is what gives that a
        clean edge instead of bleeding into surrounding UI. */
     overflow: hidden;
+    /* Dark night-sky backdrop for the Sun/Moon disks -- a CSS
+       background rather than an in-viewBox <rect> so it covers the
+       whole rendered box, including any preserveAspectRatio
+       letterboxing, not just the viewBox area. */
+    background: #0d1b3a;
+    border-radius: 6px;
   }
 </style>
