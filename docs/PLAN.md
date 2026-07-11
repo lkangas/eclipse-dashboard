@@ -284,7 +284,13 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
      §1), a standard equirectangular/Mercator-style projection would distort
      or clip it badly; needs a **special projection** for this tab. Candidate:
      **stereographic, centered near the point of greatest eclipse**. Details
-     (exact center, framing) to be refined later.
+     (exact center, framing) to be refined later. Will eventually want the
+     **momentary penumbral shadow** (the whole region seeing any partial
+     eclipse right now, not just totality) as its moving-shadow overlay --
+     the natural big-picture counterpart to the Spain tab's umbral shadow.
+     Not started (§4 already flags penumbral N/S *limits* as unneeded and
+     unvalidated for this event; the penumbral shadow *outline* is a
+     separate, later piece specifically for this tab).
 
 ---
 
