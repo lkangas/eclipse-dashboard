@@ -1,5 +1,5 @@
-// Central line, N/S umbral limits, and (soon) shadow outline (PLAN.md
-// Sec4). Ported from eclipse_calc.central_line / .shadow.
+// Central line, N/S umbral limits, and the shadow outline (PLAN.md Sec4).
+// Ported from eclipse_calc.central_line / .shadow.
 
 import { evaluateDerivatives, evaluateElements, type BesselianCoefficients } from './elements';
 import { aux1Elements, ksiEtaToLatLon, type LatLon } from './ellipsoid';
@@ -113,4 +113,59 @@ export function shadowLimitsAt(
   }
 
   return { north, south };
+}
+
+export interface ShadowOutlinePoint extends LatLon {
+  qDeg: number;
+}
+
+/** The **umbral** shadow footprint polygon at `tHoursFromT0`: `points + 1`
+ * evenly-spaced positions around the shadow-cone circle in the
+ * fundamental plane (first and last coincide, closing the polygon).
+ * Points where the swept position falls outside Earth's disk are
+ * omitted from the result -- expected near the edges of the event, not
+ * an error. No time derivatives needed here (unlike shadowLimitsAt),
+ * just a fixed-point iteration on zeta per position angle. Ported from
+ * eclipse_calc.shadow.shadow_outlines, umbra=True only (penumbral is a
+ * separate, later need for the Global map tab, PLAN.md Sec8). */
+export function shadowOutlineAt(
+  coefficients: BesselianCoefficients,
+  tHoursFromT0: number,
+  points = 60,
+): ShadowOutlinePoint[] {
+  const el = evaluateElements(coefficients, tHoursFromT0);
+  const aux = aux1Elements(el.d);
+  const result: ShadowOutlinePoint[] = [];
+
+  for (let i = 0; i <= points; i++) {
+    const q = (2 * Math.PI * i) / points;
+    const sinQ = Math.sin(q);
+    const cosQ = Math.cos(q);
+
+    let ksi = el.x - el.l2 * sinQ;
+    let eta = el.y - el.l2 * cosQ;
+    let eta1 = eta / aux.rho1;
+    let zeta1 = Math.sqrt(1 - ksi ** 2 - eta1 ** 2); // NaN off-ellipse, matching eclipse-calc
+    let zeta = aux.rho2 * (zeta1 * aux.cosd1d2 - eta1 * aux.sind1d2);
+    let shadowRadius = el.l2 - zeta * el.tanf2;
+
+    for (let iter = 0; iter < 10; iter++) {
+      ksi = el.x - shadowRadius * sinQ;
+      eta = el.y - shadowRadius * cosQ;
+      eta1 = eta / aux.rho1;
+      zeta1 = Math.sqrt(1 - ksi ** 2 - eta1 ** 2);
+
+      const prevZeta = zeta;
+      zeta = aux.rho2 * (zeta1 * aux.cosd1d2 - eta1 * aux.sind1d2);
+      if (Math.abs(prevZeta - zeta) < 1e-8) break;
+      shadowRadius = el.l2 - zeta * el.tanf2;
+    }
+
+    const latlon = ksiEtaToLatLon(aux, el.d, el.mu0, ksi, eta);
+    if (latlon !== null) {
+      result.push({ ...latlon, qDeg: (q * 180) / Math.PI });
+    }
+  }
+
+  return result;
 }

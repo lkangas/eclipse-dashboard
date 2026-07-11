@@ -21,7 +21,7 @@ from skyfield.toposlib import wgs84
 
 from eclipse_calc import BesselianEclipse, Location, load_ephemeris
 from eclipse_calc.constants import RE, f
-from eclipse_calc.shadow import shadow_limits
+from eclipse_calc.shadow import shadow_limits, shadow_outlines
 
 DEFAULT_EPHEMERIS = Path(r"C:\Users\lauri.kangas\OneDrive\python\eclipse\de440s.bsp")
 FIXTURES = Path(__file__).resolve().parent.parent.parent / "app" / "test" / "fixtures"
@@ -31,6 +31,7 @@ OBSERVER_OUTPUT = FIXTURES / "golden-observer.json"
 LOCAL_ELEMENTS_OUTPUT = FIXTURES / "golden-local-elements.json"
 CENTRAL_LINE_OUTPUT = FIXTURES / "golden-central-line.json"
 SHADOW_LIMITS_OUTPUT = FIXTURES / "golden-shadow-limits.json"
+SHADOW_OUTLINE_OUTPUT = FIXTURES / "golden-shadow-outline.json"
 
 LOCAL_ELEMENTS_COLS = ["x", "y", "d", "mu0", "ksi", "eta", "zeta", "L1", "L2"]
 AUX1_COLS = ["rho1", "rho2", "sind1", "cosd1", "sind1d2", "cosd1d2"]
@@ -226,6 +227,31 @@ def shadow_limits_fixture(eclipse, ts, t0):
     }
 
 
+def shadow_outline_fixture(eclipse, ts, t0):
+    """Umbral shadow footprint polygon at a few instants -- a full 60-point
+    sweep at 18:26 UT (well inside the event, matching every other spot-
+    check in this file) plus coarser 8-point sweeps at 18:20/18:30 for
+    time coverage."""
+    cases = []
+    for minute, points in ((20, 8), (26, 60), (30, 8)):
+        t = ts.utc(2026, 8, 12, 18, minute, 0)
+        t_hours = (t.tt - t0.tt) * 24
+        B = eclipse.elements_at(t, derivatives=False)
+        outline = shadow_outlines(B, points=points, umbra=True)
+        rows = []
+        for (_time, q), row in outline.iterrows():
+            rows.append({
+                "q_deg": float(row.Q_deg),
+                "lat": float(row.Q_lat) if np.isfinite(row.Q_lat) else None,
+                "lon": float(row.Q_lon) if np.isfinite(row.Q_lon) else None,
+            })
+        cases.append({"utc": t.utc_iso(), "t_hours_from_t0": t_hours, "points": points, "rows": rows})
+    return {
+        "generated_by": "eclipse-calc 0.1.0 (eclipse_calc.shadow.shadow_outlines, umbra=True)",
+        "cases": cases,
+    }
+
+
 def main():
     eph_path = Path(os.environ.get("ECLIPSE_CALC_EPHEMERIS", DEFAULT_EPHEMERIS))
     eph = load_ephemeris(eph_path)
@@ -272,6 +298,9 @@ def main():
 
     SHADOW_LIMITS_OUTPUT.write_text(json.dumps(shadow_limits_fixture(eclipse, ts, t0), indent=2))
     print(f"Wrote {SHADOW_LIMITS_OUTPUT}")
+
+    SHADOW_OUTLINE_OUTPUT.write_text(json.dumps(shadow_outline_fixture(eclipse, ts, t0), indent=2))
+    print(f"Wrote {SHADOW_OUTLINE_OUTPUT}")
 
 
 if __name__ == "__main__":
