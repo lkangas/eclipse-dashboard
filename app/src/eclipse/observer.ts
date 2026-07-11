@@ -10,9 +10,7 @@
 // precision (longitude cancels out of the magnitude, so it isn't a
 // parameter here -- it enters later via the hour-angle term).
 
-const RE = 6.3781370e6; // Earth equatorial radius, meters (eclipse_calc.constants.RE)
-const F = 1 / 298.25642; // WGS84-style flattening (eclipse_calc.constants.f)
-const E2 = 2 * F - F * F; // eccentricity squared
+import { E2, F, RE } from './constants';
 
 export interface ObserverPosition {
   rho: number;

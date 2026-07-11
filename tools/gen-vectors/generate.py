@@ -28,8 +28,10 @@ OUTPUT = FIXTURES / "golden-vectors.json"
 ELEMENTS_OUTPUT = FIXTURES / "golden-elements.json"
 OBSERVER_OUTPUT = FIXTURES / "golden-observer.json"
 LOCAL_ELEMENTS_OUTPUT = FIXTURES / "golden-local-elements.json"
+CENTRAL_LINE_OUTPUT = FIXTURES / "golden-central-line.json"
 
 LOCAL_ELEMENTS_COLS = ["x", "y", "d", "mu0", "ksi", "eta", "zeta", "L1", "L2"]
+AUX1_COLS = ["rho1", "rho2", "sind1", "cosd1", "sind1d2", "cosd1d2"]
 
 # Besselian elements elements.ts needs to evaluate as a plain degree-3
 # polynomial (PLAN.md Sec4) -- excludes `gast`, which BesselianEclipse
@@ -161,6 +163,35 @@ def local_elements_fixture(eclipse, ts, t0):
     }
 
 
+def central_line_fixture(eclipse, ts, t0):
+    """Central-line lat/lon (+ aux1_elements' d-dependent quantities) at
+    1-min steps across the Spain-crossing window -- covers the same
+    18:18-18:32 UT span already hand-transcribed into the mock
+    (design/layout-v3-fullscreen.html's PATH_CENTER, itself sourced from
+    NASA GSFC/ytliu independently), so path.ts can be cross-checked
+    against a third, independent source on top of eclipse-calc."""
+    cases = []
+    for minute in range(18, 33):  # 18:18 .. 18:32 UT
+        t = ts.utc(2026, 8, 12, 18, minute, 0)
+        t_hours = (t.tt - t0.tt) * 24
+        row = eclipse.central_line(t).iloc[0]
+        cases.append({
+            "utc": t.utc_iso(),
+            "t_hours_from_t0": t_hours,
+            "lat": float(row.lat),
+            "lon": float(row.lon),
+            "x": float(row.x),
+            "y": float(row.y),
+            "d": float(row.d),
+            "mu0": float(row.mu0),
+            **{col: float(row[col]) for col in AUX1_COLS},
+        })
+    return {
+        "generated_by": "eclipse-calc 0.1.0 (BesselianEclipse.central_line)",
+        "cases": cases,
+    }
+
+
 def main():
     eph_path = Path(os.environ.get("ECLIPSE_CALC_EPHEMERIS", DEFAULT_EPHEMERIS))
     eph = load_ephemeris(eph_path)
@@ -201,6 +232,9 @@ def main():
 
     LOCAL_ELEMENTS_OUTPUT.write_text(json.dumps(local_elements_fixture(eclipse, ts, t0), indent=2))
     print(f"Wrote {LOCAL_ELEMENTS_OUTPUT}")
+
+    CENTRAL_LINE_OUTPUT.write_text(json.dumps(central_line_fixture(eclipse, ts, t0), indent=2))
+    print(f"Wrote {CENTRAL_LINE_OUTPUT}")
 
 
 if __name__ == "__main__":
