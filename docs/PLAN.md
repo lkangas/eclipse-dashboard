@@ -784,6 +784,60 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        white; the svg itself is transparent and just shows the parent
        background through. Verified via computed style in-browser.
        `npm run test`: 55/55; `npm run check`: 0 errors/warnings.
+     - ✅ **Root-caused and fixed the Sun/Moon schematic's C2/C3 timing
+       gap** (user-reported: Sun pixels vanishing before C2, reappearing
+       before C3, during official totality) -- NOT refraction (checked
+       and ruled out: differential refraction between Sun and Moon near
+       contact is only ~0.06-0.24", since they sit within ~0.003° of
+       each other in altitude), NOT a frame/equinox mismatch (both
+       pipelines correctly target apparent, true-equator-of-date), and
+       NOT elevation (a real, separate bug -- see below -- but it's 0
+       identically in both pipelines, so it can't be the *differential*
+       cause). The real cause: astronomy-engine's `Equator()`/`Horizon()`
+       calls (stores/skyView.ts) convert the given UTC instant to
+       Terrestrial Time using the library's own built-in ΔT model
+       (`DeltaT_EspenakMeeus`, a 2006 polynomial giving ~75.4s for
+       2026-08-12 -- the same NASA-SEdata-era figure already rejected
+       for the Besselian side), while the Besselian/eclipse-calc
+       pipeline uses a locked 69.1s (matching Skyfield's real ~68.78s).
+       Both pipelines are handed the *same* UTC instant but silently
+       evaluate it at TT epochs ~6.3s apart -- and since the Moon moves
+       ~0.55"/s across the sky, that alone displaces its computed
+       position by several arcseconds. This matters here specifically
+       because the eclipse is razor-thin at Calamocha: true Sun-Moon
+       separation at C2 is 30.76" against a full-coverage threshold of
+       ~31.10" -- a margin of just 0.34". Fixed via astronomy-engine's
+       own public `SetDeltaTFunction` override (`eclipse/
+       astronomyEngineDeltaT.ts`, a side-effect module imported by both
+       skyView.ts and stores/localCircumstances.ts, pointed at the same
+       `deltaTSeconds` constant the Besselian pipeline uses -- one
+       shared source, not a second hardcoded 69.1). Verified
+       numerically (a temporary scratch test, deleted after): closes
+       ~70% of the gap (separation-vs-threshold error at C2: -6.05" ->
+       -2.50"). The residual ~2.5" comes from astronomy-engine's own
+       lower-precision analytic position series (a truncated VSOP87 Sun
+       and a 1954-era lunar theory) versus eclipse-calc's full JPL
+       DE440s numerical ephemeris via Skyfield -- inherent to the
+       library, not fixable by parameter tuning; would need a different/
+       heavier ephemeris source to close further, not pursued (per
+       explicit user direction against chasing more library precision).
+       An earlier attempt to paper over the same symptom by clamping the
+       schematic to the official [C2,C3] window was tried and reverted
+       -- it produced a visible abrupt snap-to-center/release, not the
+       smooth motion wanted; this ΔT fix addresses the actual root
+       cause instead. `npm run test`: 55/55; `npm run check`: 0
+       errors/warnings.
+     - ⬜ **Elevation bug found during the above investigation, not yet
+       fixed**: `stores/observer.ts` hardcodes `elevationM: 0` and
+       `setObserver()` never updates it -- there's no UI field for it
+       anywhere. Both pipelines correctly consume elevation when given
+       one (verified), so this is purely a wiring gap, not a math bug.
+       Calamocha's real elevation is 884m (eclipse-calc's own test
+       fixtures). Measured real effect: contact times shift by only
+       ~0.26-0.33s when corrected -- real, but far too small to have
+       been the C2/C3 gap (it's identically 0 in both pipelines).
+       Follow-up: default Calamocha to 884m and thread elevation
+       through `setObserver()`/the map-click and manual-entry paths.
    - ✅ Wire TimeBar to real contact times instead of `STUB_CONTACTS` --
      the `clock` store was redesigned around a real UTC epoch
      (`simTimeMs`, standard `Date` convention) plus a new `effectiveTime`

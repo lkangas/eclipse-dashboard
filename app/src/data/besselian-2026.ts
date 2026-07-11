@@ -6,13 +6,19 @@ import type { BesselianCoefficients } from '../eclipse/elements';
 
 export const coefficients = besselian.coefficients as unknown as BesselianCoefficients;
 
+// The locked ΔT (PLAN.md §14 #5) -- exported so anything else touching real
+// UTC-vs-TT time (e.g. eclipse/astronomyEngineDeltaT.ts, making astronomy-
+// engine's real-time positions use the same timescale as this pipeline)
+// shares this one value instead of duplicating the constant.
+export const deltaTSeconds = besselian.delta_t_seconds;
+
 // besselian.t0_tt ("2026-08-12T18:00:00") is a Terrestrial Time calendar
 // reading, not a UTC one. Parsing it as if it were UTC gives the correct
 // linear epoch for that TT reading (Date's epoch arithmetic is timezone-
-// agnostic calendar math); shifting by the locked ΔT (PLAN.md §14 #5)
-// then gives the true UT epoch.
+// agnostic calendar math); shifting by the locked ΔT then gives the true UT
+// epoch.
 const T0_TT_MS = Date.parse(besselian.t0_tt + 'Z');
-const DELTA_T_MS = besselian.delta_t_seconds * 1000;
+const DELTA_T_MS = deltaTSeconds * 1000;
 
 export function ttHoursToDate(hoursFromT0: number): Date {
   return new Date(T0_TT_MS + hoursFromT0 * 3_600_000 - DELTA_T_MS);

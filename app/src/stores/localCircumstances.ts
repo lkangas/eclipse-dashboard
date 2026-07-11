@@ -3,6 +3,7 @@
 // recomputed reactively whenever the observer store changes.
 import { derived } from 'svelte/store';
 import { Body, Observer, SearchRiseSet } from 'astronomy-engine';
+import '../eclipse/astronomyEngineDeltaT';
 import { coefficients, ttHoursToDate } from '../data/besselian-2026';
 import { observer } from './observer';
 import { findContactTimes, findMaximumTime } from '../eclipse/localCircumstances';

@@ -18,6 +18,7 @@
 // isn't wanted, even from a library that happens to offer one.
 import { derived } from 'svelte/store';
 import { Body, Equator, Horizon, Observer } from 'astronomy-engine';
+import '../eclipse/astronomyEngineDeltaT';
 import { observer } from './observer';
 import { effectiveTime } from './clock';
 import starsData from '../data/stars.json';
