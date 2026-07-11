@@ -905,6 +905,14 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        with a direct altitude reading when available; until then this
        offline estimate is used everywhere. `npm run test`: 55/55;
        `npm run check`: 0 errors/warnings.
+     - ✅ **Elevation shown in TopBar** -- a small read-only "N m" span
+       next to the lat/lon inputs (`$observer.elevationM`, rounded),
+       so the DEM lookup above is actually visible rather than only
+       affecting calculations silently. Updates live on manual entry
+       and map drag alike, since both already flow through the same
+       `setObserver()`. Verified in-browser: Calamocha shows "906 m",
+       switching to A Coruña updates it to "28 m". `npm run test`:
+       55/55; `npm run check`: 0 errors/warnings.
    - ✅ Wire TimeBar to real contact times instead of `STUB_CONTACTS` --
      the `clock` store was redesigned around a real UTC epoch
      (`simTimeMs`, standard `Date` convention) plus a new `effectiveTime`

@@ -95,6 +95,9 @@
     bind:value={lonStr}
     oninput={onLonInput}
   />
+  <span class="elevdisplay" title="Ground elevation above sea level (offline DEM lookup)">
+    {Math.round($observer.elevationM)} m
+  </span>
   <button class="geobtn" title="Use device location">⌖</button>
   <span class="fill"></span>
   {#if $clock.mode === 'sim'}
@@ -152,6 +155,11 @@
   .coordinput::-webkit-outer-spin-button {
     -webkit-appearance: none;
     margin: 0;
+  }
+  .elevdisplay {
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    white-space: nowrap;
   }
   .geobtn {
     flex: 0 0 auto;
