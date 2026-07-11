@@ -27,6 +27,9 @@ FIXTURES = Path(__file__).resolve().parent.parent.parent / "app" / "test" / "fix
 OUTPUT = FIXTURES / "golden-vectors.json"
 ELEMENTS_OUTPUT = FIXTURES / "golden-elements.json"
 OBSERVER_OUTPUT = FIXTURES / "golden-observer.json"
+LOCAL_ELEMENTS_OUTPUT = FIXTURES / "golden-local-elements.json"
+
+LOCAL_ELEMENTS_COLS = ["x", "y", "d", "mu0", "ksi", "eta", "zeta", "L1", "L2"]
 
 # Besselian elements elements.ts needs to evaluate as a plain degree-3
 # polynomial (PLAN.md Sec4) -- excludes `gast`, which BesselianEclipse
@@ -122,6 +125,34 @@ def observer_fixture():
     }
 
 
+def local_elements_fixture(eclipse, ts, t0):
+    """ksi/eta/zeta/L1/L2 -- the ingredients of the contact-time search's
+    signed distance function -- at a handful of (site, t) combinations,
+    for verifying localCircumstances.ts's local-elements glue before
+    building the root-finder on top of it."""
+    sites = {
+        "Zaragoza": (41.65, -0.89, 0),
+        "Calamocha": (40.92, -1.30, 884),
+        "Madrid": (40.4168, -3.7038, 0),  # outside the path -- sanity check
+    }
+    cases = []
+    for name, (lat, lon, elev) in sites.items():
+        loc = Location(lat_deg=lat, lon_deg=lon, elevation_m=elev)
+        for hours in (-1, -0.5, 0, 0.5, 1):
+            t = ts.tt_jd(t0.tt + hours / 24)
+            actual_t_hours = (t.tt - t0.tt) * 24
+            row = eclipse.elements_at(t, location=loc, derivatives=False).iloc[0]
+            cases.append({
+                "site": name, "lat": lat, "lon": lon, "elevation_m": elev,
+                "t_hours_from_t0": actual_t_hours,
+                **{col: float(row[col]) for col in LOCAL_ELEMENTS_COLS},
+            })
+    return {
+        "generated_by": "eclipse-calc 0.1.0 (BesselianEclipse.elements_at with location=)",
+        "cases": cases,
+    }
+
+
 def main():
     eph_path = Path(os.environ.get("ECLIPSE_CALC_EPHEMERIS", DEFAULT_EPHEMERIS))
     eph = load_ephemeris(eph_path)
@@ -154,6 +185,9 @@ def main():
 
     OBSERVER_OUTPUT.write_text(json.dumps(observer_fixture(), indent=2))
     print(f"Wrote {OBSERVER_OUTPUT}")
+
+    LOCAL_ELEMENTS_OUTPUT.write_text(json.dumps(local_elements_fixture(eclipse, ts, t0), indent=2))
+    print(f"Wrote {LOCAL_ELEMENTS_OUTPUT}")
 
 
 if __name__ == "__main__":
