@@ -387,12 +387,14 @@ started.
 `eclipse-calc` (the Python oracle) is **not vendored into this repo** — it
 lives in its own sibling repo, `../eclipse-calc` (a standalone, installable
 package; see §4). `tools/build-data`/`tools/gen-vectors` depend on it via a
-local editable install (`pip install -e ../eclipse-calc` from a `tools/`
-venv/requirements file) rather than a git submodule or a copied-in
-`reference/` folder — simplest for a two-repo setup on one machine, and
-avoids the submodule-detached-HEAD footguns for a solo project. If
-`eclipse-calc` is ever pushed to GitHub, this can move to a pinned git URL
-without changing the shape of the dependency.
+local editable install (`pip install -e ../eclipse-calc`) rather than a git
+submodule or a copied-in `reference/` folder — simplest for a two-repo setup
+on one machine, and avoids the submodule-detached-HEAD footguns for a solo
+project. If `eclipse-calc` is ever pushed to GitHub, this can move to a
+pinned git URL without changing the shape of the dependency. On this
+machine that install lives in the **`eclipse` conda env**
+(`C:\Users\lauri.kangas\AppData\Local\anaconda3\envs\eclipse`) — use that
+env's `python.exe` to run any `tools/build-data/*.py` script.
 
 ```
 eclipse/
@@ -403,7 +405,7 @@ eclipse/
 │  └─ gen-vectors/       # golden test vectors from the eclipse-calc oracle
 ├─ src/
 │  ├─ data/              # generated: basemap.topojson, stars.json, besselian-2026.json, shadow-frames.json
-│  ├─ eclipse/           # ported Besselian → local circumstances + path
+│  ├─ eclipse/           # ported Besselian → local circumstances (per-observer, runtime)
 │  ├─ location/  time/  sky/  map/  contacts/
 │  ├─ stores/            # observer, clock, settings
 │  └─ main.ts, App.svelte
@@ -557,40 +559,53 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        Click/drag-to-locate now uses the projection's own `.invert()`
        instead of the hand-rolled inverse formula. `npm run test`:
        105/105; `npm run check`: 0 errors/warnings.
-     - ✅ Central line + N/S umbral limits from `path.ts`, replacing the
-       hand-picked `PATH_NORTH`/`PATH_SOUTH`/`PATH_CENTER` stub arrays --
-       sampled over a dense grid (150 steps, ~18:15-18:33 UT) via
-       `centralLineAt`/`shadowLimitsAt` against the real `besselian-2026`
-       coefficients (new `src/data/besselian-2026.ts` typed wrapper +
-       TT-hours<->Date conversion, shared with `stores/localCircumstances`).
-       Points where the geometry doesn't converge (near the sunset cusp,
-       or outside the event's active window) are simply omitted. Sanity-
-       checked: Calamocha's observer marker now lands ~2.6px from the
-       real computed centerline -- as expected, since Calamocha was
-       chosen throughout this project specifically as a near-centerline
-       reference site. `npm run test`: 105/105; `npm run check`: 0
+     - ✅ Central line + N/S umbral limits, precomputed at build time
+       into `src/data/shadow-frames.json` (~145KB) -- static geometry
+       for the whole event (not observer- or clock-dependent -- only
+       *where along the fixed line* the marker sits depends on the
+       clock), matching PLAN.md §3 item 4's original design.
+       **Switched from a TypeScript port to generating directly from
+       `eclipse-calc`** (`tools/build-data/generate_shadow_frames.py`,
+       the `eclipse` conda env): once this geometry only needs to run
+       once at build time, maintaining a parallel TS reimplementation
+       (`src/eclipse/path.ts`) was pure overhead for code that never
+       runs in the browser -- removed, along with `ellipsoid.ts` (only
+       used by `path.ts`) and their dedicated tests. Only
+       `elements.ts`/`observer.ts`/`localCircumstances.ts` remain
+       client-side (genuinely needed for arbitrary runtime observer
+       positions). 1s fixed grid (not yet adaptive -- next item).
+     - ✅ **Terminator-crossing endpoint for all three lines.** Each of
+       central line/north limit/south limit now gets one extra point
+       snapped to the day/night terminator where the regular grid stops
+       converging, rather than just trailing off:
+       - Central line: root-find (`scipy.optimize.brentq`) on
+         `1 - ksi^2 - eta1^2 = 0` -- the point where the shadow axis's
+         own ground point leaves the visible disk as seen along the
+         shadow axis, which (since that axis points roughly sunward) is
+         the terminator itself. No new primitive needed.
+       - N/S limits: `shadow_limits`' tangent search failing to
+         converge and the shadow's edge circle starting to cross the
+         terminator (`eclipse_calc.terminator.rise_set_curves`) turn
+         out to be the *same event*, confirmed empirically (both land
+         on the same 1s-grid sample, ~18:30:38 UT for the north limit).
+         Of `rise_set_curves`' two crossing points, the one whose angle
+         is closer to that limit's own convention (~180° north, ~0°
+         south, per `shadow_limits`' own `L*cos(q)>0 => south` rule) is
+         picked.
+     - ✅ **Rendered points-and-lines (matplotlib `.-` style), not a
+       smooth curve** -- deliberately diagnostic, not final polish: a
+       small dot at every one of the ~3300 raw sample points (plus a
+       distinct larger/red dot for each of the 3 terminator points), so
+       gaps in the 1s grid near the terminator are visible while
+       judging whether adaptive refinement is actually needed there.
+       North/south limits also got their own explicit stroked
+       polylines (previously only implicit as the shaded band's edge).
+       **Not yet done: the adaptive timestep itself** -- deliberately
+       deferred until the fixed-1s-grid rendering above has been
+       visually reviewed.
+       `npm run test`: 55/55 (down from 108 -- `path.ts`/`ellipsoid.ts`
+       and their tests removed, not a regression); `npm run check`: 0
        errors/warnings.
-     - ✅ **Precomputed at build time**, not recomputed client-side:
-       central line/N-S limits are static geometry for the whole event
-       (not observer- or clock-dependent -- only *where along the fixed
-       line* the marker sits depends on the clock), so the sampling
-       loop above moved out of `MapPanel` and into
-       `app/scripts/generate-shadow-frames.ts` (`npm run
-       gen:shadow-frames` in `app/`, needs `tsx`, new devDependency),
-       committed as `src/data/shadow-frames.json` (~28KB) -- matches
-       PLAN.md §3 item 4's original design, which this had shortcut
-       past when first wired up. `MapPanel` just imports the JSON now.
-       Verified byte-identical map output before/after the switch, plus
-       a new end-to-end test (`shadow-frames.test.ts`) round-tripping
-       against a fresh `path.ts` recompute and cross-checking one
-       sample against the independent oracle reference at 18:26 UT.
-       `npm run test`: 108/108; `npm run check`: 0 errors/warnings.
-       Next: the shadow *outline* polygon (not just the marker point),
-       precomputed at 1Hz over the same window -- interpolating between
-       sparser frames was considered and rejected, since the outline
-       distorts non-linearly near the sunset terminator (e.g. Palma)
-       and can't be interpolated safely; native per-second frames are
-       small enough (confirmed) that there's no reason to.
      - ✅ Shadow marker now interpolates over the real UT timestamps of
        the sampled central-line grid above, driven by the real
        `effectiveTime` clock (see below) instead of a CEST-seconds stub

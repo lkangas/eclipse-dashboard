@@ -1,39 +1,29 @@
 // End-to-end check for the actual shipped data file (not a test-only
-// fixture): loads shadow-frames.json the same way the real app will,
-// confirms it round-trips against the real centralLineAt/shadowLimitsAt
-// it was generated from, and cross-checks a sample against the
-// independently-verified golden-central-line.json reference (2026-08-
-// 12T18:26:00Z), closing the loop from the generation script through to
-// a known-correct real-world answer.
+// fixture): loads shadow-frames.json the same way the real app will and
+// cross-checks a sample against the independently-verified
+// golden-central-line.json reference (2026-08-12T18:26:00Z). Generated
+// by tools/build-data/generate_shadow_frames.py directly from
+// eclipse-calc (the ground-truth oracle) -- there's no TypeScript port
+// of this geometry to round-trip against anymore (PLAN.md: central
+// line/N-S limits are static, build-time-only data, so maintaining a
+// parallel client-side implementation was pure overhead).
 
 import { describe, expect, it } from 'vitest';
 import shadowFrames from './shadow-frames.json';
-import { coefficients } from './besselian-2026';
-import { centralLineAt, shadowLimitsAt } from '../eclipse/path';
 
 describe('shadow-frames.json', () => {
   it('spans the expected window with non-trivial point counts', () => {
     expect(shadowFrames.windowStartH).toBeCloseTo(0.25, 5);
-    expect(shadowFrames.windowEndH).toBeCloseTo(0.58, 5);
-    expect(shadowFrames.centralLine.length).toBeGreaterThan(100);
-    expect(shadowFrames.northLimit.length).toBeGreaterThan(50);
-    expect(shadowFrames.southLimit.length).toBeGreaterThan(50);
+    expect(shadowFrames.windowEndH).toBeCloseTo(0.6, 5);
+    expect(shadowFrames.centralLine.length).toBeGreaterThan(500);
+    expect(shadowFrames.northLimit.length).toBeGreaterThan(500);
+    expect(shadowFrames.southLimit.length).toBeGreaterThan(500);
   });
 
-  it('round-trips against a fresh centralLineAt/shadowLimitsAt recompute', () => {
-    // Proves the shipped file matches what the real functions produce
-    // right now, not stale/hand-edited data. windowStartH's the sample
-    // most convenient to recompute (t = windowStartH exactly).
-    const { windowStartH } = shadowFrames;
-    const freshCentral = centralLineAt(coefficients, windowStartH);
-    expect(freshCentral).not.toBeNull();
-    expect(shadowFrames.centralLine[0].lat).toBeCloseTo(freshCentral!.lat, 4);
-    expect(shadowFrames.centralLine[0].lon).toBeCloseTo(freshCentral!.lon, 4);
-
-    const freshLimits = shadowLimitsAt(coefficients, windowStartH);
-    expect(freshLimits.north).not.toBeNull();
-    expect(shadowFrames.northLimit[0].lat).toBeCloseTo(freshLimits.north!.lat, 4);
-    expect(shadowFrames.northLimit[0].lon).toBeCloseTo(freshLimits.north!.lon, 4);
+  it('has a terminator-crossing endpoint for each of the three lines', () => {
+    expect(shadowFrames.centralLineTerminator).not.toBeNull();
+    expect(shadowFrames.northLimitTerminator).not.toBeNull();
+    expect(shadowFrames.southLimitTerminator).not.toBeNull();
   });
 
   it('matches the independent oracle reference near 18:26 UT', () => {
@@ -43,10 +33,11 @@ describe('shadow-frames.json', () => {
     for (const p of shadowFrames.centralLine) {
       if (Math.abs(p.utMs - targetMs) < Math.abs(nearest.utMs - targetMs)) nearest = p;
     }
-    // Grid spacing is ~8s; at this point on the track the shadow moves
-    // slowly enough that the nearest sample is well within 0.05 deg
-    // (~5km) of the true 18:26:00 position.
-    expect(Math.abs(nearest.utMs - targetMs)).toBeLessThan(8000);
+    // 1s grid -- the nearest sample should be within half a second of
+    // the reference instant, and its position within a hundredth of a
+    // degree (the shadow moves slowly enough here that sub-second
+    // timing error is negligible in position).
+    expect(Math.abs(nearest.utMs - targetMs)).toBeLessThan(500);
     expect(nearest.lat).toBeCloseTo(REFERENCE.lat, 1);
     expect(nearest.lon).toBeCloseTo(REFERENCE.lon, 1);
   });

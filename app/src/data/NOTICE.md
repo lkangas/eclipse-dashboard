@@ -13,11 +13,11 @@ no additional attribution required. Regenerate with
 
 ## shadow-frames.json
 
-Computed by `app/src/eclipse/path.ts` (this project's own tested port of
-`eclipse-calc`'s central-line/shadow-limit math, MIT), a first-party
-tool. Not derived from or redistributing any third-party dataset — no
-additional attribution required. Regenerate with `npm run
-gen:shadow-frames` in `app/` (needs `tsx`).
+Computed directly by [`eclipse-calc`](https://github.com/lkangas/eclipse-calc)
+(MIT license), a first-party tool — central line, N/S umbral limits,
+and their terminator-crossing endpoints. Not derived from or
+redistributing any third-party dataset — no additional attribution
+required. Regenerate with `tools/build-data/generate_shadow_frames.py`.
 
 ## basemap.topojson
 

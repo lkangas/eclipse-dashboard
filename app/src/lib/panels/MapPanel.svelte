@@ -41,14 +41,36 @@
       .join(' ');
   }
 
-  // Points where shadowLimitsAt didn't converge when this was generated
-  // (e.g. very near the sunset cusp) are simply absent -- a slightly
-  // shorter band there, not an error.
-  const PATH_CENTER: [number, number][] = shadowFrames.centralLine.map((p) => [p.lat, p.lon]);
-  const PATH_CENTER_MS: number[] = shadowFrames.centralLine.map((p) => p.utMs);
-  const PATH_NORTH: [number, number][] = shadowFrames.northLimit.map((p) => [p.lat, p.lon]);
-  const PATH_SOUTH: [number, number][] = shadowFrames.southLimit.map((p) => [p.lat, p.lon]);
+  // Points where shadow_limits didn't converge when this was generated
+  // (very near the sunset cusp) are simply absent from the regular grid
+  // -- each line then gets ONE extra point snapped to the day/night
+  // terminator itself (generate_shadow_frames.py), appended here so the
+  // line visually reaches it. DIAGNOSTIC: rendered as points-and-lines
+  // (like matplotlib's `.-` style), not a smooth curve, specifically so
+  // gaps near the terminator are visible while judging whether finer
+  // time steps are needed there (PLAN.md) -- not the final polish.
+  function withTerminator(
+    points: { lat: number; lon: number }[],
+    terminator: { lat: number; lon: number } | null,
+  ): [number, number][] {
+    const pts = points.map((p): [number, number] => [p.lat, p.lon]);
+    if (terminator) pts.push([terminator.lat, terminator.lon]);
+    return pts;
+  }
+  const PATH_CENTER = withTerminator(shadowFrames.centralLine, shadowFrames.centralLineTerminator);
+  const PATH_CENTER_MS: number[] = shadowFrames.centralLine
+    .map((p) => p.utMs)
+    .concat(shadowFrames.centralLineTerminator ? [shadowFrames.centralLineTerminator.utMs] : []);
+  const PATH_NORTH = withTerminator(shadowFrames.northLimit, shadowFrames.northLimitTerminator);
+  const PATH_SOUTH = withTerminator(shadowFrames.southLimit, shadowFrames.southLimitTerminator);
   const band = PATH_NORTH.concat(PATH_SOUTH.slice().reverse());
+  const TERMINATOR_POINTS: { lat: number; lon: number }[] = [
+    shadowFrames.centralLineTerminator,
+    shadowFrames.northLimitTerminator,
+    shadowFrames.southLimitTerminator,
+  ]
+    .filter((p) => p !== null)
+    .map((p) => ({ lat: p.lat, lon: p.lon }));
 
   // The shadow marker's position is driven by effectiveTime (live "now",
   // or the sim clock -- PLAN.md §6), interpolated over the real central-
@@ -164,7 +186,25 @@
     >
       <path class="coast" d={landPathD} />
       <polygon class="pathband" points={projectPts(band)} />
+      <polyline class="limitline" points={projectPts(PATH_NORTH)} />
+      <polyline class="limitline" points={projectPts(PATH_SOUTH)} />
       <polyline class="pathline" points={projectPts(PATH_CENTER)} />
+      {#each PATH_CENTER as [lat, lon], i (i)}
+        {@const p = project(lat, lon)}
+        {#if p}<circle class="gridpoint centerpoint" cx={p[0]} cy={p[1]} r="0.9" />{/if}
+      {/each}
+      {#each PATH_NORTH as [lat, lon], i (i)}
+        {@const p = project(lat, lon)}
+        {#if p}<circle class="gridpoint" cx={p[0]} cy={p[1]} r="0.7" />{/if}
+      {/each}
+      {#each PATH_SOUTH as [lat, lon], i (i)}
+        {@const p = project(lat, lon)}
+        {#if p}<circle class="gridpoint" cx={p[0]} cy={p[1]} r="0.7" />{/if}
+      {/each}
+      {#each TERMINATOR_POINTS as tp (tp.lat + ',' + tp.lon)}
+        {@const p = project(tp.lat, tp.lon)}
+        {#if p}<circle class="terminatorpoint" cx={p[0]} cy={p[1]} r="1.6" />{/if}
+      {/each}
       <circle
         class="shadowmarker"
         r="4"
@@ -244,6 +284,28 @@
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+  .limitline {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* DIAGNOSTIC (PLAN.md): raw sample points, matplotlib `.-`-style, so
+     gaps near the terminator are visible while judging whether finer
+     time steps are needed there -- not final polish. */
+  .gridpoint {
+    fill: var(--accent);
+    stroke: none;
+  }
+  .gridpoint.centerpoint {
+    fill: var(--cline);
+  }
+  .terminatorpoint {
+    fill: #c22;
+    stroke: var(--screen);
+    stroke-width: 0.3;
   }
   .shadowmarker {
     fill: #c22;
