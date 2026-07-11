@@ -416,10 +416,9 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      cases), independently re-verified this session (§4/§14 #4)
    - ✅ `tools/gen-vectors`: generates golden contact-time vectors from the
      oracle (§12); first output committed
-   - 🟡 `src/eclipse/elements.ts` + `observer.ts`: starting now
-   - ⬜ `localCircumstances.ts`, `path.ts`: not started
-   - ⬜ Vitest suite validating the port against the golden vectors: not
-     started
+   - ✅ `src/eclipse/elements.ts`: polynomial evaluation ported, validated
+     against `eclipse-calc` to full float precision (Vitest, `app/`)
+   - ⬜ `observer.ts`, `localCircumstances.ts`, `path.ts`: not started
 4. **Map + shadow** and **sky views** on real computation — ⬜ not started.
 5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
    started (mock has manual entry + map click/drag + a geolocation
