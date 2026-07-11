@@ -114,9 +114,10 @@ local assets under `src/data/`:
    (~9,000 stars), keep only `ra, dec, mag, ci/spect, proper, bf`, quantize
    numeric precision → **a few hundred KB JSON**. Optional brightest-~1500 layer
    for fast first paint.
-3. **Besselian elements** — a small JSON (`src/data/besselian-2026.json`).
-   Either bundle NASA's locked SEdata set (below) **or**, preferably, emit it
-   from the user's Python so app and source math agree by construction.
+3. **Besselian elements** — a small JSON (`src/data/besselian-2026.json`),
+   generated from the user's Python (`polynom_bessels.Bessels`, resolved
+   §14 #4) so app and source math agree by construction — **not** NASA's
+   published SEdata set (§15 keeps that only as a cross-check reference).
 4. **Precomputed eclipse geometry** — from the user's Python (or our evaluator):
    central line + N/S umbral & penumbral limits as GeoJSON; and umbral shadow
    outlines on a **dense UT grid** (e.g. every 10–30 s) as JSON, so the map's
@@ -141,20 +142,38 @@ the local-circumstances iteration.
 - `elements.ts` — polynomial evaluation of `x, y, d, μ, l1, l2` (+ `tan f1/f2`).
 - `observer.ts` — geocentric `ρ·sinφ′, ρ·cosφ′` from lat/lon/height (WGS84
   flattening 0.99664719).
-- `localCircumstances.ts` — Newton iteration for **C1–C4**, magnitude,
-  obscuration, position/parallactic angles (Explanatory Supplement / Meeus §54).
+- `localCircumstances.ts` — contact-time solve for **C1–C4** (the reference
+  Python uses a Skyfield bisection search, `find_discrete`/`find_minima`, not
+  closed-form Newton iteration on l1/l2 as originally assumed here — the TS
+  port may use either method as long as it validates against the Python
+  oracle to the §12 tolerance). **Magnitude, obscuration, and
+  position/parallactic angles are not in the oracle yet** — confirmed absent
+  from every file in the reference Python (`docs/PYTHON_REVIEW_FINDINGS.md`
+  §4). Ship these as assumed/placeholder values initially, **visually
+  flagged as provisional** in the UI (§9/§10), rather than blocking the port
+  on new Python work.
 - `path.ts` — shadow-axis ∩ ellipsoid → central line; N/S limits; instantaneous
   ground **shadow ellipse** (elongated ~1/sin(altitude) — huge & stretched at
-  Spain's low Sun). *May be precomputed instead (§3.4).*
+  Spain's low Sun). Already prototyped in the reference Python
+  (`shadow_outlines`/`shadow_limits`, prototype-grade but algorithmically
+  real) — this is a port, not a from-scratch derivation. *May be precomputed
+  instead (§3.4).* Bonus available: `solve_gamma`/`rise_set_curves`/
+  `terminator_events` for the sunset-limited path edges, directly relevant
+  since Spain's event is itself sunset-limited.
 
-**Element set is locked** to one internally consistent published set to avoid
-NASA's own ~1e-4 / ~4 s page-to-page discrepancies (see §15). Prefer the user's
-Python as the single source of truth.
+**Element set is locked** to the user's Python (`polynom_bessels.Bessels`,
+resolved §14 #4) as the single source of truth, generated fresh rather than
+bundling NASA's separately-published SEdata set (see §15) — this also avoids
+NASA's own ~1e-4 / ~4 s page-to-page discrepancies. **ΔT is locked to 69.1 s**
+app-wide (§15).
 
-**Validation oracle:** keep the Python as golden reference. `tools/gen-vectors`
-emits test vectors (contacts/magnitude for N locations incl. edge cities); a
-Vitest suite asserts the TS port matches to **sub-second**. This is how we earn
-trust in the port.
+**Validation oracle:** keep the Python as golden reference for what it
+already covers (contacts, central line/limits, shadow outline). `tools/gen-
+vectors` emits test vectors (contacts for N locations incl. edge cities); a
+Vitest suite asserts the TS port matches to **sub-second**. This is how we
+earn trust in the port. Magnitude/obscuration/position-angle/parallactic-
+angle/semi-diameters have no oracle yet (see above) — validate those
+separately (e.g. against published cross-checks) once implemented.
 
 ---
 
@@ -188,8 +207,8 @@ A `clock` store exposing the "current simulated instant" plus mode:
   visual + state distinction between SIM and LIVE so it's impossible to confuse.
 - **Time source** for LIVE: system clock by default; optionally **GPS UTC** from
   the serial NMEA stream (shows offset vs system clock).
-- Everything displayed as **UT and CEST** together; ΔT handled explicitly for
-  the Besselian TD↔UT conversion.
+- Everything displayed as **UT and CEST** together; ΔT is **locked to 69.1 s**
+  app-wide for the Besselian TD↔UT conversion (§15).
 
 ---
 
@@ -257,7 +276,9 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
   C1, C2, Max, C3, C4, Sunset (columns still draft — confirm what's essential).
   Below it, a small **local circumstances** strip: totality **duration**,
   **magnitude**, **obscuration**, **Sun azimuth** at max (list still draft —
-  confirm which metrics matter beyond these).
+  confirm which metrics matter beyond these). Magnitude/obscuration have no
+  oracle yet (§4) — show as assumed/placeholder values, visually flagged as
+  provisional, until implemented.
 - **Big countdown display** — large text, no separate label line: `EVENT±ttt`
   (e.g. `C2−00:41.6`), paired with the flat monochrome Sun/Moon schematic (§10).
   **Display logic**: normally show only the *one* next upcoming event
@@ -361,19 +382,47 @@ Resolved:
    portable **Tauri/Electron** desktop build a later upgrade.
 3. **Map extent** — ✅ **Iberia (incl. mainland Portugal) + W-Mediterranean +
    Balearics.**
+4. **Elements source** — ✅ **generate from the user's Python**
+   (`polynom_bessels.Bessels`), not NASA's SEdata set. Confirmed feasible
+   after review (`docs/PYTHON_REVIEW_FINDINGS.md`) — a working
+   ephemeris-direct → degree-3-polynomial-fit generator already exists.
+5. **ΔT** — ✅ **locked to 69.1 s** app-wide, rather than NASA SEdata's
+   published 75.4 s (§15) — the Python is the designated oracle, so its own
+   ΔT (Skyfield's model, ≈68.8 s for this date) governs, not a different
+   source's separately-published constant.
+6. **Missing local-circumstances pieces** (magnitude, obscuration,
+   position/parallactic angle, Sun/Moon angular semi-diameters — confirmed
+   absent from the reference Python) — ✅ **not blocking**: ship as
+   assumed/placeholder values, visually flagged as provisional, and
+   implement for real later rather than extending the Python oracle first.
 
-Still open:
-
-4. **Elements source** — generate from your Python (preferred) vs. bundle NASA
-   SEdata set? Depends on seeing the Python — deps? shadow output? license?
+Still open: none currently.
 
 ---
 
-## 15. Appendix — locked Besselian elements (NASA GSFC SEdata)
+## 15. Appendix — ΔT lock and Besselian elements (cross-check reference)
 
-Base time **T0 = 2026-08-12 18.000 TD**; evaluate `a = a0 + a1·t + a2·t² + a3·t³`,
-`t = (T − T0)` in hours. **Use this set consistently** (do not mix with the
-slightly different SEbeselm summary page). Prefer regenerating from the Python.
+**ΔT is locked to 69.1 s**, app-wide, for the Besselian TD↔UT conversion and
+any longitude correction that comes with it (≈0.004178°/s · δT if this ever
+changes). This matches the reference Python oracle (Skyfield's own ΔT model,
+≈68.8 s for 2026-08-12) rather than NASA GSFC's SEdata constant below
+(75.4 s) — the Python is the designated source of truth, so its ΔT governs,
+even though NASA's number is independently defensible on its own terms.
+
+**The app's actual Besselian elements are generated from the reference
+Python** (`polynom_bessels.Bessels` — see `docs/PYTHON_REVIEW_FINDINGS.md`),
+which fits a degree-3 polynomial to its own ephemeris-direct Skyfield/JPL
+DE440s computation. The NASA table below is kept **only as an independent
+cross-check reference** (alongside a second, separately-computed set from
+ytliu.epizy.com using JPL DE441, also in the findings doc) — it is *not*
+the locked source, and should not be bundled into `besselian-2026.json`.
+Useful precisely because it's independent: the Python-derived elements agree
+with it to ~5 significant figures, and the central line to ~200–400 m at
+every spot-checked instant.
+
+**NASA GSFC SEdata — cross-check only, do not use as the app's element
+source.** Base time **T0 = 2026-08-12 18.000 TD**; evaluate
+`a = a0 + a1·t + a2·t² + a3·t³`, `t = (T − T0)` in hours.
 
 ```
         a0            a1           a2           a3
@@ -384,10 +433,13 @@ d   14.7966700   -0.0120650   -0.0000030    0
 l1   0.5379550    0.0000939   -0.0000121    0
 l2  -0.0081420    0.0000935   -0.0000121    0        (negative ⇒ total)
 tan f1 = 0.0046141   tan f2 = 0.0045911
-ΔT ≈ 75.4 s (SEdata) — NB: NASA pages disagree ~4 s (71.4 vs 75.4); lock one.
+ΔT ≈ 75.4 s per SEdata itself (NOT what the app uses — see above; NASA's
+own pages also disagree by ~4 s internally, 71.4 vs 75.4, which is part of
+why this app locks to the Python oracle instead of picking between them).
 ```
 
-Ephemerides: NASA GSFC uses VSOP87/ELP2000-82; EclipseWise uses JPL DE405.
-Both are Espenak/authoritative. Sources: NASA GSFC Five Millennium Canon
-(`eclipse.gsfc.nasa.gov`), EclipseWise, cross-checked against timeanddate,
-tutiempo, TheSkyLive, Sky & Telescope.
+Ephemerides: NASA GSFC uses VSOP87/ELP2000-82; EclipseWise uses JPL DE405;
+the reference Python uses JPL DE440s. All independently authoritative.
+Sources: NASA GSFC Five Millennium Canon (`eclipse.gsfc.nasa.gov`),
+EclipseWise, ytliu.epizy.com, cross-checked against timeanddate, tutiempo,
+TheSkyLive, Sky & Telescope.
