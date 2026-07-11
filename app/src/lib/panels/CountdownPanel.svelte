@@ -5,14 +5,14 @@
   // running. The dev toggle is a review-only override that pins single/
   // dual view regardless of the real phase -- not part of the final UI.
   import { localCircumstances } from '../../stores/localCircumstances';
-  import { now } from '../../stores/now';
+  import { effectiveTime } from '../../stores/clock';
   import { formatCountdown } from '../format';
 
   let forceDual: boolean | null = $state(null);
 
   const phase = $derived.by((): { mode: 'single'; key: 'c1' | 'c2' | 'max' | 'c4' } | { mode: 'dual' } => {
     const lc = $localCircumstances;
-    const nowMs = $now.getTime();
+    const nowMs = $effectiveTime.getTime();
     if (lc.c1 && nowMs < lc.c1.getTime()) return { mode: 'single', key: 'c1' };
     if (lc.c2 && lc.c3) {
       if (nowMs < lc.c2.getTime()) return { mode: 'single', key: 'c2' };
@@ -29,14 +29,14 @@
     if (phase.mode !== 'single') return '';
     const date = $localCircumstances[phase.key];
     if (!date) return '';
-    return singleLabels[phase.key] + formatCountdown((date.getTime() - $now.getTime()) / 1000);
+    return singleLabels[phase.key] + formatCountdown((date.getTime() - $effectiveTime.getTime()) / 1000);
   });
   const maxText = $derived(
-    'MAX' + formatCountdown(($localCircumstances.max.getTime() - $now.getTime()) / 1000),
+    'MAX' + formatCountdown(($localCircumstances.max.getTime() - $effectiveTime.getTime()) / 1000),
   );
   const c3Text = $derived.by(() => {
     const c3 = $localCircumstances.c3;
-    return c3 ? 'C3' + formatCountdown((c3.getTime() - $now.getTime()) / 1000) : '';
+    return c3 ? 'C3' + formatCountdown((c3.getTime() - $effectiveTime.getTime()) / 1000) : '';
   });
 </script>
 

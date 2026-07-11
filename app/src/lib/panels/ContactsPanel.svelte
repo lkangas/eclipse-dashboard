@@ -6,7 +6,7 @@
   // Magnitude/Obscuration/Sun az have no oracle at all yet (PLAN.md §4/§14
   // #6) -- kept as placeholder values, visually flagged provisional.
   import { localCircumstances } from '../../stores/localCircumstances';
-  import { now } from '../../stores/now';
+  import { effectiveTime } from '../../stores/clock';
   import { formatCountdown, formatDurationSeconds, formatCest } from '../format';
 
   const EVENTS = [
@@ -25,12 +25,12 @@
         label,
         date,
         time: date ? formatCest(date) : '—',
-        offset: date ? formatCountdown((date.getTime() - $now.getTime()) / 1000) : '—',
+        offset: date ? formatCountdown((date.getTime() - $effectiveTime.getTime()) / 1000) : '—',
       };
     }),
   );
   const nextKey = $derived(
-    rows.find((r) => r.date && r.date.getTime() >= $now.getTime())?.key ?? null,
+    rows.find((r) => r.date && r.date.getTime() >= $effectiveTime.getTime())?.key ?? null,
   );
 
   const durationText = $derived(
