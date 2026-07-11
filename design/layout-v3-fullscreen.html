@@ -139,7 +139,7 @@
      path, stereographic, PLAN.md Sec8 #2). Shares the .tabs styling
      already established for the sky panel. */
   .mapwrap{height:100%; display:flex; flex-direction:column;}
-  .mapzone{flex:1; background:var(--zone); position:relative;}
+  .mapzone{flex:1; background:var(--zone); position:relative; overflow:hidden;}
   .map svg{display:block; width:100%; height:100%; cursor:crosshair; touch-action:none;}
   .coast{fill:var(--screen); stroke:var(--line); stroke-width:1;}
   .pathband{fill:var(--accent-bg); stroke:var(--accent); stroke-width:.75; stroke-opacity:.5;}
