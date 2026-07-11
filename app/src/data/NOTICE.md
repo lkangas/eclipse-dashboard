@@ -45,3 +45,22 @@ bright stars/planets will actually be visible (confirmed with the
 user). 174 stars. Regenerate with `tools/build-data/stars.mjs`
 (`npm run stars` in `tools/build-data/`; needs the raw CSV downloaded
 first, see that script's header comment).
+
+## elevation.json
+
+Elevation-above-sea-level grid (229x409, 1/24-degree spacing) from
+[ETOPO 2022, 60 Arc-Second Global Relief Model](https://www.ncei.noaa.gov/products/etopo-global-relief-model)
+(NOAA National Centers for Environmental Information) -- **public
+domain** (U.S. federal work), free for any use, no attribution
+required. Blends topography and bathymetry, so coastal/island sites
+(A Coruna, Santander, Palma de Mallorca) get valid elevation right up
+to and past the shoreline, unlike land-only DEMs; sea cells are
+negative, not clamped to 0. Clipped to the same bbox as
+basemap.topojson and resampled from the native ~60 arc-sec grid via
+bilinear interpolation to keep the bundle small (not a resolution
+compromise -- the native grid is already fine enough that this is
+purely a size optimization). Fetched via ERDDAP griddap subsetting on
+NOAA PIFSC's "oceanwatch" mirror (which serves this same NCEI-produced
+dataset), not the full global grid. Regenerate with
+`tools/build-data/generate_elevation.py` (needs two raw netCDF chunks
+pre-downloaded first, see that script's header comment).

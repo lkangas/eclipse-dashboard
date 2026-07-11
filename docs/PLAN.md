@@ -873,17 +873,38 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        instant: the crossing lands within 0.02px (a small fraction of a
        second) of the official time. `npm run test`: 55/55; `npm run
        check`: 0 errors/warnings.
-     - ⬜ **Elevation bug found during the above investigation, not yet
-       fixed**: `stores/observer.ts` hardcodes `elevationM: 0` and
-       `setObserver()` never updates it -- there's no UI field for it
-       anywhere. Both pipelines correctly consume elevation when given
-       one (verified), so this is purely a wiring gap, not a math bug.
-       Calamocha's real elevation is 884m (eclipse-calc's own test
-       fixtures). Measured real effect: contact times shift by only
-       ~0.26-0.33s when corrected -- real, but far too small to have
-       been the C2/C3 gap (it's identically 0 in both pipelines).
-       Follow-up: default Calamocha to 884m and thread elevation
-       through `setObserver()`/the map-click and manual-entry paths.
+     - ✅ **Elevation bug fixed** -- `stores/observer.ts` hardcoded
+       `elevationM: 0` and `setObserver()` never updated it; both
+       pipelines already consumed elevation correctly when given one
+       (verified during the investigation above), so this was purely a
+       wiring gap. Fixed with an offline DEM lookup rather than a
+       single hardcoded default, since manual entry and map-drag can
+       land anywhere: `app/src/data/elevation.json` (ETOPO 2022, 60
+       arc-sec, NOAA/NCEI, public domain -- blends topography and
+       bathymetry, which matters for interpolation robustness at
+       coastal/island sites like A Coruña or Palma de Mallorca, not
+       because underwater elevation itself is meaningful here; the
+       result is still clamped to >=0 in the lookup itself, since every
+       real observer stands on land, not because the source data needed
+       clamping), resampled to a 1/24° grid (229x409, 442KB) via
+       `tools/build-data/generate_elevation.py`. `src/data/elevation.ts`
+       does the client-side bilinear interpolation, called from inside
+       `setObserver()` -- the single choke point both TopBar's manual
+       lat/lon entry and MapPanel's click/drag already went through, so
+       both pick it up automatically with no per-caller wiring. Verified:
+       Calamocha now reads 906m (vs. the 884m reference -- a resampled-
+       grid-scale difference, not an error), A Coruña 28m (small
+       positive, correctly coastal), open Mediterranean correctly
+       clamped to 0 (was -395m in the raw grid). Contact times shifted
+       by about a second and Sunset by ~16s once fed a real, nonzero
+       elevation instead of 0 -- both directionally and physically
+       plausible (a real elevation gain, delaying sunset via the
+       observer's own local horizon plane). Device GPS (not yet wired
+       up at all -- PLAN.md's "Use device location" button has no
+       handler yet) will eventually be able to override this DEM lookup
+       with a direct altitude reading when available; until then this
+       offline estimate is used everywhere. `npm run test`: 55/55;
+       `npm run check`: 0 errors/warnings.
    - ✅ Wire TimeBar to real contact times instead of `STUB_CONTACTS` --
      the `clock` store was redesigned around a real UTC epoch
      (`simTimeMs`, standard `Date` convention) plus a new `effectiveTime`
