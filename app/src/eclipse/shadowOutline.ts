@@ -77,7 +77,16 @@ function ksiEtaToLatLon(
 
   const eta1 = eta / rho1;
   const radical = 1 - ksi ** 2 - eta1 ** 2;
-  if (radical < 0) return null;
+  // `!(radical >= 0)` rather than `radical < 0`: NaN compares false
+  // either way, so `radical < 0` silently lets a NaN radical (ksi/eta
+  // already NaN going in, e.g. from pointAt's iteration below having
+  // dipped negative mid-loop) fall through into Math.sqrt(NaN), instead
+  // of being caught here -- producing a non-null {lat: NaN, lon: NaN}
+  // that corrupts the rendered polygon on whichever frame happens to
+  // hit it (this was the actual cause of a reported flicker near the
+  // terminator: intermittent, since which of the ~60 sample angles
+  // triggers it shifts frame to frame as the geometry moves).
+  if (!(radical >= 0)) return null;
   const zeta1 = Math.sqrt(radical);
   const zeta = rho2 * (zeta1 * cosd1d2 - eta1 * sind1d2);
 
@@ -176,6 +185,15 @@ export function shadowOutlineAt(
       eta = el.y - shadowRadius * cosQ;
       eta1 = eta / aux.rho1;
       zeta1 = Math.sqrt(1 - ksi ** 2 - eta1 ** 2);
+      // `marginAt`'s un-iterated (zeta=0) first guess can say a q is
+      // "inside" while this iteration's own (slightly different, zeta-
+      // corrected) shadow radius pushes it just past the ellipsoid edge
+      // -- without this check, zeta1 goes NaN here, propagates silently
+      // through the rest of the loop (the break condition below never
+      // fires, since NaN comparisons are always false), and used to
+      // reach ksiEtaToLatLon as NaN ksi/eta. Bailing out cleanly here
+      // makes this q correctly count as invalid instead.
+      if (!Number.isFinite(zeta1)) return null;
 
       const prevZeta = zeta;
       zeta = aux.rho2 * (zeta1 * aux.cosd1d2 - eta1 * aux.sind1d2);
@@ -214,22 +232,32 @@ export function shadowOutlineAt(
     return { ...latlon, qDeg: (q * 180) / Math.PI };
   }
 
+  // Validity is decided by pointAt's own (fully-converged) result, not
+  // marginAt's cheaper un-iterated approximation -- they usually agree,
+  // but marginAt can say "inside" for a q where the converged iteration
+  // still lands just outside the ellipsoid (see pointAt's own comment).
+  // Using pointAt as the source of truth means that disagreement can
+  // only ever *shrink* the visible arc (never produce a bad point), and
+  // still correctly triggers a bisected terminator-crossing insertion
+  // right where it actually happens, rather than silently leaving a gap
+  // with no crossing point bridging it. marginAt is still what the
+  // bisection itself roots on (terminatorCrossing, above) -- cheap and
+  // fine for that, since it only needs to locate the boundary to
+  // display precision, not decide per-sample validity.
   const result: ShadowOutlinePoint[] = [];
   let prevQ = 0;
-  let prevValid = marginAt(0).margin >= 0;
+  let prevValid = false;
 
   for (let i = 0; i <= points; i++) {
     const q = (2 * Math.PI * i) / points;
-    const valid = marginAt(q).margin >= 0;
+    const p = pointAt(q);
+    const valid = p !== null;
 
     if (i > 0 && valid !== prevValid) {
       result.push(prevValid ? terminatorCrossing(prevQ, q) : terminatorCrossing(q, prevQ));
     }
 
-    if (valid) {
-      const p = pointAt(q);
-      if (p) result.push(p);
-    }
+    if (valid) result.push(p);
 
     prevQ = q;
     prevValid = valid;

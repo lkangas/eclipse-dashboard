@@ -671,6 +671,37 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        the disk edge, small relative to the shape's own several-degree
        extent); Calamocha sits inside the outline at its own local Max.
        `npm run test`: 61/61 (+6 new); `npm run check`: 0 errors/warnings.
+     - ✅ **Fixed a real flicker near the terminator** (user-reported,
+       visible only while animating through that region -- a single
+       fixed instant, like every test above, couldn't catch it). Root
+       cause: `pointAt`'s fixed-point iteration had no guard against its
+       own `zeta1` going NaN mid-loop (possible even when `marginAt`'s
+       cheaper un-iterated check said "inside", since the iterated/zeta-
+       corrected shadow radius can differ enough right at the edge to
+       push a q that `marginAt` approved past the ellipsoid) -- the NaN
+       then propagated silently through the rest of the loop (the break
+       condition never fires on NaN) into `ksiEtaToLatLon`, whose own
+       `radical < 0` check *also* didn't catch a NaN radical (NaN
+       comparisons are always false in JS), producing a non-null
+       `{lat: NaN, lon: NaN}` point pushed straight into the rendered
+       polygon -- corrupting the SVG on whichever frame happened to hit
+       it, an intermittent glitch since which of the 60 sample angles
+       triggers it shifts frame to frame as the geometry moves. Fixed
+       three ways: `pointAt` now bails out (returns `null`) the instant
+       its own iteration goes non-finite instead of limping through 10
+       more NaN iterations; `ksiEtaToLatLon`'s check changed to
+       `!(radical >= 0)` so it actually catches NaN too, not just
+       negative; and the outer sweep now uses `pointAt`'s own
+       (authoritative) result to decide per-angle validity instead of
+       `marginAt`'s cheaper approximation, so a disagreement between the
+       two can only ever shrink the visible arc (never sneak a bad point
+       through) while still correctly triggering a bisected crossing
+       insertion exactly where it happens. Added a permanent regression
+       test sweeping every second through the whole terminator
+       transition (well before onset through well past full disk-exit)
+       checking for any non-finite point -- confirmed this test fails on
+       the pre-fix code and passes after. `npm run test`: 62/62 (+1);
+       `npm run check`: 0 errors/warnings.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,

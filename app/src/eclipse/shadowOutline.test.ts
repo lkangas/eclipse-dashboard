@@ -70,4 +70,32 @@ describe('shadowOutlineAt near the day/night terminator', () => {
     const outline = shadowOutlineAt(coefficients, T_FAR, 60);
     expect(outline).toHaveLength(0);
   });
+
+  it('never produces a NaN point across a dense sweep through the whole transition', () => {
+    // Regression test for a real bug: pointAt's fixed-point iteration
+    // had no guard against its own zeta1 going NaN mid-loop (possible
+    // even when marginAt's cheaper un-iterated check said "inside",
+    // since the iterated/zeta-corrected shadow radius can differ enough
+    // right at the edge to push a q that marginAt approved past the
+    // ellipsoid) -- the NaN then propagated silently through the rest
+    // of the loop (the break condition never fires on NaN) into
+    // ksiEtaToLatLon, whose own `radical < 0` check also didn't catch a
+    // NaN radical (NaN comparisons are always false), producing a
+    // non-null {lat: NaN, lon: NaN} point pushed straight into the
+    // polygon. Visible in the app as an intermittent flicker: which of
+    // the 60 sample angles triggers it shifts frame to frame as the
+    // geometry moves, so a single fixed instant (the tests above) can
+    // pass while the live animation still glitches. This sweeps every
+    // second across the whole terminator transition (well before onset
+    // through well past full disk-exit) specifically to catch that --
+    // confirmed this test fails on the pre-fix code.
+    for (let sec = 29 * 60; sec <= 36 * 60; sec++) {
+      const tHours = sec / 3600;
+      const outline = shadowOutlineAt(coefficients, tHours, 60);
+      for (const p of outline) {
+        expect(Number.isFinite(p.lat), `lat at t=${tHours}h`).toBe(true);
+        expect(Number.isFinite(p.lon), `lon at t=${tHours}h`).toBe(true);
+      }
+    }
+  });
 });
