@@ -355,8 +355,8 @@
   }
   .coast {
     fill: var(--screen);
-    stroke: var(--line);
-    stroke-width: 1;
+    stroke: #000;
+    stroke-width: 0.5;
   }
   .pathband {
     fill: var(--accent-bg);

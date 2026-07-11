@@ -48,12 +48,17 @@ added. Regenerate with `tools/build-data/basemap.mjs`
 ## basemap-global.topojson
 
 Same source and license as `basemap.topojson` above (`world-atlas`'s
-Natural Earth 1:50m data, ISC license). A separate, much wider but more
-coarsely simplified clip -- Arctic Russia/Svalbard through Greenland and
-Iceland to Spain (bbox `-65,45,135,90`) -- for the Global map tab, which
-needs to show the whole event path far outside `basemap.topojson`'s
-tight Iberia-only extent. Regenerate with `tools/build-data/basemap-global.mjs`
-(`npm run basemap-global` in `tools/build-data/`).
+Natural Earth 1:50m data, ISC license). A separate, much more coarsely
+simplified layer for the Global map tab, which needs to show the whole
+event path far outside `basemap.topojson`'s tight Iberia-only extent --
+**the whole world**, not a bbox-clipped subset (see PLAN.md's Global-map
+milestone entry: every mapshaper bbox-clip variant tried mishandled
+Russia's Arctic coast one way or another; simplifying everything and
+letting the client-side stereographic projection's own `.clipAngle()`
+do the regional clipping at render time sidesteps it entirely, at a
+still-reasonable ~100KB). Regenerate with
+`tools/build-data/basemap-global.mjs` (`npm run basemap-global` in
+`tools/build-data/`).
 
 ## stars.json
 

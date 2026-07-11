@@ -837,6 +837,41 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
          small on-screen scale). Regenerated and reverified the same
          jump-scan directly against the live rendered `<path>` in the
          browser: 0 jumps, max coordinate magnitude ~165, 62 subpaths.
+         **Still not it, reported back as "Eurasia is completely
+         gone."** `bbox2=` turned out to have its own, different bug:
+         it silently *dropped* Russia's mainland polygon entirely
+         rather than clipping it (confirmed on the un-simplified,
+         pre-filter-islands output too, so neither of those was
+         responsible) -- swapping one failure mode for another, not a
+         real fix. Chased the *actual* jump-artifact root cause much
+         further: erasing a wedge around the true antimeridian
+         (`\|lon\| > 150`) before clipping fixed the antimeridian jumps
+         specifically, and did keep Eurasia this time, but a *second*,
+         unrelated cluster of jumps remained around Novaya Zemlya/the
+         Barents Sea (lat ~69-71.5, nowhere near the dateline) --
+         present in `-clip bbox=`, `bbox2=`, and even a plain `-clip`
+         against an explicit rectangle layer alike, so it wasn't a
+         clip-flag problem at all. Isolated it by checking the *raw,
+         unclipped* source: **mapshaper's clip code, in every variant
+         tried, just doesn't handle Russia's Arctic coast cleanly
+         against a bbox that partially contains it** -- not a fixable
+         one-flag issue. Sidestepped entirely instead of chased
+         further: simplify the *whole world* (no bbox clip at all) and
+         let the already-correct, already-verified client-side
+         `.clipAngle(89.9)` (from the earlier fix above) do all the
+         regional clipping at render time, the same way it already
+         correctly handles everything else. Zero jumps, geographically
+         and in the live rendered path, at every simplify level tried;
+         landed on 15% (98KB, still a reasonable bundle addition).
+         `tools/build-data/basemap-global.mjs` simplified down to just
+         `-target land -filter-islands ... -simplify ...` -- no clip
+         step at all, and the comment there records the dead ends so
+         the next person doesn't retry them.
+       - **Stroke.** Per direct request, `.coast` (shared with the
+         Spain tab, so both got it) changed from the themed `--line`
+         gray at 1px to a plain black 0.5px -- narrower and higher-
+         contrast, matching real reference-map coastline convention
+         better than the soft themed gray did.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,

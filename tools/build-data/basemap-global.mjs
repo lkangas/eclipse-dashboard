@@ -17,26 +17,24 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE = path.join(HERE, 'node_modules', 'world-atlas', 'countries-50m.json');
 const OUTPUT_DIR = path.join(HERE, '..', '..', 'app', 'src', 'data');
 
-// lonMin,latMin,lonMax,latMax -- covers the whole 2026-08-12 path from
-// Arctic Russia/Svalbard through Greenland/Iceland to Spain, with margin.
-const BBOX = '-65,45,135,90';
-
-// Plain `-clip bbox=` mishandles Russia here: its unclipped polygon
-// crosses the antimeridian (continuing past +180 as negative longitudes
-// toward Alaska), and a naive planar box-clip of that -- even though our
-// own bbox above never wraps -- inserted long spurious straight edges
-// at constant latitude (e.g. one ran from 67E to -65W along a single
-// parallel), several thousand km of straight "coastline" nowhere near
-// any real coast. `bbox2` (mapshaper's alternate/fast clip
-// implementation) doesn't have this bug -- confirmed by scanning every
-// ring for consecutive points with a >10deg longitude jump but <1deg
-// latitude change (the signature of one of these fake edges): many with
-// plain bbox=, zero with bbox2=. `-filter-islands` drops the flyspeck
-// islands that would otherwise be indistinguishable noise at this map's
-// small on-screen scale.
+// No bbox clip at all -- every variant tried (`-clip bbox=`, `-clip
+// bbox2=`, `-erase` a dateline wedge first, an explicit rectangle layer
+// via plain `-clip`) either inserted spurious edges through Russia's
+// polygon or silently dropped it (Eurasia mainland vanishing entirely)
+// depending on the exact combination. Root cause traced to Russia's
+// Arctic coast repeatedly approaching the antimeridian in a way none of
+// mapshaper's clip code paths handled cleanly against a bbox that itself
+// never wraps -- not fixable by picking a different clip flag. Simplify
+// the WHOLE WORLD instead and let the client-side stereographic
+// projection's own `.clipAngle()` (already correct and proven artifact-
+// free -- MapPanel.svelte) do all the regional clipping at render time.
+// File size stays reasonable (under 100KB at this simplify level) since
+// simplification happens before nothing is ever clipped away wastefully.
+// `-filter-islands` drops flyspeck islands that would otherwise be
+// indistinguishable noise at this map's small on-screen scale.
 const commands = [
   `-i "${SOURCE}"`,
-  `-clip bbox2=${BBOX}`,
+  '-target land',
   '-filter-islands min-area=200km2',
   '-simplify 15% keep-shapes',
   `-o format=topojson quantization=1e5 "${path.join(OUTPUT_DIR, 'basemap-global.topojson')}"`,
