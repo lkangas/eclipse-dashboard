@@ -1,89 +1,110 @@
-<script>
-  import svelteLogo from './assets/svelte.svg'
-  import viteLogo from './assets/vite.svg'
-  import heroImg from './assets/hero.png'
-  import Counter from './lib/Counter.svelte'
+<script lang="ts">
+  import TopBar from './lib/TopBar.svelte';
+  import TimeBar from './lib/TimeBar.svelte';
+  import ContactsPanel from './lib/panels/ContactsPanel.svelte';
+  import CountdownPanel from './lib/panels/CountdownPanel.svelte';
+  import MapPanel from './lib/panels/MapPanel.svelte';
+  import SkyPanel from './lib/panels/SkyPanel.svelte';
+  import { resizable } from './lib/actions/resizable';
 </script>
 
-<section id="center">
-  <div class="hero">
-    <img src={heroImg} class="base" width="170" height="179" alt="" />
-    <img src={svelteLogo} class="framework" alt="Svelte logo" />
-    <img src={viteLogo} class="vite" alt="Vite logo" />
-  </div>
-  <div>
-    <h1>Get started</h1>
-    <p>Edit <code>src/App.svelte</code> and save to test <code>HMR</code></p>
-  </div>
-  <Counter />
-</section>
+<div class="app">
+  <TopBar />
+  <div class="main">
+    <div class="col left">
+      <div class="pane">
+        <ContactsPanel />
+      </div>
+      <div class="hsplit" use:resizable={{ axis: 'y' }}>
+        <div class="grip"><i></i><i></i><i></i></div>
+      </div>
+      <div class="pane">
+        <CountdownPanel />
+      </div>
+    </div>
 
-<div class="ticks"></div>
+    <div class="vsplit" use:resizable={{ axis: 'x' }}>
+      <div class="grip"><i></i><i></i><i></i></div>
+    </div>
 
-<section id="next-steps">
-  <div id="docs">
-    <svg class="icon" role="presentation" aria-hidden="true">
-      <use href="/icons.svg#documentation-icon"></use>
-    </svg>
-    <h2>Documentation</h2>
-    <p>Your questions, answered</p>
-    <ul>
-      <li>
-        <a href="https://vite.dev/" target="_blank" rel="noreferrer">
-          <img class="logo" src={viteLogo} alt="" />
-          Explore Vite
-        </a>
-      </li>
-      <li>
-        <a href="https://svelte.dev/" target="_blank" rel="noreferrer">
-          <img class="button-icon" src={svelteLogo} alt="" />
-          Learn more
-        </a>
-      </li>
-    </ul>
+    <div class="col right">
+      <div class="pane">
+        <MapPanel />
+      </div>
+      <div class="hsplit" use:resizable={{ axis: 'y' }}>
+        <div class="grip"><i></i><i></i><i></i></div>
+      </div>
+      <div class="pane">
+        <SkyPanel />
+      </div>
+    </div>
   </div>
-  <div id="social">
-    <svg class="icon" role="presentation" aria-hidden="true">
-      <use href="/icons.svg#social-icon"></use>
-    </svg>
-    <h2>Connect with us</h2>
-    <p>Join the Vite community</p>
-    <ul>
-      <li>
-        <a href="https://github.com/vitejs/vite" target="_blank" rel="noreferrer">
-          <svg class="button-icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#github-icon"></use>
-          </svg>
-          GitHub
-        </a>
-      </li>
-      <li>
-        <a href="https://chat.vite.dev/" target="_blank" rel="noreferrer">
-          <svg class="button-icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#discord-icon"></use>
-          </svg>
-          Discord
-        </a>
-      </li>
-      <li>
-        <a href="https://x.com/vite_js" target="_blank" rel="noreferrer">
-          <svg class="button-icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#x-icon"></use>
-          </svg>
-          X.com
-        </a>
-      </li>
-      <li>
-        <a href="https://bsky.app/profile/vite.dev" target="_blank" rel="noreferrer">
-          <svg class="button-icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#bluesky-icon"></use>
-          </svg>
-          Bluesky
-        </a>
-      </li>
-    </ul>
-  </div>
-</section>
+  <TimeBar />
+</div>
 
-<div class="ticks"></div>
-<section id="spacer"></section>
+<style>
+  .app {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+  .col {
+    display: flex;
+    flex-direction: column;
+    min-width: 160px;
+  }
+  .col.left,
+  .col.right {
+    flex: 1 1 0;
+  }
+  /* container-type: size enables the cqw/cqh sizing used by ContactsPanel
+     and CountdownPanel (see those components' own comments) -- harmless
+     for MapPanel/SkyPanel, which don't use container queries. */
+  .pane {
+    flex: 1 1 0;
+    min-height: 140px;
+    position: relative;
+    overflow: hidden;
+    container-type: size;
+  }
+
+  .vsplit {
+    flex: 0 0 6px;
+    cursor: col-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--divider);
+  }
+  .hsplit {
+    flex: 0 0 6px;
+    cursor: row-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--divider);
+  }
+  .grip {
+    display: flex;
+    gap: 3px;
+  }
+  .vsplit .grip {
+    flex-direction: column;
+  }
+  .grip i {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--line);
+  }
+  .vsplit:hover .grip i,
+  .hsplit:hover .grip i {
+    background: var(--muted);
+  }
+</style>

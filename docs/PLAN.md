@@ -1,13 +1,13 @@
 # Implementation Plan — Eclipse Dashboard (2026-08-12, Spain)
 
-Status: **in progress**. The mock UI (§10) is substantially built out; the
-`eclipse-calc` Python oracle, the eclipse-core TS port (§4), and the data
-pipeline (§3 — real elements, basemap, star catalog) are all done and
-validated. Next: milestone 4, wiring this real data/computation into the
-map/sky views (likely alongside starting the Svelte migration, since the
-mock currently lives outside the real `app/` component structure). See
-§13 for a full per-milestone breakdown of what's done, in progress, and
-not started.
+Status: **in progress**. The mock UI (§10), `eclipse-calc` Python oracle,
+eclipse-core TS port (§4), and data pipeline (§3) are all done and
+validated. Milestone 4 has started: the mock has been mechanically ported
+into real Svelte components (layout, CSS, all interactions) in `app/src/`,
+still on stub/mock data. Next: replace that stub data panel-by-panel with
+real computation (§4 eclipse-core + §3 data) and astronomy-engine. See §13
+for a full per-milestone breakdown of what's done, in progress, and not
+started.
 
 ---
 
@@ -487,7 +487,28 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      cusp -- see project memory for the full trace
    - 99/99 Vitest cases pass across all four modules; `svelte-check`/
      `tsc`: 0 errors throughout
-4. **Map + shadow** and **sky views** on real computation — ⬜ not started.
+4. **Map + shadow** and **sky views** on real computation — 🟡 in progress:
+   - ✅ Svelte app shell: the mock (§10) mechanically ported into real
+     `app/src/` components -- `App.svelte` (2x2 resizable grid via a
+     `resizable` action), `TopBar.svelte`, `ContactsPanel.svelte`,
+     `CountdownPanel.svelte`, `MapPanel.svelte`, `SkyPanel.svelte`,
+     `TimeBar.svelte` -- plus `stores/observer.ts` (§5) and
+     `stores/clock.ts` (§6). All mock interactions preserved (resize,
+     tabs, map click/drag-to-locate now writing to the real `observer`
+     store, time-slider drag/play/curve-switch, Live/Sim arm-confirm
+     guard, countdown dual/single dev toggle). Panel *content* is still
+     the mock's stub/hardcoded data (Zaragoza reference contacts,
+     hand-picked path coastline, placeholder sky alt-az) -- wiring real
+     `eclipse-core` computation + `src/data/*` + astronomy-engine per
+     panel is the next slice. `npm run test`: 105/105; `npm run check`:
+     0 errors/warnings.
+   - ⬜ Wire ContactsPanel/CountdownPanel to `findContactTimes`/
+     `findMaximumTime` against the live `observer` store
+   - ⬜ Wire MapPanel to `basemap.topojson` (d3-geo) + `path.ts`'s central
+     line/limits/shadow outline, replacing the stub coastline/path arrays
+   - ⬜ Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
+     `stars.json`) against `clock` + `observer`
+   - ⬜ Wire TimeBar to real contact times instead of `STUB_CONTACTS`
 5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
    started (mock has manual entry + map click/drag + a geolocation
    placeholder button; serial GPS not touched at all yet).
