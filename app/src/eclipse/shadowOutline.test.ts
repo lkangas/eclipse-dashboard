@@ -42,7 +42,11 @@ describe('shadowOutlineAt near the day/night terminator', () => {
   it('produces no NaN/undefined points and closes the ring', () => {
     const outline = shadowOutlineAt(coefficients, T_PARTIAL, 60);
     expect(outline.length).toBeGreaterThan(10);
-    expect(outline.length).toBeLessThan(62); // some regular samples were dropped
+    // 60 regular samples, minus the off-disk run, plus 2 bisected
+    // crossing points, plus up to TERMINATOR_ARC_SEGMENTS-1 great-circle
+    // bridge points between them (see the next test) -- comfortably
+    // under 60 + 2 + 15.
+    expect(outline.length).toBeLessThan(80);
     for (const p of outline) {
       expect(Number.isFinite(p.lat)).toBe(true);
       expect(Number.isFinite(p.lon)).toBe(true);
@@ -56,13 +60,53 @@ describe('shadowOutlineAt near the day/night terminator', () => {
     // from an ordinary sample (distance-to-nearest-multiple-of-6, not a
     // raw `% 6`, since floating point can put an exact grid point a hair
     // under the next multiple, e.g. 137.99999999999997, which `% 6` would
-    // wrongly read as ~6 away from 0 instead of ~0).
+    // wrongly read as ~6 away from 0 instead of ~0). Great-circle bridge
+    // points (next test) carry `qDeg: NaN`, which this check's `> 1e-6`
+    // comparison never satisfies (NaN comparisons are always false), so
+    // they don't need excluding explicitly here.
     const outline = shadowOutlineAt(coefficients, T_PARTIAL, 60);
     const nonGridPoints = outline.filter((p) => {
       const nearestGrid = Math.round(p.qDeg / 6) * 6;
       return Math.abs(p.qDeg - nearestGrid) > 1e-6;
     });
     expect(nonGridPoints).toHaveLength(2);
+  });
+
+  it('bridges the gap between the two crossings with points along their great circle', () => {
+    const outline = shadowOutlineAt(coefficients, T_PARTIAL, 60);
+    const bridgeIdx = outline.map((p, i) => (Number.isNaN(p.qDeg) ? i : -1)).filter((i) => i >= 0);
+    // TERMINATOR_ARC_SEGMENTS - 1 interior points, contiguous in the
+    // array (sitting strictly between the exit and entry crossings).
+    expect(bridgeIdx).toHaveLength(15);
+    expect(bridgeIdx[bridgeIdx.length - 1] - bridgeIdx[0]).toBe(bridgeIdx.length - 1);
+
+    const exit = outline[bridgeIdx[0] - 1];
+    const entry = outline[bridgeIdx[bridgeIdx.length - 1] + 1];
+    const toRad = Math.PI / 180;
+    function greatCircleDist(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
+      const phi1 = a.lat * toRad,
+        phi2 = b.lat * toRad;
+      const dphi = (b.lat - a.lat) * toRad,
+        dlam = (b.lon - a.lon) * toRad;
+      const h = Math.sin(dphi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dlam / 2) ** 2;
+      return 2 * Math.asin(Math.sqrt(h));
+    }
+    const total = greatCircleDist(exit, entry);
+    // Every bridge point should lie ON the great circle joining exit and
+    // entry (its distances to both endpoints sum to exactly the
+    // endpoint-to-endpoint distance -- off-circle points would sum to
+    // more, by the triangle inequality) and should be encountered in
+    // monotonically increasing order along that arc.
+    let prevFrac = 0;
+    for (const i of bridgeIdx) {
+      const p = outline[i];
+      const dExit = greatCircleDist(exit, p);
+      const dEntry = greatCircleDist(p, entry);
+      expect(dExit + dEntry).toBeCloseTo(total, 6);
+      const frac = dExit / total;
+      expect(frac).toBeGreaterThan(prevFrac);
+      prevFrac = frac;
+    }
   });
 
   it('fully outside the disk (deep in the night side) yields an empty polygon', () => {

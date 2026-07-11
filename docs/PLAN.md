@@ -284,7 +284,7 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
 - **Two map tabs** (✅ both built now, see §13 for the full history):
   1. **Spain (zoomed + rotated)** — ✅ done. The centerline crosses Spain on
      a shallow diagonal, wasting panel space in the corners of the wide
-     rectangular panel; fixed with a fixed `SPAIN_ROTATION_DEG = 20`
+     rectangular panel; fixed with a fixed `SPAIN_ROTATION_DEG = 30`
      applied via `spainProjection.angle()` before `fitExtent` -- a
      modest tilt, not a fully leveled line (one locked constant, not a
      dynamic per-frame angle or a two-point build-time config tool —
@@ -705,8 +705,9 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        and used that to fully level the line (~40°) -- reported back as
        "too much" and over-engineered for what was asked ("a single
        fixed value would have been good"); dialed back to a plain
-       `SPAIN_ROTATION_DEG = 20`, a modest tilt rather than a fully
-       leveled line. `npm run check`: 0 errors/warnings.
+       `SPAIN_ROTATION_DEG = 30` (bumped from an initial 20 -- still just
+       a plain constant, not re-derived), a modest tilt rather than a
+       fully leveled line. `npm run check`: 0 errors/warnings.
      - ✅ **Penumbral outline support** -- `shadowOutlineAt` generalized
        with a `kind: 'umbra' | 'penumbra'` param selecting l1/tanf1 vs
        l2/tanf2 (the rest of the geometry only depends on the shadow
@@ -759,6 +760,62 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        identical output to the old manual formula at five spot-check
        points before swapping it in. `npm run check`: 0 errors/
        warnings; `npm run test`: 62/62.
+     - ✅ **Global map follow-up fixes**, all per direct feedback after
+       the first cut above shipped:
+       - **Scale.** `globalProjection` had a fixed hand-picked scale, so
+         the actual content (the swept N/S limits band) occupied only a
+         small area of the 200x200 viewport. Switched to
+         `.fitExtent()` against the band itself (a small lon/lat ->
+         GeoJSON Polygon helper, `llPolygon`) rather than the coastline
+         -- the coastline's own bbox (Arctic Russia to Spain) is much
+         wider than the band, so fitting to it left the band small in a
+         corner. Verified: the band's on-screen bbox now touches the
+         full padded height of the viewport.
+       - **Terminator crossings bridged with a straight chord.** Where
+         an outline exits and re-enters the visible disk, the polygon
+         used to connect the two bisected crossing points directly --
+         a straight line across the region that was actually off-disk,
+         visibly wrong for the much larger penumbral outline (less
+         obvious, but equally wrong, for the umbra outline too, being
+         the same shared function). Per direct suggestion, fixed by
+         treating the day/night terminator as a great circle (an
+         excellent approximation) and inserting points along the great-
+         circle arc between the two crossings (`greatCircleInterpolate`,
+         16 segments) instead of leaving a straight gap. Getting this
+         right without special-casing the q=0/2pi wraparound (a genuine
+         edge case: the off-disk run can straddle that seam at some
+         instants) needed `shadowOutlineAt`'s sweep restructured to
+         start right at the beginning of an off-disk run and let q climb
+         monotonically past 2pi rather than wrapping indices -- pointAt/
+         marginAt are periodic in q (plain sin/cos), so this is exactly
+         as valid as the original [0, 2pi) samples. Verified with a new
+         test asserting every bridge point lies exactly on the great
+         circle joining the two crossings (sum of its distances to both
+         endpoints equals the endpoint-to-endpoint distance, monotonic
+         along the arc) -- not just a point count. `npm run test`:
+         63/63 (+1); `npm run check`: 0 errors/warnings.
+       - **Stroke width and the centerline.** Per direct request, the
+         Global tab's band/umbra/penumbra are now filled with no stroke
+         at all (a `.globalFill` class, deliberately declared last in
+         the stylesheet so it overrides `.umbraOutline`/
+         `.penumbraOutline`'s own stroke for elements carrying both
+         classes) -- at this small scale a 1px edge read as noise. The
+         centerline and N/S limit lines are no longer drawn on this tab
+         either (not needed once the band itself is filled);
+         `GLOBAL_PATH_CENTER` (now unused for rendering) was removed
+         rather than left as dead code.
+       - **Broken-looking coastline.** Root cause: a custom
+         `geoProjection()` has no default clip circle (unlike d3's own
+         built-in azimuthal projections), so `geoPath` had no way to
+         clip coastline rings passing near/beyond the antipodal point --
+         classic symptom of a missing `.clipAngle()`, not a data problem
+         (the "polygon closing" guess was reasonable but not it).
+         Fixed with `.clipAngle(89.9)`. Verified: parsed the rendered
+         path's `d` attribute directly -- no NaNs, max coordinate
+         magnitude ~215 (previously could blow up much larger near the
+         antipodal singularity), zero same-subpath jumps over 100px
+         across all 65 subpaths (a proxy for "does any edge tear across
+         the shape").
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,

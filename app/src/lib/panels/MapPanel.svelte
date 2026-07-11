@@ -34,7 +34,7 @@
   // horizontal-rectangle aspect ratio -- a single fixed value (not
   // fully leveled, not live-recomputed) is enough. Set via .angle()
   // *before* fitExtent so the fit itself accounts for the tilted content.
-  const SPAIN_ROTATION_DEG = 20;
+  const SPAIN_ROTATION_DEG = 30;
   const spainProjection: GeoProjection = geoMercator()
     .angle(SPAIN_ROTATION_DEG)
     .fitExtent(
@@ -81,13 +81,15 @@
   const PATH_SOUTH = withTerminator(shadowFrames.southLimit, shadowFrames.southLimitTerminator);
   const band = PATH_NORTH.concat(PATH_SOUTH.slice().reverse());
 
-  // Global tab's own whole-event central line + N/S limits
-  // (shadow-frames-global.json -- coarser, but spans the entire path from
-  // Arctic Russia through Iceland to Spain, unlike shadowFrames above
-  // which only covers the Spain transit slice). Terminator points can
-  // fall at *either* end here (the window starts right where the umbra
-  // first touches the globe at all, not safely mid-visible-disk like the
-  // Spain slice does), hence prepending as well as appending.
+  // Global tab's own whole-event N/S umbral limits (shadow-frames-
+  // global.json -- coarser, but spans the entire path from Arctic Russia
+  // through Iceland to Spain, unlike shadowFrames above which only
+  // covers the Spain transit slice), swept into the filled `GLOBAL_BAND`
+  // below rather than drawn as its own lines (no centerline/limit-line
+  // strokes on this tab, per direct request). Terminator points can fall
+  // at *either* end here (the window starts right where the umbra first
+  // touches the globe at all, not safely mid-visible-disk like the Spain
+  // slice does), hence prepending as well as appending.
   function withTerminatorBoth(
     points: { lat: number; lon: number }[],
     start: { lat: number; lon: number } | null,
@@ -98,11 +100,6 @@
     if (end) pts.push([end.lat, end.lon]);
     return pts;
   }
-  const GLOBAL_PATH_CENTER = withTerminatorBoth(
-    shadowFramesGlobal.centralLine,
-    shadowFramesGlobal.centralLineTerminatorStart,
-    shadowFramesGlobal.centralLineTerminatorEnd,
-  );
   const GLOBAL_PATH_NORTH = withTerminatorBoth(
     shadowFramesGlobal.northLimit,
     shadowFramesGlobal.northLimitTerminatorStart,
@@ -202,20 +199,42 @@
   // does, instead of hand-computing screen coordinates per point.
   const GLOBAL_LAT0 = 65.22,
     GLOBAL_LON0 = -25.24;
-  const GLOBAL_PXPERUNIT = 70,
-    GLOBAL_CX = 100,
-    GLOBAL_CY = 100;
+  const GLOBAL_VW = 200,
+    GLOBAL_VH = 200,
+    GLOBAL_PAD = 10;
   function stereographicRaw(x: number, y: number): [number, number] {
     const cosy = Math.cos(y),
       k = 1 + Math.cos(x) * cosy;
     return [(cosy * Math.sin(x)) / k, Math.sin(y) / k];
   }
+  // A custom geoProjection() has no default clip circle (unlike d3's own
+  // built-in azimuthal projections) -- without one, geoPath chokes on
+  // coastline rings that pass near/beyond the antipodal point, producing
+  // broken/self-intersecting-looking paths. 89.9, not a full 90, keeps
+  // the exact antipodal edge case away from the clip boundary.
+  function llPolygon(pts: [number, number][]) {
+    const ring = pts.map(([lat, lon]): [number, number] => [lon, lat]);
+    const first = ring[0],
+      last = ring[ring.length - 1];
+    if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
+    return { type: 'Polygon' as const, coordinates: [ring] };
+  }
+  // Fit to the swept umbral band (the whole event's N/S limits), not the
+  // coastline -- the coastline's own bbox (Arctic Russia to Spain) is
+  // much wider than the band itself, which would otherwise leave the
+  // actual content of interest small in a corner of the viewport.
   const globalProjection: GeoProjection = geoProjection(stereographicRaw)
     .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
-    .scale(2 * GLOBAL_PXPERUNIT)
-    .translate([GLOBAL_CX, GLOBAL_CY]);
+    .clipAngle(89.9)
+    .fitExtent(
+      [
+        [GLOBAL_PAD, GLOBAL_PAD],
+        [GLOBAL_VW - GLOBAL_PAD, GLOBAL_VH - GLOBAL_PAD],
+      ],
+      { type: 'Feature' as const, properties: {}, geometry: llPolygon(GLOBAL_BAND) },
+    );
   function stereo(lat: number, lon: number): [number, number] {
-    return globalProjection([lon, lat]) ?? [GLOBAL_CX, GLOBAL_CY];
+    return globalProjection([lon, lat]) ?? [GLOBAL_VW / 2, GLOBAL_VH / 2];
   }
   function stereoPts(pairs: [number, number][]) {
     return pairs.map(([lat, lon]) => stereo(lat, lon).join(',')).join(' ');
@@ -284,15 +303,12 @@
       style:display={tab === 'global' ? 'block' : 'none'}
     >
       <path class="coast" d={globalLandPathD} />
-      <polygon class="pathband" points={stereoPts(GLOBAL_BAND)} />
-      <polyline class="limitline" points={stereoPts(GLOBAL_PATH_NORTH)} />
-      <polyline class="limitline" points={stereoPts(GLOBAL_PATH_SOUTH)} />
-      <polyline class="pathline" points={stereoPts(GLOBAL_PATH_CENTER)} />
+      <polygon class="globalFill globalBand" points={stereoPts(GLOBAL_BAND)} />
       {#if outlinePenumbraLatLon.length >= 3}
-        <polygon class="penumbraOutline" points={stereoPts(outlinePenumbraLatLon)} />
+        <polygon class="globalFill penumbraOutline" points={stereoPts(outlinePenumbraLatLon)} />
       {/if}
       {#if outlineLatLon.length >= 3}
-        <polygon class="umbraOutline" points={stereoPts(outlineLatLon)} />
+        <polygon class="globalFill umbraOutline" points={stereoPts(outlineLatLon)} />
       {/if}
       <circle class="gemarker" cx={gePos[0]} cy={gePos[1]} r="2.5" />
     </svg>
@@ -413,6 +429,18 @@
   }
   .gemarker {
     fill: var(--accent);
+    stroke: none;
+  }
+  /* Global tab only: filled shapes with no stroke at all (per direct
+     request -- at this small scale a 1px edge reads as visual noise, and
+     there's no centerline/limit-line to draw here in the first place).
+     Declared last so it wins over .umbraOutline/.penumbraOutline's own
+     stroke for elements carrying both classes, regardless of source
+     order up there. */
+  .globalBand {
+    fill: var(--accent-bg);
+  }
+  .globalFill {
     stroke: none;
   }
 </style>

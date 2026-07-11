@@ -136,17 +136,60 @@ export interface ShadowOutlinePoint extends LatLon {
   qDeg: number;
 }
 
+const TERMINATOR_ARC_SEGMENTS = 16;
+
+/** Points strictly between `a` and `b` along the great-circle arc joining
+ * them (endpoints excluded), evenly spaced by central angle. Used to
+ * bridge a terminator-crossing pair: the day/night terminator itself is
+ * (to excellent approximation) a great circle, so this is a much closer
+ * stand-in for "the boundary between where the outline exits and
+ * re-enters the visible disk" than the straight chord a plain polygon
+ * would otherwise draw between the two crossing points. */
+function greatCircleInterpolate(a: LatLon, b: LatLon, segments: number): LatLon[] {
+  const toRad = Math.PI / 180;
+  const toDeg = 180 / Math.PI;
+  const phi1 = a.lat * toRad,
+    lam1 = a.lon * toRad;
+  const phi2 = b.lat * toRad,
+    lam2 = b.lon * toRad;
+  const d =
+    2 *
+    Math.asin(
+      Math.sqrt(
+        Math.sin((phi2 - phi1) / 2) ** 2 +
+          Math.cos(phi1) * Math.cos(phi2) * Math.sin((lam2 - lam1) / 2) ** 2,
+      ),
+    );
+  if (d < 1e-9) return [];
+  const points: LatLon[] = [];
+  for (let i = 1; i < segments; i++) {
+    const f = i / segments;
+    const A = Math.sin((1 - f) * d) / Math.sin(d);
+    const B = Math.sin(f * d) / Math.sin(d);
+    const x = A * Math.cos(phi1) * Math.cos(lam1) + B * Math.cos(phi2) * Math.cos(lam2);
+    const y = A * Math.cos(phi1) * Math.sin(lam1) + B * Math.cos(phi2) * Math.sin(lam2);
+    const z = A * Math.sin(phi1) + B * Math.sin(phi2);
+    points.push({
+      lat: Math.atan2(z, Math.sqrt(x * x + y * y)) * toDeg,
+      lon: Math.atan2(y, x) * toDeg,
+    });
+  }
+  return points;
+}
+
 /** The umbral or penumbral shadow footprint polygon at `tHoursFromT0`:
- * `points + 1` evenly-spaced positions around the shadow-cone circle in
- * the fundamental plane (first and last coincide, closing the polygon),
- * plus up to two exact terminator-crossing points bisected in wherever
- * the validity of adjacent samples flips (a circle crossing the
- * day/night boundary has 0 or 2 intersections). Ported from
- * eclipse_calc.shadow.shadow_outlines -- `kind` selects umbra=True (l2/
- * tanf2, PLAN.md Sec4) vs umbra=False (l1/tanf1, the penumbral cone,
- * PLAN.md Sec8's Global map need); the rest of the geometry (which only
- * depends on the shadow axis's declination/hour angle, not which cone)
- * is identical either way. */
+ * `points` evenly-spaced positions around the shadow-cone circle in the
+ * fundamental plane (closed implicitly -- SVG `<polygon>` already joins
+ * last back to first), plus, wherever the visible-disk boundary is
+ * crossed, a bisected exit/entry point pair bridged by points along the
+ * great-circle arc between them (`greatCircleInterpolate` -- a close
+ * approximation of the day/night terminator itself, standing in for the
+ * off-disk arc that was skipped) rather than a straight chord across
+ * the gap. Ported from eclipse_calc.shadow.shadow_outlines -- `kind`
+ * selects umbra=True (l2/tanf2, PLAN.md Sec4) vs umbra=False (l1/tanf1,
+ * the penumbral cone, PLAN.md Sec8's Global map need); the rest of the
+ * geometry (which only depends on the shadow axis's declination/hour
+ * angle, not which cone) is identical either way. */
 export function shadowOutlineAt(
   coefficients: BesselianCoefficients,
   tHoursFromT0: number,
@@ -250,23 +293,64 @@ export function shadowOutlineAt(
   // bisection itself roots on (terminatorCrossing, above) -- cheap and
   // fine for that, since it only needs to locate the boundary to
   // display precision, not decide per-sample validity.
-  const result: ShadowOutlinePoint[] = [];
-  let prevQ = 0;
-  let prevValid = false;
-
-  for (let i = 0; i <= points; i++) {
-    const q = (2 * Math.PI * i) / points;
+  const step = (2 * Math.PI) / points;
+  const baseSamples: { q: number; valid: boolean; point: ShadowOutlinePoint | null }[] = [];
+  for (let i = 0; i < points; i++) {
+    const q = i * step;
     const p = pointAt(q);
-    const valid = p !== null;
+    baseSamples.push({ q, valid: p !== null, point: p });
+  }
 
-    if (i > 0 && valid !== prevValid) {
-      result.push(prevValid ? terminatorCrossing(prevQ, q) : terminatorCrossing(q, prevQ));
+  if (baseSamples.every((s) => !s.valid)) return [];
+  if (baseSamples.every((s) => s.valid)) {
+    const ring = baseSamples.map((s) => s.point!);
+    ring.push({ ...baseSamples[0].point!, qDeg: 360 });
+    return ring;
+  }
+
+  // At least one crossing exists. Re-sweep starting right at the
+  // beginning of an off-disk run (found on the samples above), letting q
+  // climb monotonically past 2*pi instead of wrapping back to 0 --
+  // pointAt/marginAt are periodic in q (plain sin/cos), so this is just
+  // as valid as the original [0, 2pi) samples, but avoids ever having to
+  // bisect across the awkward 2pi/0 seam (naive index-wrapping there
+  // would average the two angles the WRONG way around the circle). The
+  // first element is the last valid sample before the run (needed to
+  // detect and bisect that first exit); the sweep then covers each of
+  // the `points` original samples exactly once, in rotated order.
+  const startIdx = baseSamples.findIndex(
+    (s, i) => !s.valid && baseSamples[(i - 1 + points) % points].valid,
+  );
+  const startQ = baseSamples[startIdx].q;
+  const sweep: { q: number; valid: boolean; point: ShadowOutlinePoint | null }[] = [];
+  for (let k = -1; k < points; k++) {
+    const q = startQ + k * step;
+    const p = pointAt(q);
+    sweep.push({ q, valid: p !== null, point: p });
+  }
+
+  const result: ShadowOutlinePoint[] = [];
+  let pendingExit: ShadowOutlinePoint | null = null;
+  for (let j = 1; j < sweep.length; j++) {
+    const prev = sweep[j - 1];
+    const s = sweep[j];
+    if (s.valid !== prev.valid) {
+      if (prev.valid) {
+        const exit = terminatorCrossing(prev.q, s.q);
+        result.push(exit);
+        pendingExit = exit;
+      } else {
+        const entry = terminatorCrossing(s.q, prev.q);
+        if (pendingExit) {
+          for (const mid of greatCircleInterpolate(pendingExit, entry, TERMINATOR_ARC_SEGMENTS)) {
+            result.push({ ...mid, qDeg: NaN });
+          }
+        }
+        result.push(entry);
+        pendingExit = null;
+      }
     }
-
-    if (valid) result.push(p);
-
-    prevQ = q;
-    prevValid = valid;
+    if (s.valid) result.push(s.point!);
   }
 
   return result;
