@@ -1,17 +1,45 @@
 <script lang="ts">
-  // STUB data (Zaragoza reference), ported verbatim from
-  // design/layout-v3-fullscreen.html. Real computation (findContactTimes
-  // against the live observer) is a follow-up slice.
-  const rows = [
-    { event: 'C1', t: '+53:23', time: '19:35:00', alt: '—', next: false },
-    { event: 'C2', t: '−00:41.6', time: '20:29:04', alt: '—', next: true },
-    { event: 'Max', t: '−01:21', time: '20:29:44', alt: '5.9°', next: false },
-    { event: 'C3', t: '−02:05', time: '20:30:28', alt: '—', next: false },
-    { event: 'C4', t: '−53:37', time: '21:22:00', alt: '—', next: false },
-    { event: 'Sunset', t: '−51:37', time: '21:20:00', alt: '0°', next: false },
-  ];
+  // Real contact times for the live observer (PLAN.md §4), replacing the
+  // Zaragoza-reference stub. Alt (needs astronomy-engine) and Sunset
+  // (needs eclipse_calc.terminator, not yet ported) aren't available yet
+  // -- shown as "--"/omitted rather than left as stale stub numbers.
+  // Magnitude/Obscuration/Sun az have no oracle at all yet (PLAN.md §4/§14
+  // #6) -- kept as placeholder values, visually flagged provisional.
+  import { localCircumstances } from '../../stores/localCircumstances';
+  import { now } from '../../stores/now';
+  import { formatCountdown, formatDurationSeconds, formatCest } from '../format';
+
+  const EVENTS = [
+    { key: 'c1', label: 'C1' },
+    { key: 'c2', label: 'C2' },
+    { key: 'max', label: 'Max' },
+    { key: 'c3', label: 'C3' },
+    { key: 'c4', label: 'C4' },
+  ] as const;
+
+  const rows = $derived(
+    EVENTS.map(({ key, label }) => {
+      const date = $localCircumstances[key];
+      return {
+        key,
+        label,
+        date,
+        time: date ? formatCest(date) : '—',
+        offset: date ? formatCountdown((date.getTime() - $now.getTime()) / 1000) : '—',
+      };
+    }),
+  );
+  const nextKey = $derived(
+    rows.find((r) => r.date && r.date.getTime() >= $now.getTime())?.key ?? null,
+  );
+
+  const durationText = $derived(
+    $localCircumstances.durationS !== null
+      ? formatDurationSeconds($localCircumstances.durationS)
+      : 'no totality here',
+  );
+
   const circ = [
-    { label: 'Duration', value: '1m 24s' },
     { label: 'Magnitude', value: '1.039' },
     { label: 'Obscuration', value: '100%' },
     { label: 'Sun az', value: '296°' },
@@ -29,19 +57,22 @@
       </tr>
     </thead>
     <tbody>
-      {#each rows as row (row.event)}
-        <tr class:next={row.next}>
-          <td>{row.event}</td>
-          <td class="num">{row.t}</td>
+      {#each rows as row (row.key)}
+        <tr class:next={row.key === nextKey}>
+          <td>{row.label}</td>
+          <td class="num">{row.offset}</td>
           <td class="num">{row.time}</td>
-          <td class="num">{row.alt}</td>
+          <td class="num">—</td>
         </tr>
       {/each}
     </tbody>
   </table>
   <div class="circ">
+    <div><span>Duration</span><b>{durationText}</b></div>
     {#each circ as item (item.label)}
-      <div><span>{item.label}</span><b>{item.value}</b></div>
+      <div class="provisional" title="Not yet computed for this observer -- placeholder value">
+        <span>{item.label}</span><b>{item.value}<sup>†</sup></b>
+      </div>
     {/each}
   </div>
 </div>
@@ -112,5 +143,12 @@
     font-size: calc(15px * var(--tscale));
     font-weight: 500;
     font-variant-numeric: tabular-nums;
+  }
+  .circ .provisional b {
+    color: var(--muted);
+  }
+  .circ .provisional sup {
+    font-size: 0.7em;
+    cursor: help;
   }
 </style>

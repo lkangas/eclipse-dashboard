@@ -502,8 +502,21 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      `eclipse-core` computation + `src/data/*` + astronomy-engine per
      panel is the next slice. `npm run test`: 105/105; `npm run check`:
      0 errors/warnings.
-   - ⬜ Wire ContactsPanel/CountdownPanel to `findContactTimes`/
-     `findMaximumTime` against the live `observer` store
+   - ✅ Wire ContactsPanel/CountdownPanel to `findContactTimes`/
+     `findMaximumTime` against the live `observer` store, via a new
+     `stores/localCircumstances.ts` derived store (recomputes on every
+     observer change) and a shared `stores/now.ts` 1s-ticking clock (also
+     now used by `TopBar`, replacing its own timer). Contact times/
+     duration are real and match the known-correct Calamocha reference
+     (101.6s totality) to the second. Gracefully degrades for observers
+     outside the umbral path (C2/C3 show "--", circ strip says "no
+     totality here") -- verified against Paris. Alt column and the
+     Sunset row removed for now (need astronomy-engine and a terminator
+     port, respectively, neither done yet) rather than left as stale
+     stub numbers; Magnitude/Obscuration/Sun az (no oracle at all yet,
+     §4/§14 #6) kept as placeholder values with a visible "provisional"
+     flag (†) rather than silently presented as real. `npm run test`:
+     105/105; `npm run check`: 0 errors/warnings.
    - ⬜ Wire MapPanel to `basemap.topojson` (d3-geo) + `path.ts`'s central
      line/limits/shadow outline, replacing the stub coastline/path arrays
    - ⬜ Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from

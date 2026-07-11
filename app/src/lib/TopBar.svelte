@@ -1,5 +1,6 @@
 <script lang="ts">
   import { observer, setObserver } from '../stores/observer';
+  import { now } from '../stores/now';
 
   // Dev-only convenience: jumps the lat/lon fields to a preset site. Muted/
   // small on purpose -- the real input is lat/lon + map (PLAN.md §5).
@@ -54,13 +55,6 @@
   // Real wall clock -- UT and CEST always shown together (PLAN.md §6).
   // This is the topbar's "now" display, independent of the simulated
   // clock in the time bar.
-  let now = $state(new Date());
-  $effect(() => {
-    const id = setInterval(() => {
-      now = new Date();
-    }, 1000);
-    return () => clearInterval(id);
-  });
   const utFmt = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'UTC',
     hour: '2-digit',
@@ -100,8 +94,8 @@
   />
   <button class="geobtn" title="Use device location">⌖</button>
   <span class="fill"></span>
-  <span>{cestFmt.format(now)} CEST</span>
-  <span>{utFmt.format(now)} UT</span>
+  <span>{cestFmt.format($now)} CEST</span>
+  <span>{utFmt.format($now)} UT</span>
 </div>
 
 <style>
