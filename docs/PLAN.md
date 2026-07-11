@@ -1,6 +1,9 @@
 # Implementation Plan — Eclipse Dashboard (2026-08-12, Spain)
 
-Status: **draft for review**. This is step 1 (plan). Step 2 is a mock UI.
+Status: **in progress**. The mock UI (§10) is substantially built out; the
+`eclipse-calc` Python oracle is done and independently re-verified; the
+eclipse-core TS port (§4) is starting. See §13 for a full per-milestone
+breakdown of what's done, in progress, and not started.
 
 ---
 
@@ -387,16 +390,45 @@ eclipse/
 
 ## 13. Milestones
 
-0. **Plan** (this doc) ✅ pending review.
-1. **Mock UI** (step 2) — full layout, all panels, fake/stub data, on localhost;
-   inspectable in-browser. Wire stub buttons for geolocation/serial.
-2. **Data pipeline** — build-data tool; bundle basemap + stars + elements.
-3. **Eclipse core port** + oracle validation.
-4. **Map + shadow** and **sky views** on real computation.
-5. **Location inputs** (manual → map → geolocation → serial GPS).
-6. **Time control** + LIVE lock + GPS clock.
-7. **Contacts + sound warnings**.
-8. **Polish / field-hardening**; optional **desktop (Tauri) packaging**.
+Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
+
+0. **Plan** (this doc) — ✅ done, kept current as decisions resolve (§14).
+1. **Mock UI** — ✅ substantially done, `design/layout-v3-fullscreen.html`
+   (fake/stub data throughout, inspectable via a local static server):
+   - ✅ 2×2 resizable layout, zoom-invariant panel sizing
+   - ✅ Contacts table + circumstances strip (static mock data)
+   - ✅ Countdown + flat Sun/Moon schematic, single/dual-line totality logic
+   - ✅ Time control: dual/triple curve slider, Live/Sim with confirm-guard,
+     play/pause, drag-to-scrub
+   - ✅ Map: Spain tab (real path/centerline/band, live shadow marker
+     driven by the time slider, observer marker, click/drag-to-locate,
+     manual coordinate entry) + Global (whole path) tab
+   - 🟡 Sky panel (Wide/All-sky): first-pass stub content in place, visual
+     polish still needed (flagged, not yet addressed)
+   - 🟡 Location picker: functional but flagged as needing further work
+   - ⬜ Geolocation/serial: UI placeholder only, not wired up (by design
+     for this milestone — real wiring is milestone 5)
+   - ⬜ Sound warnings: not started
+2. **Data pipeline** (build-data tool; bundle basemap + stars + elements)
+   — ⬜ not started.
+3. **Eclipse core port** + oracle validation — 🟡 in progress:
+   - ✅ `eclipse-calc` itself: done, packaged, tested (27 passing pytest
+     cases), independently re-verified this session (§4/§14 #4)
+   - ✅ `tools/gen-vectors`: generates golden contact-time vectors from the
+     oracle (§12); first output committed
+   - 🟡 `src/eclipse/elements.ts` + `observer.ts`: starting now
+   - ⬜ `localCircumstances.ts`, `path.ts`: not started
+   - ⬜ Vitest suite validating the port against the golden vectors: not
+     started
+4. **Map + shadow** and **sky views** on real computation — ⬜ not started.
+5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
+   started (mock has manual entry + map click/drag + a geolocation
+   placeholder button; serial GPS not touched at all yet).
+6. **Time control** + LIVE lock + GPS clock — ⬜ not started (mock's time
+   control is UI/interaction only, not driven by real computation yet).
+7. **Contacts + sound warnings** — ⬜ not started.
+8. **Polish / field-hardening**; optional **desktop (Tauri) packaging** —
+   ⬜ not started.
 
 Frequent commits throughout; remote added when appointed.
 
