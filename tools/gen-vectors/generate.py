@@ -97,8 +97,12 @@ def elements_fixture(eclipse, ts, t0):
         # requested one, so a consumer evaluating at this exact t matches
         # to full float precision instead of ~1e-9 short of it.
         actual_t_hours = (t.tt - t0.tt) * 24
-        row = eclipse.elements_at(t, derivatives=False).iloc[0]
-        samples.append({"t_hours_from_t0": actual_t_hours, **{col: float(row[col]) for col in ELEMENT_COLS}})
+        row = eclipse.elements_at(t, derivatives=True).iloc[0]
+        samples.append({
+            "t_hours_from_t0": actual_t_hours,
+            **{col: float(row[col]) for col in ELEMENT_COLS},
+            **{f"d_{col}": float(row[f"d_{col}"]) for col in ELEMENT_COLS},
+        })
 
     return {
         "generated_by": "eclipse-calc 0.1.0",
