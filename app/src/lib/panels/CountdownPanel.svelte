@@ -146,11 +146,22 @@
   // (`overflow: hidden` below) -- a partial circle/crescent at the
   // frame edge, not a distortion of its position. That box is a
   // separate flex child BELOW .numwrap, so this clipping can never
-  // cover the countdown text. Verified empirically across the whole
-  // C1-C4 window (moves continuously, not frozen) and cross-checked
-  // that the tangent-plane offset approximation used here matches the
-  // true spherical separation to well under a pixel at this event's
-  // real (low, sunset-limited) Sun altitude.
+  // cover the countdown text.
+  //
+  // KNOWN ISSUE (not yet fixed, under investigation): this offset
+  // comes from astronomy-engine's own real-time ephemeris
+  // (stores/skyView.ts), independent of the Besselian/eclipse-calc
+  // pipeline that computes the official C2/C3 shown in the countdown
+  // text. The two visibly disagree by enough to matter right at
+  // totality -- the Sun's crescent was observed vanishing before C2
+  // and reappearing before C3, while still officially total, because
+  // the Moon is only barely bigger than the Sun for this eclipse (the
+  // full-coverage tolerance is only ~1-2px). A clamp to the official
+  // [C2,C3] window was tried and reverted (it produced a visible
+  // abrupt snap-to-center at C2 and release at C3, not the smooth
+  // in-between look wanted) -- next step is root-causing *why* the
+  // two ephemerides disagree (refraction? ΔT? something else) rather
+  // than papering over it with a clamp. See PLAN.md.
   const VIEWBOX_HALF = 60;
   const SUN_R_PX = 44;
   const schematic = $derived.by(() => {
@@ -212,7 +223,7 @@
     /* Dark night-sky backdrop, covering the countdown text as well as
        the Sun/Moon graphic -- one shared panel background, not just
        behind the svg. */
-    background: #173a6e;
+    background: #2b4d82;
     border-radius: 6px;
   }
   .numwrap {
