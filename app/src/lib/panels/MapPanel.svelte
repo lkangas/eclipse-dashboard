@@ -29,15 +29,12 @@
     SPAIN_PAD = 6;
   const topology = basemapData as unknown as Topology;
   const landFeature = feature(topology, topology.objects.land as GeometryCollection);
-  // Locked (not live-recomputed) counterclockwise tilt so the central
-  // line runs roughly horizontal, letting more of the umbra band fit the
-  // panel's horizontal-rectangle aspect ratio -- one fixed value derived
-  // from the bearing between shadow-frames.json's two centralLine
-  // endpoints (the real Spain-transit start/end) is enough; the path
-  // doesn't curve enough over this short a stretch to need a dynamic
-  // per-frame angle. Set via .angle() *before* fitExtent so the fit
-  // itself accounts for the tilted content.
-  const SPAIN_ROTATION_DEG = 39.87;
+  // Locked counterclockwise tilt so the central line runs more toward
+  // horizontal, letting more of the umbra band fit the panel's
+  // horizontal-rectangle aspect ratio -- a single fixed value (not
+  // fully leveled, not live-recomputed) is enough. Set via .angle()
+  // *before* fitExtent so the fit itself accounts for the tilted content.
+  const SPAIN_ROTATION_DEG = 20;
   const spainProjection: GeoProjection = geoMercator()
     .angle(SPAIN_ROTATION_DEG)
     .fitExtent(

@@ -284,11 +284,11 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
 - **Two map tabs** (✅ both built now, see §13 for the full history):
   1. **Spain (zoomed + rotated)** — ✅ done. The centerline crosses Spain on
      a shallow diagonal, wasting panel space in the corners of the wide
-     rectangular panel; fixed with a fixed `SPAIN_ROTATION_DEG = 39.87`
-     applied via `spainProjection.angle()` before `fitExtent`, derived
-     from the bearing between `shadow-frames.json`'s two centralLine
-     endpoints (one locked constant, not a dynamic per-frame angle or a
-     two-point build-time config tool — simpler than originally
+     rectangular panel; fixed with a fixed `SPAIN_ROTATION_DEG = 20`
+     applied via `spainProjection.angle()` before `fitExtent` -- a
+     modest tilt, not a fully leveled line (one locked constant, not a
+     dynamic per-frame angle or a two-point build-time config tool —
+     simpler than originally
      sketched here, per direct request once the rotation idea came up
      again in practice).
   2. **Global (whole path)** — ✅ done. Stereographic, centered near the
@@ -696,22 +696,17 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        checking for any non-finite point -- confirmed this test fails on
        the pre-fix code and passes after. `npm run test`: 62/62 (+1);
        `npm run check`: 0 errors/warnings.
-     - ✅ **Spain tab rotated to level the central line** -- per direct
+     - ✅ **Spain tab given a fixed counterclockwise tilt** -- per direct
        request ("locking on one angular rotation value is sufficient",
-       not a dynamic per-frame angle): a fixed `SPAIN_ROTATION_DEG =
-       39.87` applied via `spainProjection.angle()` *before* `fitExtent`
-       so the fit itself accounts for the tilted content. Derived from
-       the bearing (in unrotated projected space) between
-       `shadow-frames.json`'s two centralLine endpoints -- a small Node
-       script using the already-installed `d3-geo` confirmed the angle
-       zeroes the line's on-screen dy to ~0.03px over a 300px span.
-       Verified the rotation is a net win despite the coastline-fit
-       scale dropping ~30% (869->609): the fraction of centralLine/
-       northLimit/southLimit points landing inside the visible viewport
-       rose from 34%/28%/35% (unrotated) to 47%/53%/42% (rotated) --
-       measurably more of the umbra band fits the panel, the actual
-       goal, not just an isolated dy=0 check. `npm run check`: 0
-       errors/warnings.
+       not a dynamic per-frame angle), applied via
+       `spainProjection.angle()` *before* `fitExtent` so the fit itself
+       accounts for the tilted content. First cut computed the exact
+       bearing between `shadow-frames.json`'s two centralLine endpoints
+       and used that to fully level the line (~40°) -- reported back as
+       "too much" and over-engineered for what was asked ("a single
+       fixed value would have been good"); dialed back to a plain
+       `SPAIN_ROTATION_DEG = 20`, a modest tilt rather than a fully
+       leveled line. `npm run check`: 0 errors/warnings.
      - ✅ **Penumbral outline support** -- `shadowOutlineAt` generalized
        with a `kind: 'umbra' | 'penumbra'` param selecting l1/tanf1 vs
        l2/tanf2 (the rest of the geometry only depends on the shadow
