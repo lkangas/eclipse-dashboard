@@ -1,9 +1,11 @@
 # Implementation Plan — Eclipse Dashboard (2026-08-12, Spain)
 
 Status: **in progress**. The mock UI (§10) is substantially built out; the
-`eclipse-calc` Python oracle is done and independently re-verified; the
-eclipse-core TS port (§4) is starting. See §13 for a full per-milestone
-breakdown of what's done, in progress, and not started.
+`eclipse-calc` Python oracle and the eclipse-core TS port (§4) are both
+done and validated against each other. Next: milestone 2 (data pipeline)
+and milestone 4 (wiring real computation into the map/sky views). See
+§13 for a full per-milestone breakdown of what's done, in progress, and
+not started.
 
 ---
 
@@ -417,7 +419,7 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
    - ⬜ Sound warnings: not started
 2. **Data pipeline** (build-data tool; bundle basemap + stars + elements)
    — ⬜ not started.
-3. **Eclipse core port** + oracle validation — 🟡 in progress:
+3. **Eclipse core port** + oracle validation — ✅ done:
    - ✅ `eclipse-calc` itself: done, packaged, tested (27 passing pytest
      cases), independently re-verified this session (§4/§14 #4)
    - ✅ `tools/gen-vectors`: generates golden contact-time vectors from the
@@ -432,17 +434,19 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      function, not a port of eclipse-calc's boolean-step bisection
      search -- validated to sub-millisecond accuracy against all 13
      golden sites (well inside Sec12's sub-second tolerance)
-   - 🟡 `path.ts`: central line done (validated against 15 golden
-     points, cross-checked against the mock's independently-sourced
-     PATH_CENTER data); N/S **umbral** limits done too (penumbral
-     limits out of scope for this event, confirmed with the user) --
-     found and worked around a real bug in eclipse-calc along the way
-     (see project memory: `L` leaks between the north/south tangent
-     searches instead of resetting, spuriously dropping the south
-     limit near the sunset cusp; this port doesn't reproduce it).
-     Shadow outline still to come; the **penumbral** shadow outline
-     specifically is a separate, later need for the Global map tab
-     (§8), not urgent now
+   - ✅ `path.ts`: central line, N/S **umbral** limits, and the umbral
+     shadow outline (footprint polygon), all validated against
+     `eclipse-calc`; central line also cross-checked against the
+     mock's independently-sourced PATH_CENTER data. Penumbral limits
+     out of scope for this event (confirmed with the user); the
+     penumbral shadow outline is a separate, later need for the
+     Global map tab (§8), not urgent now. Found (and fixed upstream,
+     `eclipse-calc` commit `f920613`) a real bug along the way: `L`
+     leaked between the north/south tangent searches instead of
+     resetting, spuriously dropping the south limit near the sunset
+     cusp -- see project memory for the full trace
+   - 99/99 Vitest cases pass across all four modules; `svelte-check`/
+     `tsc`: 0 errors throughout
 4. **Map + shadow** and **sky views** on real computation — ⬜ not started.
 5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
    started (mock has manual entry + map click/drag + a geolocation
