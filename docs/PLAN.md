@@ -527,11 +527,24 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        Click/drag-to-locate now uses the projection's own `.invert()`
        instead of the hand-rolled inverse formula. `npm run test`:
        105/105; `npm run check`: 0 errors/warnings.
-     - ⬜ Central line + N/S umbral limits from `path.ts`, replacing the
-       hand-picked `PATH_NORTH`/`PATH_SOUTH`/`PATH_CENTER` stub arrays
-     - ⬜ Shadow marker driven by `path.ts`'s `centralLineAt` at the
-       current clock time instead of linear interpolation over the stub
-       `PATH_CENTER_UT` table
+     - ✅ Central line + N/S umbral limits from `path.ts`, replacing the
+       hand-picked `PATH_NORTH`/`PATH_SOUTH`/`PATH_CENTER` stub arrays --
+       sampled over a dense grid (150 steps, ~18:15-18:33 UT) via
+       `centralLineAt`/`shadowLimitsAt` against the real `besselian-2026`
+       coefficients (new `src/data/besselian-2026.ts` typed wrapper +
+       TT-hours<->Date conversion, shared with `stores/localCircumstances`).
+       Points where the geometry doesn't converge (near the sunset cusp,
+       or outside the event's active window) are simply omitted. Sanity-
+       checked: Calamocha's observer marker now lands ~2.6px from the
+       real computed centerline -- as expected, since Calamocha was
+       chosen throughout this project specifically as a near-centerline
+       reference site. `npm run test`: 105/105; `npm run check`: 0
+       errors/warnings.
+     - ✅ Shadow marker now interpolates over the real UT timestamps of
+       the sampled central-line grid above (still driven by
+       `clock.simTimeSec`, which is itself still the stub `TimeBar`
+       clock -- wiring the *clock* to the real timeline is the separate
+       item below)
    - ⬜ Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`
    - ⬜ Wire TimeBar to real contact times instead of `STUB_CONTACTS`

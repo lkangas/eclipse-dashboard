@@ -11,6 +11,8 @@
   import { geoMercator, geoPath as geoPathGenerator } from 'd3-geo';
   import type { GeoProjection } from 'd3-geo';
   import basemapData from '../../data/basemap.topojson';
+  import { coefficients, ttHoursToDate } from '../../data/besselian-2026';
+  import { centralLineAt, shadowLimitsAt } from '../../eclipse/path';
 
   let tab: 'spain' | 'global' = $state('spain');
 
@@ -39,39 +41,36 @@
       .join(' ');
   }
 
-  // Northern limit, southern limit, central line -- decimal degrees,
-  // [lat, lon], 18:18-18:33 UT plus the path's terminal "Limit" point (sun
-  // alt 0°, near the Balearics), from ytliu's independent eclipse
-  // calculator (JPL DE441, dT=69.2s). PATH_NORTH_END bridges 18:30 to the
-  // Limit row's true final north-limit fix with one straight segment (the
-  // real curve there is unknown, but leaving it off entirely made the band
-  // stop short of the centerline/shadow marker's actual end).
-  const PATH_NORTH: [number, number][] = [
-    [49.3533, -11.5883], [48.7983, -10.97], [48.2333, -10.3133], [47.6567, -9.61],
-    [47.065, -8.8517], [46.4583, -8.0317], [45.83, -7.135], [45.1767, -6.1417],
-    [44.4883, -5.0217], [43.7533, -3.7317], [42.9467, -2.1833], [42.0167, -0.18],
-    [40.7483, 3.04],
-  ];
-  const PATH_NORTH_END: [number, number] = [39.7067, 6.3283];
-  const PATH_SOUTH: [number, number][] = [
-    [49.205, -16.8017], [48.69, -16.2517], [48.17, -15.6767], [47.6417, -15.0733],
-    [47.1067, -14.4383], [46.5633, -13.7667], [46.0083, -13.0533], [45.44, -12.29],
-    [44.8583, -11.4717], [44.2583, -10.5833], [43.635, -9.61], [42.985, -8.53],
-    [42.295, -7.3083],
-    [41.5517, -5.885], [40.7233, -4.1417], [39.7283, -1.7783], [37.69, 4.5283],
-  ];
-  const PATH_CENTER: [number, number][] = [
-    [49.31, -14.2783], [48.7767, -13.7], [48.235, -13.09], [47.6867, -12.445],
-    [47.1267, -11.76], [46.555, -11.0283], [45.97, -10.2417], [45.3667, -9.3883],
-    [44.7417, -8.4567], [44.0917, -7.4233], [43.405, -6.2583], [42.6683, -4.9117],
-    [41.8567, -3.2833], [40.905, -1.1433], [39.515, 2.6067], [38.68, 5.4017],
-  ];
-  // UT seconds-since-midnight for each PATH_CENTER point above (18:18-18:32:12).
-  const PATH_CENTER_UT = [
-    65880, 65940, 66000, 66060, 66120, 66180, 66240, 66300, 66360, 66420, 66480,
-    66540, 66600, 66660, 66720, 66732,
-  ];
-  const band = PATH_NORTH.concat([PATH_NORTH_END]).concat(PATH_SOUTH.slice().reverse());
+  // Central line + N/S umbral limits, computed for real from path.ts over
+  // a dense grid spanning the shadow's Spain transit (~18:18-18:33 UT,
+  // i.e. roughly +0.25h to +0.62h from T0 -- padded a bit beyond the
+  // known ~0.32-0.56h window). Static (doesn't depend on observer/clock),
+  // so computed once here rather than as a reactive value. Points where
+  // shadowLimitsAt doesn't converge (e.g. very near the sunset cusp) are
+  // simply omitted -- a slightly shorter band there, not an error.
+  const PATH_WINDOW_START_H = 0.25,
+    PATH_WINDOW_END_H = 0.58,
+    PATH_SAMPLES = 150;
+
+  const PATH_CENTER: [number, number][] = [];
+  const PATH_CENTER_UT: number[] = [];
+  const PATH_NORTH: [number, number][] = [];
+  const PATH_SOUTH: [number, number][] = [];
+  for (let i = 0; i <= PATH_SAMPLES; i++) {
+    const t = PATH_WINDOW_START_H + ((PATH_WINDOW_END_H - PATH_WINDOW_START_H) * i) / PATH_SAMPLES;
+    const central = centralLineAt(coefficients, t);
+    if (central) {
+      const utDate = ttHoursToDate(t);
+      PATH_CENTER.push([central.lat, central.lon]);
+      PATH_CENTER_UT.push(
+        utDate.getUTCHours() * 3600 + utDate.getUTCMinutes() * 60 + utDate.getUTCSeconds(),
+      );
+    }
+    const limits = shadowLimitsAt(coefficients, t);
+    if (limits.north) PATH_NORTH.push([limits.north.lat, limits.north.lon]);
+    if (limits.south) PATH_SOUTH.push([limits.south.lat, limits.south.lon]);
+  }
+  const band = PATH_NORTH.concat(PATH_SOUTH.slice().reverse());
 
   // clock.simTimeSec is local (CEST); the path table above is UT.
   // CEST = UT+2, so UT = simTime - 7200. Marker is hidden outside the
