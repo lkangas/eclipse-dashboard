@@ -184,6 +184,8 @@ def central_line_fixture(eclipse, ts, t0):
             "y": float(row.y),
             "d": float(row.d),
             "mu0": float(row.mu0),
+            "L1": float(row.L1),
+            "L2": float(row.L2),
             **{col: float(row[col]) for col in AUX1_COLS},
         })
     return {
