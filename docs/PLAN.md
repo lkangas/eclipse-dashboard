@@ -418,7 +418,9 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      oracle (§12); first output committed
    - ✅ `src/eclipse/elements.ts`: polynomial evaluation ported, validated
      against `eclipse-calc` to full float precision (Vitest, `app/`)
-   - ⬜ `observer.ts`, `localCircumstances.ts`, `path.ts`: not started
+   - ✅ `src/eclipse/observer.ts`: geocentric rho*sin/cos(phi') ported
+     (closed-form WGS84, no Skyfield dependency), validated to ~1e-8
+   - ⬜ `localCircumstances.ts`, `path.ts`: not started
 4. **Map + shadow** and **sky views** on real computation — ⬜ not started.
 5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
    started (mock has manual entry + map click/drag + a geolocation
