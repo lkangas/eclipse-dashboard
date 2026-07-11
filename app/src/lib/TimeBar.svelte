@@ -42,6 +42,10 @@
   // (totality) can be null outside the umbral path -- C1/C4 (partial)
   // fall back to a ±1h window around Max so the timeline never breaks
   // even for a pathological observer with no partial eclipse either.
+  // Sunset (astronomy-engine, stores/localCircumstances.ts) is real and
+  // shown on the timeline like any other contact -- this event is
+  // sunset-limited for Spain (PLAN.md §1), so it's often the thing that
+  // actually ends visibility, not C4.
   const eventSec = $derived.by(() => {
     const lc = $localCircumstances;
     const maxS = lc.max.getTime() / 1000;
@@ -51,6 +55,7 @@
       max: maxS,
       c3: lc.c3 ? lc.c3.getTime() / 1000 : null,
       c4: lc.c4 ? lc.c4.getTime() / 1000 : maxS + 3600,
+      sunset: lc.sunset ? lc.sunset.getTime() / 1000 : null,
     };
   });
   const hasTotality = $derived(eventSec.c2 !== null && eventSec.c3 !== null);
@@ -152,6 +157,7 @@
     { key: 'max', lab: 'Max' },
     { key: 'c3', lab: 'C3' },
     { key: 'c4', lab: 'C4' },
+    { key: 'sunset', lab: 'Sunset' },
   ] as const;
   const clineItems = $derived.by(() => {
     const ts = timeScale;
@@ -195,6 +201,7 @@
     }
     if (clabelEls.c1) clabelEls.c1.style.left = pOf('c1') + '%';
     if (clabelEls.c4) clabelEls.c4.style.left = pOf('c4') + '%';
+    if (clabelEls.sunset) clabelEls.sunset.style.left = pOf('sunset') + '%';
   });
 
   const totLeft = $derived(hasTotality ? timeScale.pct(eventSec.c2 as number) : 0);
@@ -364,12 +371,12 @@
     {/if}
     <div class="clines">
       {#each clineItems as it (it.key)}
-        <div class="cline" style:left={it.p + '%'}></div>
+        <div class="cline" class:sunset={it.key === 'sunset'} style:left={it.p + '%'}></div>
       {/each}
     </div>
     <div class="clabels">
       {#each clineItems as it (it.key)}
-        <div class="clabel" bind:this={clabelEls[it.key]}>{it.lab}</div>
+        <div class="clabel" class:sunset={it.key === 'sunset'} bind:this={clabelEls[it.key]}>{it.lab}</div>
       {/each}
     </div>
     <div class="cursor" style:left={cursorPct + '%'}></div>
@@ -573,6 +580,14 @@
     height: 32px;
     background: var(--cline);
   }
+  /* Sunset is a horizon event, not a shadow-geometry contact -- given
+     its own (dashed, accent-colored) treatment so it doesn't read as
+     just another C1..C4 contact. */
+  .cline.sunset {
+    background: none;
+    border-left: 2px dashed var(--accent);
+    width: 0;
+  }
 
   .clabels {
     position: absolute;
@@ -589,6 +604,9 @@
     font-weight: 500;
     color: var(--ink);
     white-space: nowrap;
+  }
+  .clabel.sunset {
+    color: var(--accent-ink);
   }
 
   /* Custom-drawn (not a native range input) so it renders identically in

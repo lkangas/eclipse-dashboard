@@ -549,6 +549,24 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      else; the manual single/dual dev toggle is removed now that the
      real phase detection covers it correctly. `npm run test`: 105/105;
      `npm run check`: 0 errors/warnings.
+   - ✅ **Real Sunset, and a real bug it caught.** `findContactTimes`'s
+     Besselian shadow-cone geometry has no concept of the horizon at
+     all -- it happily reports C1-C4 (especially C3/C4) at any time the
+     observer is geometrically in the shadow, even after the sun has
+     actually set there. Confirmed this wasn't just an edge case:
+     **C4 falls after sunset for Calamocha itself** (21:22:42 vs.
+     sunset 21:07:46) -- for a location further east (39.0N 5.0E, near
+     the map's eastern edge) sunset comes only ~6 minutes after C3.
+     Fixed by installing `astronomy-engine` (the dependency PLAN.md §2
+     already named for exactly this) and computing real local sunset
+     (`Astronomy.SearchRiseSet`) in `stores/localCircumstances.ts`.
+     Sunset is interleaved chronologically among C1-C4/Max in both the
+     contacts table (`ContactsPanel`) and the time slider (`TimeBar`,
+     dashed accent-colored line) rather than always shown last; any
+     contact row that falls after sunset is flagged (`pastsunset` class,
+     muted, marked with `*`) rather than hidden -- it did chronologically
+     happen, it just isn't observable. `npm run test`: 55/55; `npm run
+     check`: 0 errors/warnings.
    - 🟡 Wire MapPanel to `basemap.topojson` (d3-geo) + `path.ts`'s central
      line/limits/shadow outline, replacing the stub coastline/path arrays:
      - ✅ Spain-tab coastline is now the real `basemap.topojson`, via

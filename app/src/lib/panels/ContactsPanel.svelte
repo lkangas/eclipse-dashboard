@@ -1,36 +1,47 @@
 <script lang="ts">
   // Real contact times for the live observer (PLAN.md §4), replacing the
-  // Zaragoza-reference stub. Alt (needs astronomy-engine) and Sunset
-  // (needs eclipse_calc.terminator, not yet ported) aren't available yet
-  // -- shown as "--"/omitted rather than left as stale stub numbers.
-  // Magnitude/Obscuration/Sun az have no oracle at all yet (PLAN.md §4/§14
-  // #6) -- kept as placeholder values, visually flagged provisional.
+  // Zaragoza-reference stub. Alt not wired up yet (needs a per-event Sun
+  // altitude, not just sunset) -- shown as "--" rather than left as a
+  // stale stub number. Magnitude/Obscuration/Sun az have no oracle at
+  // all yet (PLAN.md §4/§14 #6) -- kept as placeholder values, visually
+  // flagged provisional.
+  //
+  // Sunset is real (astronomy-engine, stores/localCircumstances.ts) and
+  // interleaved chronologically among C1-C4/Max rather than always
+  // last -- this event is sunset-limited for Spain (PLAN.md §1), so the
+  // Besselian shadow-cone geometry alone (no concept of the horizon)
+  // can and does place C3/C4 -- sometimes even C2/Max -- after the sun
+  // has actually set here. Rows after sunset are flagged, not hidden:
+  // still chronologically real events, just not observable.
   import { localCircumstances } from '../../stores/localCircumstances';
   import { effectiveTime } from '../../stores/clock';
   import { formatCountdown, formatDurationSeconds, formatCest } from '../format';
 
-  const EVENTS = [
-    { key: 'c1', label: 'C1' },
-    { key: 'c2', label: 'C2' },
-    { key: 'max', label: 'Max' },
-    { key: 'c3', label: 'C3' },
-    { key: 'c4', label: 'C4' },
-  ] as const;
-
-  const rows = $derived(
-    EVENTS.map(({ key, label }) => {
-      const date = $localCircumstances[key];
-      return {
-        key,
-        label,
-        date,
-        time: date ? formatCest(date) : '—',
-        offset: date ? formatCountdown((date.getTime() - $effectiveTime.getTime()) / 1000) : '—',
-      };
-    }),
-  );
+  const rows = $derived.by(() => {
+    const lc = $localCircumstances;
+    const candidates: { key: string; label: string; date: Date | null }[] = [
+      { key: 'c1', label: 'C1', date: lc.c1 },
+      { key: 'c2', label: 'C2', date: lc.c2 },
+      { key: 'max', label: 'Max', date: lc.max },
+      { key: 'c3', label: 'C3', date: lc.c3 },
+      { key: 'c4', label: 'C4', date: lc.c4 },
+      { key: 'sunset', label: 'Sunset', date: lc.sunset },
+    ];
+    return candidates
+      .filter((r): r is { key: string; label: string; date: Date } => r.date !== null)
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .map((r) => ({
+        key: r.key,
+        label: r.label,
+        date: r.date,
+        time: formatCest(r.date),
+        alt: r.key === 'sunset' ? '0°' : '—',
+        offset: formatCountdown((r.date.getTime() - $effectiveTime.getTime()) / 1000),
+        pastSunset: r.key !== 'sunset' && lc.sunset !== null && r.date.getTime() > lc.sunset.getTime(),
+      }));
+  });
   const nextKey = $derived(
-    rows.find((r) => r.date && r.date.getTime() >= $effectiveTime.getTime())?.key ?? null,
+    rows.find((r) => r.date.getTime() >= $effectiveTime.getTime())?.key ?? null,
   );
 
   const durationText = $derived(
@@ -58,11 +69,15 @@
     </thead>
     <tbody>
       {#each rows as row (row.key)}
-        <tr class:next={row.key === nextKey}>
-          <td>{row.label}</td>
+        <tr
+          class:next={row.key === nextKey}
+          class:pastsunset={row.pastSunset}
+          title={row.pastSunset ? 'Sun has already set here -- not observable' : undefined}
+        >
+          <td>{row.label}{row.pastSunset ? ' *' : ''}</td>
           <td class="num">{row.offset}</td>
           <td class="num">{row.time}</td>
-          <td class="num">—</td>
+          <td class="num">{row.alt}</td>
         </tr>
       {/each}
     </tbody>
@@ -118,6 +133,12 @@
     background: var(--accent-bg);
     color: var(--accent-ink);
     font-weight: 500;
+  }
+  /* Chronologically real, but the sun has already set here -- not
+     observable. Muted rather than hidden, so the table still shows the
+     event actually happened, just not visibly. */
+  tr.pastsunset td {
+    color: var(--muted);
   }
 
   .circ {
