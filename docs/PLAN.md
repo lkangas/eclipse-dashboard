@@ -92,6 +92,16 @@ preview` / `npx serve` also work (Node installs per-user, no admin). Most
 bulletproof for the event: a **portable Tauri/Electron `.exe`** — no server, no
 install, no admin, offline, double-click (deferred to a later milestone).
 
+**De-risk the Tauri `.exe` early, not at milestone 8.** User wants a quick,
+standalone demonstration that a packaged Tauri `.exe` actually runs without
+admin rights on the field laptop — **a deal-breaker for using this laptop
+during the eclipse if it doesn't.** A minimal proof-of-concept (near-empty
+Tauri app, built once, then run via plain double-click with no install step)
+is worth doing soon and independently of the rest of the app's progress,
+specifically so there's still time to fall back to the `http://localhost`
+static-server path (already confirmed admin-free, above) if it fails —
+discovering this at milestone 8 would leave no room to pivot.
+
 ### Stack (decided)
 
 - **Vite + TypeScript + Svelte**; Canvas 2D for the sky and map views. Vite's
@@ -454,8 +464,10 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
 6. **Time control** + LIVE lock + GPS clock — ⬜ not started (mock's time
    control is UI/interaction only, not driven by real computation yet).
 7. **Contacts + sound warnings** — ⬜ not started.
-8. **Polish / field-hardening**; optional **desktop (Tauri) packaging** —
-   ⬜ not started.
+8. **Polish / field-hardening**; full **desktop (Tauri) packaging** — ⬜ not
+   started. **Tauri admin-rights spike (§2) should happen independently and
+   well before this milestone**, not bundled with it — it's a deal-breaker
+   feasibility check, not polish.
 
 Frequent commits throughout; remote added when appointed.
 
