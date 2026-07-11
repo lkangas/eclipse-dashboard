@@ -21,3 +21,19 @@ western Mediterranean + Balearics bbox and simplified with `mapshaper`.
 Admin-1 province detail (a separate Natural Earth source) not yet
 added. Regenerate with `tools/build-data/basemap.mjs`
 (`npm run basemap` in `tools/build-data/`).
+
+## stars.json
+
+From the [HYG star database](https://github.com/astronexus/HYG-Database)
+v4.1 "CURRENT", **CC BY-SA 4.0** — attribution required, and this
+extracted/filtered subset is itself licensed CC BY-SA 4.0 (share-alike),
+*not* MIT/ISC like the rest of this directory. Attribution: "Star data
+from the HYG Database, © 2011–2025 Astronomy Nexus, CC BY-SA 4.0"
+(surface this in the app's about/credits screen once one exists, not
+just here). Filtered to **mag < 3** — not the ~6.5 naked-eye-dark-sky
+limit PLAN.md originally assumed, since totality here is a low-
+altitude, twilight-bright sky (Sec1), not a dark-sky session; only
+bright stars/planets will actually be visible (confirmed with the
+user). 174 stars. Regenerate with `tools/build-data/stars.mjs`
+(`npm run stars` in `tools/build-data/`; needs the raw CSV downloaded
+first, see that script's header comment).

@@ -5,7 +5,8 @@
   "description": "Build-time-only data pipeline (PLAN.md Sec3). Never bundled into the shipped app -- kept out of app/package.json on purpose.",
   "type": "module",
   "scripts": {
-    "basemap": "node basemap.mjs"
+    "basemap": "node basemap.mjs",
+    "stars": "node stars.mjs"
   },
   "devDependencies": {
     "mapshaper": "^0.7.44",

@@ -1,0 +1,4 @@
+# Raw downloaded source data (e.g. the ~34MB HYG catalog CSV) -- an
+# intermediate for generating the committed output in app/src/data/,
+# not itself something to commit.
+.cache/

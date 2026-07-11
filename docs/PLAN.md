@@ -126,10 +126,12 @@ local assets under `src/data/`:
    western Mediterranean + Balearics), **simplify** with mapshaper, quantize,
    export **TopoJSON**. World GeoJSON (tens of MB) → **~50–200 KB** (tens of KB
    gzipped). This bbox is the "custom tool to constrain the area."
-2. **Star catalog** — take HYG v4.3 (CC BY-SA 4.0), filter to **mag < 6.5**
-   (~9,000 stars), keep only `ra, dec, mag, ci/spect, proper, bf`, quantize
-   numeric precision → **a few hundred KB JSON**. Optional brightest-~1500 layer
-   for fast first paint.
+2. **Star catalog** — take HYG (CC BY-SA 4.0), filter to **mag < 3** (not
+   6.5 — naked-eye-dark-sky limit is far too dim for this event: totality
+   is a low-altitude, twilight-bright sky, not a dark-sky viewing session,
+   so only bright stars/planets will actually be visible), keep only
+   `ra, dec, mag, ci/spect, proper, bf`, quantize numeric precision → a
+   tiny JSON (order ~150-200 stars, not ~9,000).
 3. **Besselian elements** — a small JSON (`src/data/besselian-2026.json`),
    generated from `eclipse-calc`'s `BesselianEclipse` (a standalone Python
    package, sibling repo `../eclipse-calc`, extracted and tidied from the
