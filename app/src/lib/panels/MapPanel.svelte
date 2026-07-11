@@ -360,6 +360,7 @@
   }
   .pathband {
     fill: var(--accent-bg);
+    fill-opacity: 0.35;
     stroke: var(--accent);
     stroke-width: 0.75;
     stroke-opacity: 0.5;
@@ -439,6 +440,7 @@
      order up there. */
   .globalBand {
     fill: var(--accent-bg);
+    fill-opacity: 0.35;
   }
   .globalFill {
     stroke: none;

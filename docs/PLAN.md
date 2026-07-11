@@ -872,6 +872,12 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
          gray at 1px to a plain black 0.5px -- narrower and higher-
          contrast, matching real reference-map coastline convention
          better than the soft themed gray did.
+       - **Band transparency.** `.pathband`/`.globalBand` (the swept
+         umbral corridor across the whole event, as opposed to the
+         instantaneous umbra/penumbra outlines which already had their
+         own fill-opacity) had no opacity set at all -- a fully opaque
+         wash hiding the coastline underneath it, on both tabs. Added
+         `fill-opacity: 0.35` to both.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,
