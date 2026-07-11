@@ -18,8 +18,9 @@ from Spain. Three facts dominate every design choice:
    the low, setting Sun with room around it, and **horizon obstruction is a
    first-class concern** — a single hill can hide the whole event.
 3. **Geometry from Besselian elements**, reduced to local circumstances per the
-   standard (Explanatory Supplement / Meeus) method — ported from the user's
-   existing Python, validated against it.
+   standard (Explanatory Supplement / Meeus) method — ported from
+   `eclipse-calc` (a standalone, tested Python package; see §4/§11),
+   validated against it.
 
 ### Verified event facts (used across the app)
 
@@ -115,10 +116,12 @@ local assets under `src/data/`:
    numeric precision → **a few hundred KB JSON**. Optional brightest-~1500 layer
    for fast first paint.
 3. **Besselian elements** — a small JSON (`src/data/besselian-2026.json`),
-   generated from the user's Python (`polynom_bessels.Bessels`, resolved
-   §14 #4) so app and source math agree by construction — **not** NASA's
-   published SEdata set (§15 keeps that only as a cross-check reference).
-4. **Precomputed eclipse geometry** — from the user's Python (or our evaluator):
+   generated from `eclipse-calc`'s `BesselianEclipse` (a standalone Python
+   package, sibling repo `../eclipse-calc`, extracted and tidied from the
+   original research Python — resolved §14 #4) so app and source math agree
+   by construction — **not** NASA's published SEdata set (§15 keeps that
+   only as a cross-check reference).
+4. **Precomputed eclipse geometry** — from `eclipse-calc` (or our evaluator):
    central line + N/S umbral & penumbral limits as GeoJSON; and umbral shadow
    outlines on a **dense UT grid** (e.g. every 10–30 s) as JSON, so the map's
    moving shadow needs no runtime projection port (slider interpolates frames).
@@ -137,41 +140,53 @@ The one piece that **must** run at runtime for an *arbitrary* observer (map
 click / GPS / geolocation): evaluate Besselian polynomials at time *t*, then run
 the local-circumstances iteration.
 
-**Port from the user's Python** (compact, ~a few hundred lines):
+**Port from `eclipse-calc`** (a standalone, tested Python package — sibling
+repo `../eclipse-calc`, see §11 — not the raw research sandbox directly).
+Its module split maps fairly directly onto the TS port:
 
-- `elements.ts` — polynomial evaluation of `x, y, d, μ, l1, l2` (+ `tan f1/f2`).
-- `observer.ts` — geocentric `ρ·sinφ′, ρ·cosφ′` from lat/lon/height (WGS84
-  flattening 0.99664719).
-- `localCircumstances.ts` — contact-time solve for **C1–C4** (the reference
-  Python uses a Skyfield bisection search, `find_discrete`/`find_minima`, not
+- `elements.ts` ← `eclipse_calc.elements` — polynomial evaluation of
+  `x, y, d, mu0, l1, l2` (+ `tanf1/tanf2`).
+- `observer.ts` ← `eclipse_calc.observer` — geocentric `ρ·sinφ′, ρ·cosφ′`
+  from lat/lon/height (WGS84 flattening 0.99664719).
+- `localCircumstances.ts` ← `eclipse_calc.contacts` — contact-time solve for
+  **C1–C4** (a Skyfield bisection search, `find_discrete`/`find_minima`, not
   closed-form Newton iteration on l1/l2 as originally assumed here — the TS
-  port may use either method as long as it validates against the Python
-  oracle to the §12 tolerance). **Magnitude, obscuration, and
-  position/parallactic angles are not in the oracle yet** — confirmed absent
-  from every file in the reference Python (`docs/PYTHON_REVIEW_FINDINGS.md`
-  §4). Ship these as assumed/placeholder values initially, **visually
-  flagged as provisional** in the UI (§9/§10), rather than blocking the port
-  on new Python work.
-- `path.ts` — shadow-axis ∩ ellipsoid → central line; N/S limits; instantaneous
-  ground **shadow ellipse** (elongated ~1/sin(altitude) — huge & stretched at
-  Spain's low Sun). Already prototyped in the reference Python
-  (`shadow_outlines`/`shadow_limits`, prototype-grade but algorithmically
-  real) — this is a port, not a from-scratch derivation. *May be precomputed
-  instead (§3.4).* Bonus available: `solve_gamma`/`rise_set_curves`/
-  `terminator_events` for the sunset-limited path edges, directly relevant
-  since Spain's event is itself sunset-limited.
+  port may use either method as long as it validates against the
+  `eclipse-calc` oracle to the §12 tolerance). **Magnitude, obscuration, and
+  position/parallactic angles are not in the oracle** — confirmed absent
+  from the whole package (`docs/PYTHON_REVIEW_FINDINGS.md` §4). Ship these
+  as assumed/placeholder values initially, **visually flagged as
+  provisional** in the UI (§9/§10), rather than blocking the port on new
+  Python work.
+- `path.ts` ← `eclipse_calc.central_line` + `.shadow` + `.terminator` —
+  shadow-axis ∩ ellipsoid → central line; N/S limits; instantaneous ground
+  **shadow ellipse** (elongated ~1/sin(altitude) — huge & stretched at
+  Spain's low Sun). This is a port, not a from-scratch derivation — and
+  unlike the original research-sandbox prototype it's now tested (27
+  passing tests, regression-checked against independent reference data) and
+  had three real bugs fixed during extraction (wrong tangent-condition
+  coefficients for the penumbral case, a missing deg→rad conversion, and an
+  unwrapped longitude — see the `eclipse-calc` repo history). **Known
+  limitation carried over**: penumbral (non-umbral) N/S limits can fail to
+  converge for the very wide penumbral cone — not needed by the current map
+  (§8 uses umbral limits), flagged rather than blocking. Bonus available:
+  `eclipse_calc.terminator`'s `rise_set_curves`/`terminator_events` for the
+  sunset-limited path edges (validated to sub-second/~0.002° against the
+  whole path's published start/end), directly relevant since Spain's event
+  is itself sunset-limited.
 
-**Element set is locked** to the user's Python (`polynom_bessels.Bessels`,
-resolved §14 #4) as the single source of truth, generated fresh rather than
-bundling NASA's separately-published SEdata set (see §15) — this also avoids
-NASA's own ~1e-4 / ~4 s page-to-page discrepancies. **ΔT is locked to 69.1 s**
-app-wide (§15).
+**Element set is locked** to `eclipse-calc` (resolved §14 #4) as the single
+source of truth, generated fresh rather than bundling NASA's
+separately-published SEdata set (see §15) — this also avoids NASA's own
+~1e-4 / ~4 s page-to-page discrepancies. **ΔT is locked to 69.1 s** app-wide
+(§15).
 
-**Validation oracle:** keep the Python as golden reference for what it
-already covers (contacts, central line/limits, shadow outline). `tools/gen-
-vectors` emits test vectors (contacts for N locations incl. edge cities); a
-Vitest suite asserts the TS port matches to **sub-second**. This is how we
-earn trust in the port. Magnitude/obscuration/position-angle/parallactic-
+**Validation oracle:** keep `eclipse-calc` as golden reference for what it
+covers (contacts, central line/limits, shadow outline, terminator). `tools/
+gen-vectors` emits test vectors (contacts for N locations incl. edge
+cities) by calling the installed `eclipse-calc` package directly; a Vitest
+suite asserts the TS port matches to **sub-second**. This is how we earn
+trust in the port. Magnitude/obscuration/position-angle/parallactic-
 angle/semi-diameters have no oracle yet (see above) — validate those
 separately (e.g. against published cross-checks) once implemented.
 
@@ -323,13 +338,23 @@ panel occupies a slot (`flex:1 1 0` default on every pane).
 
 ## 11. Project structure
 
+`eclipse-calc` (the Python oracle) is **not vendored into this repo** — it
+lives in its own sibling repo, `../eclipse-calc` (a standalone, installable
+package; see §4). `tools/build-data`/`tools/gen-vectors` depend on it via a
+local editable install (`pip install -e ../eclipse-calc` from a `tools/`
+venv/requirements file) rather than a git submodule or a copied-in
+`reference/` folder — simplest for a two-repo setup on one machine, and
+avoids the submodule-detached-HEAD footguns for a solo project. If
+`eclipse-calc` is ever pushed to GitHub, this can move to a pinned git URL
+without changing the shape of the dependency.
+
 ```
 eclipse/
 ├─ docs/PLAN.md
 ├─ tools/
 │  ├─ build-data/        # prefetch + clip basemap, stars, elements (offline gen)
-│  └─ gen-vectors/       # golden test vectors from the Python oracle
-├─ reference/            # user's Python (tracked; source of truth + oracle)
+│  │                      #   depends on eclipse-calc (../eclipse-calc, pip install -e)
+│  └─ gen-vectors/       # golden test vectors from the eclipse-calc oracle
 ├─ src/
 │  ├─ data/              # generated: basemap.topojson, stars.json, besselian-2026.json, shadow-frames.json
 │  ├─ eclipse/           # ported Besselian → local circumstances + path
@@ -344,8 +369,13 @@ eclipse/
 
 ## 12. Validation & testing
 
-- **Port vs Python oracle** — sub-second contact-time match for ~20 locations
-  incl. edge cities (Bilbao, Valencia).
+- **`eclipse-calc` itself is already tested** (27 pytest cases, regression-
+  checked against the independent reference tables in
+  `docs/PYTHON_REVIEW_BRIEF.md` §0 — central line, N/S limits, 6 sites +
+  Calamocha, whole-path start/end) — the TS port validates *against this*,
+  it doesn't need to re-derive trust in the oracle itself from scratch.
+- **Port vs `eclipse-calc` oracle** — sub-second contact-time match for ~20
+  locations incl. edge cities (Bilbao, Valencia).
 - **Sanity vs published** — contact times/altitudes for the §1 cities within
   tolerance.
 - **Unit tests** — NMEA parsing, projection round-trips (`project`∘`invert`),
@@ -382,19 +412,29 @@ Resolved:
    portable **Tauri/Electron** desktop build a later upgrade.
 3. **Map extent** — ✅ **Iberia (incl. mainland Portugal) + W-Mediterranean +
    Balearics.**
-4. **Elements source** — ✅ **generate from the user's Python**
-   (`polynom_bessels.Bessels`), not NASA's SEdata set. Confirmed feasible
-   after review (`docs/PYTHON_REVIEW_FINDINGS.md`) — a working
-   ephemeris-direct → degree-3-polynomial-fit generator already exists.
+4. **Elements source** — ✅ **generate from `eclipse-calc`**
+   (`BesselianEclipse`, a standalone tidied-and-tested Python package
+   extracted from the original research sandbox — sibling repo
+   `../eclipse-calc`), not NASA's SEdata set. Confirmed feasible after
+   review (`docs/PYTHON_REVIEW_FINDINGS.md`) — a working ephemeris-direct →
+   degree-3-polynomial-fit generator already exists, and is now packaged,
+   tested (27 passing tests), and had 3 real bugs fixed during extraction.
 5. **ΔT** — ✅ **locked to 69.1 s** app-wide, rather than NASA SEdata's
    published 75.4 s (§15) — the Python is the designated oracle, so its own
    ΔT (Skyfield's model, ≈68.8 s for this date) governs, not a different
-   source's separately-published constant.
+   source's separately-published constant. Independently re-confirmed via
+   live IERS data (not just the builtin Skyfield snapshot): 69.17 s, within
+   0.07 s of the locked value.
 6. **Missing local-circumstances pieces** (magnitude, obscuration,
    position/parallactic angle, Sun/Moon angular semi-diameters — confirmed
-   absent from the reference Python) — ✅ **not blocking**: ship as
+   absent from `eclipse-calc`) — ✅ **not blocking**: ship as
    assumed/placeholder values, visually flagged as provisional, and
    implement for real later rather than extending the Python oracle first.
+7. **How the app depends on `eclipse-calc`** — ✅ **local editable pip
+   install from `tools/`, not vendored/submoduled** (§11) — build-time-only
+   dependency, never shipped to the browser, regenerated manually and the
+   output JSON committed when the calc changes (matches this section's
+   "run once at build time, never at runtime" framing already).
 
 Still open: none currently.
 
@@ -404,21 +444,26 @@ Still open: none currently.
 
 **ΔT is locked to 69.1 s**, app-wide, for the Besselian TD↔UT conversion and
 any longitude correction that comes with it (≈0.004178°/s · δT if this ever
-changes). This matches the reference Python oracle (Skyfield's own ΔT model,
-≈68.8 s for 2026-08-12) rather than NASA GSFC's SEdata constant below
-(75.4 s) — the Python is the designated source of truth, so its ΔT governs,
-even though NASA's number is independently defensible on its own terms.
+changes). This matches the `eclipse-calc` oracle (Skyfield's own ΔT model,
+≈68.8 s for 2026-08-12, independently re-confirmed at 69.17 s against live
+IERS data) rather than NASA GSFC's SEdata constant below (75.4 s) — the
+Python is the designated source of truth, so its ΔT governs, even though
+NASA's number is independently defensible on its own terms.
 
-**The app's actual Besselian elements are generated from the reference
-Python** (`polynom_bessels.Bessels` — see `docs/PYTHON_REVIEW_FINDINGS.md`),
-which fits a degree-3 polynomial to its own ephemeris-direct Skyfield/JPL
-DE440s computation. The NASA table below is kept **only as an independent
+**The app's actual Besselian elements are generated from `eclipse-calc`**
+(`BesselianEclipse` — a standalone package, sibling repo `../eclipse-calc`,
+extracted and tested from the original research Python; see
+`docs/PYTHON_REVIEW_FINDINGS.md` for the extraction history), which fits a
+degree-3 polynomial to its own ephemeris-direct Skyfield/JPL DE440s
+computation. The NASA table below is kept **only as an independent
 cross-check reference** (alongside a second, separately-computed set from
 ytliu.epizy.com using JPL DE441, also in the findings doc) — it is *not*
 the locked source, and should not be bundled into `besselian-2026.json`.
 Useful precisely because it's independent: the Python-derived elements agree
-with it to ~5 significant figures, and the central line to ~200–400 m at
-every spot-checked instant.
+with it to ~5 significant figures, the central line and umbral N/S limits
+to ~200–900 m at every spot-checked instant, and the whole path's published
+start/end (its own separate figures, not part of this a0/a1/a2/a3 table) to
+the *second* in time and ~0.002° in position.
 
 **NASA GSFC SEdata — cross-check only, do not use as the app's element
 source.** Base time **T0 = 2026-08-12 18.000 TD**; evaluate
