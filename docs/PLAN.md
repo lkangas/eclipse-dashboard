@@ -420,7 +420,13 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      against `eclipse-calc` to full float precision (Vitest, `app/`)
    - ✅ `src/eclipse/observer.ts`: geocentric rho*sin/cos(phi') ported
      (closed-form WGS84, no Skyfield dependency), validated to ~1e-8
-   - ⬜ `localCircumstances.ts`, `path.ts`: not started
+   - ✅ `src/eclipse/localCircumstances.ts`: local-elements glue plus
+     C1-C4 contact-time search. Uses safeguarded Newton (numerical
+     derivative + bisection fallback) on the smooth signed distance
+     function, not a port of eclipse-calc's boolean-step bisection
+     search -- validated to sub-millisecond accuracy against all 13
+     golden sites (well inside Sec12's sub-second tolerance)
+   - ⬜ `path.ts`: not started
 4. **Map + shadow** and **sky views** on real computation — ⬜ not started.
 5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
    started (mock has manual entry + map click/drag + a geolocation
