@@ -281,32 +281,26 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
   frames, §3.4). The umbra is a long, thin, fast ellipse here because the Sun is
   so low.
 - Click anywhere → sets observer → recomputes local circumstances live.
-- **Two map tabs (future/noted, not built yet)**:
-  1. **Spain (zoomed + rotated)** — the map panel is generally wide and
-     rectangular, but the centerline crosses Spain on a shallow diagonal;
-     rendering it that way wastes panel space in the corners. Idea: rotate
-     the whole projection (at **build time**, not runtime — this is a fixed
-     rotation for this one event) so the centerline renders **horizontal**,
-     using the panel's shape fully. Rotation angle derived from **two chosen
-     points on the centerline** (e.g. two specific times along the umbra's
-     track); which two points is a **build-time config**, ideally with a
-     small helper tool to preview/tune the rotation before locking it in,
-     rather than hand-picking lat/lon by trial and error.
-  2. **Global (whole path)** — the full path on a world/hemisphere view, from
-     wherever it starts to wherever it ends. Needs **much less offline map
-     detail** than the Spain tab (continent/coastline outlines only, no
-     province-level data). Because the 2026-08-12 path sits awkwardly close
-     to the North Pole (greatest eclipse is at ~65°N 25°W, off Iceland —
-     §1), a standard equirectangular/Mercator-style projection would distort
-     or clip it badly; needs a **special projection** for this tab. Candidate:
-     **stereographic, centered near the point of greatest eclipse**. Details
-     (exact center, framing) to be refined later. Will eventually want the
-     **momentary penumbral shadow** (the whole region seeing any partial
-     eclipse right now, not just totality) as its moving-shadow overlay --
-     the natural big-picture counterpart to the Spain tab's umbral shadow.
-     Not started (§4 already flags penumbral N/S *limits* as unneeded and
-     unvalidated for this event; the penumbral shadow *outline* is a
-     separate, later piece specifically for this tab).
+- **Two map tabs** (✅ both built now, see §13 for the full history):
+  1. **Spain (zoomed + rotated)** — ✅ done. The centerline crosses Spain on
+     a shallow diagonal, wasting panel space in the corners of the wide
+     rectangular panel; fixed with a fixed `SPAIN_ROTATION_DEG = 39.87`
+     applied via `spainProjection.angle()` before `fitExtent`, derived
+     from the bearing between `shadow-frames.json`'s two centralLine
+     endpoints (one locked constant, not a dynamic per-frame angle or a
+     two-point build-time config tool — simpler than originally
+     sketched here, per direct request once the rotation idea came up
+     again in practice).
+  2. **Global (whole path)** — ✅ done. Stereographic, centered near the
+     point of greatest eclipse (~65°N 25°W, off Iceland), as guessed
+     here — implemented as a proper `d3-geo` custom raw projection (not
+     equirectangular/Mercator, which would badly distort/clip a path
+     this close to the pole). Real coastline (a new, wider but coarser
+     `basemap-global.topojson`), the real whole-event central line + N/S
+     umbral limits (`shadow-frames-global.json`, auto-discovered window,
+     not hand-typed), and the **momentary penumbral shadow** outline
+     (`shadowOutlineAt(..., 'penumbra')`) as its moving-shadow overlay,
+     underneath the umbral one — all as anticipated here.
 
 ---
 
@@ -702,6 +696,74 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        checking for any non-finite point -- confirmed this test fails on
        the pre-fix code and passes after. `npm run test`: 62/62 (+1);
        `npm run check`: 0 errors/warnings.
+     - ✅ **Spain tab rotated to level the central line** -- per direct
+       request ("locking on one angular rotation value is sufficient",
+       not a dynamic per-frame angle): a fixed `SPAIN_ROTATION_DEG =
+       39.87` applied via `spainProjection.angle()` *before* `fitExtent`
+       so the fit itself accounts for the tilted content. Derived from
+       the bearing (in unrotated projected space) between
+       `shadow-frames.json`'s two centralLine endpoints -- a small Node
+       script using the already-installed `d3-geo` confirmed the angle
+       zeroes the line's on-screen dy to ~0.03px over a 300px span.
+       Verified the rotation is a net win despite the coastline-fit
+       scale dropping ~30% (869->609): the fraction of centralLine/
+       northLimit/southLimit points landing inside the visible viewport
+       rose from 34%/28%/35% (unrotated) to 47%/53%/42% (rotated) --
+       measurably more of the umbra band fits the panel, the actual
+       goal, not just an isolated dy=0 check. `npm run check`: 0
+       errors/warnings.
+     - ✅ **Penumbral outline support** -- `shadowOutlineAt` generalized
+       with a `kind: 'umbra' | 'penumbra'` param selecting l1/tanf1 vs
+       l2/tanf2 (the rest of the geometry only depends on the shadow
+       axis's declination, identical either way), rather than a
+       duplicated function. Wired into the Global tab as a second,
+       much-lighter-opacity `<polygon>` underneath the umbra outline.
+       Verified with a scratch sweep across the whole event window: no
+       NaNs (reusing the same, already-proven terminator-bisection code
+       path), and a plausible point count relative to the umbra outline
+       given this event's near-terminator geometry throughout (this
+       eclipse is sunset-limited even at greatest eclipse, so a
+       meaningful arc of the much-larger penumbral circle already falls
+       off the visible disk well before the umbra's own edge does).
+     - ✅ **Global tab: real coastline + full-event N/S limits,
+       replacing the crude hand-typed placeholders** -- per direct
+       request ("the global map needs N/S limits, live penumbra
+       outline, and better map data" plus "why is the centerline gray
+       and blue now?"). Root cause of the "gray and blue" line: the tab
+       was drawing *two* independent centerline datasets on top of each
+       other -- a rough hand-typed full-path sketch (`.globalpath`,
+       muted gray) alongside the precise but Spain-window-only
+       `shadow-frames.json` line (`.pathline`, blue), since the precise
+       data never covered the pre-Spain (Arctic/Siberia) portion of the
+       path. Fixed at the source instead of just re-coloring: a new
+       background-agent-generated `shadow-frames-global.json`
+       (`tools/build-data/generate_shadow_frames_global.py`) auto-
+       discovers the *whole* event's valid window (-1.058h to +0.633h
+       from T0, ~101.5min, found via a coarse scan rather than assumed)
+       at a coarser adaptive 10s step (553/529/574 points for central/
+       north/south), with terminator-crossing points at *both* ends
+       (unlike the Spain file's trailing-only one, since this window
+       starts right where the umbra first touches the globe at all).
+       Geography sanity-checked: starts in the Kara Sea/Russian Arctic,
+       passes near the pole, over Iceland, ends in the western
+       Mediterranean -- matches the real 2026-08-12 path. This one
+       precise dataset now completely replaces the old dual rendering
+       (`GLOBAL_CENTERLINE_PRE` deleted), plus gets its own N/S
+       `limitline`s and shaded `pathband`, matching the Spain tab's
+       visual language for the first time. Coastline: a new, much wider
+       but more coarsely simplified `basemap-global.topojson`
+       (`tools/build-data/basemap-global.mjs`, same `world-atlas`
+       Natural Earth source as the Spain basemap, bbox `-65,45,135,90`,
+       37KB) replaces the hand-typed Greenland/Iceland/Eurasia-coast
+       polygons/polylines. The Global tab's projection itself is now a
+       proper `d3-geo` custom raw projection (oblique stereographic,
+       composed via `geoProjection()` + `.rotate()`/`.scale()`/
+       `.translate()`) rather than a hand-rolled screen-space formula,
+       so `geoPath` can drive it directly over the topojson feature the
+       same way `spainProjection` already does -- verified byte-for-byte
+       identical output to the old manual formula at five spot-check
+       points before swapping it in. `npm run check`: 0 errors/
+       warnings; `npm run test`: 62/62.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,
@@ -738,6 +800,23 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      49.2% at the C1-C2 midpoint) -- matches known real eclipse
      behavior, not just internally self-consistent numbers. `npm run
      test`: 61/61; `npm run check`: 0 errors/warnings.
+   - ✅ **Real per-event Sun alt/az in the contacts timetable**, replacing
+     the "--" stub, plus live Sun alt/az in the lower circumstances row
+     (the "Sun az" provisional placeholder is gone -- no more a
+     `†`-flagged value there). `skyView.ts`'s per-tick `bodyPosition`
+     closure extracted into a standalone exported `bodyPositionAt(date,
+     astroObserver, body, radius)` plus a `sunAltAzAt(date, lat, lon,
+     elevationM)` convenience wrapper, so each table row can compute the
+     Sun's position at *its own* timestamp (C1/C2/Max/C3/C4/Sunset) using
+     the exact same Equator/Horizon math the live store uses, instead of
+     a second implementation. Sunset's alt is no longer hardcoded to a
+     literal "0°" -- computed the same uniform way as every other row,
+     which surfaces a small (~-0.2°) real discrepancy between Horizon()'s
+     'normal' refraction model and SearchRiseSet's own fixed-34' one
+     (already documented above) rather than papering over it. Verified
+     in-browser: table shows e.g. C1 16.1°/276°, Sunset -0.2°/290°; live
+     row shows Sun alt/az tracking the clock. `npm run check`: 0
+     errors/warnings; `npm run test`: 62/62.
    - 🟡 Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`:
      - ✅ New `stores/skyView.ts` derived store: real Sun/Moon alt-az

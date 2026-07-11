@@ -1,9 +1,6 @@
 <script lang="ts">
   // Real contact times for the live observer (PLAN.md §4), replacing the
-  // Zaragoza-reference stub. Alt not wired up yet (needs a per-event Sun
-  // altitude, not just sunset) -- shown as "--" rather than left as a
-  // stale stub number. Sun az has no oracle wired up yet either (PLAN.md
-  // §4/§14 #6) -- kept as a placeholder, visually flagged provisional.
+  // Zaragoza-reference stub.
   //
   // Sunset is real (astronomy-engine, stores/localCircumstances.ts) and
   // interleaved chronologically among C1-C4/Max rather than always
@@ -16,8 +13,26 @@
   import { localCircumstances } from '../../stores/localCircumstances';
   import { effectiveTime } from '../../stores/clock';
   import { obscuration } from '../../stores/obscuration';
+  import { observer } from '../../stores/observer';
+  import { skyView, sunAltAzAt } from '../../stores/skyView';
   import { formatCountdown, formatDurationSeconds, formatCest } from '../format';
 
+  function formatAlt(altitude: number): string {
+    return `${altitude.toFixed(1)}°`;
+  }
+  function formatAz(azimuth: number): string {
+    return `${Math.round(azimuth)}°`;
+  }
+
+  // Each row gets the Sun's own alt/az at ITS timestamp (not live "now"),
+  // via sunAltAzAt -- the same Equator/Horizon math skyView's live value
+  // uses, just evaluated once per event instant instead of reactively on
+  // the clock. Sunset is computed the same uniform way as every other
+  // row (no hardcoded "0°") -- it lands a little off exactly zero since
+  // Horizon()'s 'normal' refraction model and SearchRiseSet's own fixed
+  // 34' constant disagree slightly at the horizon (see skyView.ts's
+  // horizonDepressionDeg comment), which is real and worth showing, not
+  // papering over.
   const rows = $derived.by(() => {
     const lc = $localCircumstances;
     const sunsetMs = lc.sunset ? lc.sunset.getTime() : null;
@@ -33,14 +48,18 @@
       .filter((r): r is { key: string; label: string; date: Date } => r.date !== null)
       .filter((r) => r.key === 'sunset' || sunsetMs === null || r.date.getTime() <= sunsetMs)
       .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .map((r) => ({
-        key: r.key,
-        label: r.label,
-        date: r.date,
-        time: formatCest(r.date),
-        alt: r.key === 'sunset' ? '0°' : '—',
-        offset: formatCountdown((r.date.getTime() - $effectiveTime.getTime()) / 1000),
-      }));
+      .map((r) => {
+        const altAz = sunAltAzAt(r.date, $observer.lat, $observer.lon, $observer.elevationM);
+        return {
+          key: r.key,
+          label: r.label,
+          date: r.date,
+          time: formatCest(r.date),
+          alt: formatAlt(altAz.altitude),
+          az: formatAz(altAz.azimuth),
+          offset: formatCountdown((r.date.getTime() - $effectiveTime.getTime()) / 1000),
+        };
+      });
   });
   const nextKey = $derived(
     rows.find((r) => r.date.getTime() >= $effectiveTime.getTime())?.key ?? null,
@@ -67,7 +86,8 @@
   );
   const areaObscurationText = $derived(`${($obscuration.area * 100).toFixed(1)}%`);
 
-  const circ = [{ label: 'Sun az', value: '296°' }];
+  const sunAltText = $derived(formatAlt($skyView.sun.altitude));
+  const sunAzText = $derived(formatAz($skyView.sun.azimuth));
 </script>
 
 <div class="contacts">
@@ -78,6 +98,7 @@
         <th class="num">T</th>
         <th class="num">Time</th>
         <th class="num">Alt</th>
+        <th class="num">Az</th>
       </tr>
     </thead>
     <tbody>
@@ -87,6 +108,7 @@
           <td class="num">{row.offset}</td>
           <td class="num">{row.time}</td>
           <td class="num">{row.alt}</td>
+          <td class="num">{row.az}</td>
         </tr>
       {/each}
     </tbody>
@@ -95,11 +117,8 @@
     <div><span>Duration</span><b>{durationText}</b></div>
     <div><span>Obsc. (linear)</span><b>{linearObscurationText}</b></div>
     <div><span>Obsc. (area)</span><b>{areaObscurationText}</b></div>
-    {#each circ as item (item.label)}
-      <div class="provisional" title="Not yet computed for this observer -- placeholder value">
-        <span>{item.label}</span><b>{item.value}<sup>†</sup></b>
-      </div>
-    {/each}
+    <div><span>Sun alt</span><b>{sunAltText}</b></div>
+    <div><span>Sun az</span><b>{sunAzText}</b></div>
   </div>
 </div>
 
@@ -168,12 +187,5 @@
     font-size: calc(15px * var(--tscale));
     font-weight: 500;
     font-variant-numeric: tabular-nums;
-  }
-  .circ .provisional b {
-    color: var(--muted);
-  }
-  .circ .provisional sup {
-    font-size: 0.7em;
-    cursor: help;
   }
 </style>

@@ -86,28 +86,45 @@ function angularSeparationDeg(a: AltAz, b: AltAz): number {
   return Math.acos(Math.min(1, Math.max(-1, cosSep))) * (180 / Math.PI);
 }
 
+/** Alt/az/angular-radius for `body` at an arbitrary instant, not just live
+ * "now" -- the shared core both the reactive store below and one-off
+ * per-event lookups (e.g. ContactsPanel's per-row Sun alt/az at each
+ * contact time) go through, so they can't drift apart. */
+export function bodyPositionAt(
+  date: Date,
+  astroObserver: Observer,
+  body: Body,
+  physicalRadiusKm: number,
+): BodyPosition {
+  const eq = Equator(body, date, astroObserver, true, true);
+  const hor = Horizon(date, astroObserver, eq.ra, eq.dec, 'normal');
+  const horTrue = Horizon(date, astroObserver, eq.ra, eq.dec, undefined);
+  return {
+    altitude: hor.altitude,
+    azimuth: hor.azimuth,
+    angularRadiusDeg: angularRadiusDeg(physicalRadiusKm, eq.dist),
+    altitudeTrueDeg: horTrue.altitude,
+  };
+}
+
+/** Sun alt/az at an arbitrary instant for a given observer -- e.g. each
+ * contact time's own Sun position in ContactsPanel's timetable, as
+ * opposed to skyView's live "now" value. */
+export function sunAltAzAt(date: Date, lat: number, lon: number, elevationM: number): AltAz {
+  const astroObserver = new Observer(lat, lon, elevationM);
+  return bodyPositionAt(date, astroObserver, Body.Sun, SUN_RADIUS_KM);
+}
+
 export const skyView = derived([observer, effectiveTime], ([$observer, $now]): SkyView => {
   const astroObserver = new Observer($observer.lat, $observer.lon, $observer.elevationM);
-
-  function bodyPosition(body: Body, physicalRadiusKm: number): BodyPosition {
-    const eq = Equator(body, $now, astroObserver, true, true);
-    const hor = Horizon($now, astroObserver, eq.ra, eq.dec, 'normal');
-    const horTrue = Horizon($now, astroObserver, eq.ra, eq.dec, undefined);
-    return {
-      altitude: hor.altitude,
-      azimuth: hor.azimuth,
-      angularRadiusDeg: angularRadiusDeg(physicalRadiusKm, eq.dist),
-      altitudeTrueDeg: horTrue.altitude,
-    };
-  }
 
   const stars: StarPosition[] = starsData.stars.map((s) => {
     const hor = Horizon($now, astroObserver, s.ra, s.dec, 'normal');
     return { altitude: hor.altitude, azimuth: hor.azimuth, proper: s.proper, mag: s.mag, ci: s.ci };
   });
 
-  const sun = bodyPosition(Body.Sun, SUN_RADIUS_KM);
-  const moon = bodyPosition(Body.Moon, MOON_RADIUS_KM);
+  const sun = bodyPositionAt($now, astroObserver, Body.Sun, SUN_RADIUS_KM);
+  const moon = bodyPositionAt($now, astroObserver, Body.Moon, MOON_RADIUS_KM);
 
   return {
     sun,

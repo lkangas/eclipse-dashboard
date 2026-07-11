@@ -136,21 +136,27 @@ export interface ShadowOutlinePoint extends LatLon {
   qDeg: number;
 }
 
-/** The **umbral** shadow footprint polygon at `tHoursFromT0`: `points + 1`
- * evenly-spaced positions around the shadow-cone circle in the
- * fundamental plane (first and last coincide, closing the polygon), plus
- * up to two exact terminator-crossing points bisected in wherever the
- * validity of adjacent samples flips (a circle crossing the day/night
- * boundary has 0 or 2 intersections). Ported from
- * eclipse_calc.shadow.shadow_outlines, umbra=True only (penumbral is a
- * separate, later need for the Global map tab, PLAN.md Sec8). */
+/** The umbral or penumbral shadow footprint polygon at `tHoursFromT0`:
+ * `points + 1` evenly-spaced positions around the shadow-cone circle in
+ * the fundamental plane (first and last coincide, closing the polygon),
+ * plus up to two exact terminator-crossing points bisected in wherever
+ * the validity of adjacent samples flips (a circle crossing the
+ * day/night boundary has 0 or 2 intersections). Ported from
+ * eclipse_calc.shadow.shadow_outlines -- `kind` selects umbra=True (l2/
+ * tanf2, PLAN.md Sec4) vs umbra=False (l1/tanf1, the penumbral cone,
+ * PLAN.md Sec8's Global map need); the rest of the geometry (which only
+ * depends on the shadow axis's declination/hour angle, not which cone)
+ * is identical either way. */
 export function shadowOutlineAt(
   coefficients: BesselianCoefficients,
   tHoursFromT0: number,
   points = 60,
+  kind: 'umbra' | 'penumbra' = 'umbra',
 ): ShadowOutlinePoint[] {
   const el = evaluateElements(coefficients, tHoursFromT0);
   const aux = aux1Elements(el.d);
+  const L = kind === 'umbra' ? el.l2 : el.l1;
+  const tanF = kind === 'umbra' ? el.tanf2 : el.tanf1;
 
   // The un-iterated (zeta=0) first-guess ksi/eta at angle q, and how far
   // it sits from the visible-disk boundary (>=0 inside, <0 outside).
@@ -163,8 +169,8 @@ export function shadowOutlineAt(
   // generate_shadow_frames.py's central-line terminator root-find, which
   // roots on the same kind of un-iterated margin.
   function marginAt(q: number): { ksi: number; eta: number; margin: number } {
-    const ksi = el.x - el.l2 * Math.sin(q);
-    const eta = el.y - el.l2 * Math.cos(q);
+    const ksi = el.x - L * Math.sin(q);
+    const eta = el.y - L * Math.cos(q);
     const eta1 = eta / aux.rho1;
     return { ksi, eta, margin: 1 - ksi * ksi - eta1 * eta1 };
   }
@@ -173,12 +179,12 @@ export function shadowOutlineAt(
     const sinQ = Math.sin(q);
     const cosQ = Math.cos(q);
 
-    let ksi = el.x - el.l2 * sinQ;
-    let eta = el.y - el.l2 * cosQ;
+    let ksi = el.x - L * sinQ;
+    let eta = el.y - L * cosQ;
     let eta1 = eta / aux.rho1;
     let zeta1 = Math.sqrt(1 - ksi ** 2 - eta1 ** 2); // NaN off-ellipse, matching eclipse-calc
     let zeta = aux.rho2 * (zeta1 * aux.cosd1d2 - eta1 * aux.sind1d2);
-    let shadowRadius = el.l2 - zeta * el.tanf2;
+    let shadowRadius = L - zeta * tanF;
 
     for (let iter = 0; iter < 10; iter++) {
       ksi = el.x - shadowRadius * sinQ;
@@ -198,7 +204,7 @@ export function shadowOutlineAt(
       const prevZeta = zeta;
       zeta = aux.rho2 * (zeta1 * aux.cosd1d2 - eta1 * aux.sind1d2);
       if (Math.abs(prevZeta - zeta) < 1e-8) break;
-      shadowRadius = el.l2 - zeta * el.tanf2;
+      shadowRadius = L - zeta * tanF;
     }
 
     const latlon = ksiEtaToLatLon(aux, el.d, el.mu0, ksi, eta);

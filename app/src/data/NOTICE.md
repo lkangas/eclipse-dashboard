@@ -19,6 +19,21 @@ and their terminator-crossing endpoints. Not derived from or
 redistributing any third-party dataset — no additional attribution
 required. Regenerate with `tools/build-data/generate_shadow_frames.py`.
 
+## shadow-frames-global.json
+
+Computed directly by [`eclipse-calc`](https://github.com/lkangas/eclipse-calc)
+(MIT license), a first-party tool — whole-event central line, N/S
+umbral limits, and their terminator-crossing endpoints (at both the
+start and end of the window, unlike `shadow-frames.json`'s single
+trailing-only terminator field), for the small global-overview map.
+Not derived from or redistributing any third-party dataset — no
+additional attribution required. Covers the entire 2026-08-12 umbral
+path (Arctic Russia to the western Mediterranean), auto-discovered and
+sampled at a coarser step than `shadow-frames.json`'s fixed 1s Spain-
+window grid, appropriate for a small thumbnail rather than path-
+accuracy work. Regenerate with
+`tools/build-data/generate_shadow_frames_global.py`.
+
 ## basemap.topojson
 
 Countries + land, from [`world-atlas`](https://github.com/topojson/world-atlas)'s
@@ -29,6 +44,16 @@ western Mediterranean + Balearics bbox and simplified with `mapshaper`.
 Admin-1 province detail (a separate Natural Earth source) not yet
 added. Regenerate with `tools/build-data/basemap.mjs`
 (`npm run basemap` in `tools/build-data/`).
+
+## basemap-global.topojson
+
+Same source and license as `basemap.topojson` above (`world-atlas`'s
+Natural Earth 1:50m data, ISC license). A separate, much wider but more
+coarsely simplified clip -- Arctic Russia/Svalbard through Greenland and
+Iceland to Spain (bbox `-65,45,135,90`) -- for the Global map tab, which
+needs to show the whole event path far outside `basemap.topojson`'s
+tight Iberia-only extent. Regenerate with `tools/build-data/basemap-global.mjs`
+(`npm run basemap-global` in `tools/build-data/`).
 
 ## stars.json
 

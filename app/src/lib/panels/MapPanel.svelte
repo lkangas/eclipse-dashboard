@@ -13,10 +13,12 @@
   import { effectiveTime } from '../../stores/clock';
   import { feature } from 'topojson-client';
   import type { Topology, GeometryCollection } from 'topojson-specification';
-  import { geoMercator, geoPath as geoPathGenerator } from 'd3-geo';
+  import { geoMercator, geoPath as geoPathGenerator, geoProjection } from 'd3-geo';
   import type { GeoProjection } from 'd3-geo';
   import basemapData from '../../data/basemap.topojson';
+  import basemapGlobalData from '../../data/basemap-global.topojson';
   import shadowFrames from '../../data/shadow-frames.json';
+  import shadowFramesGlobal from '../../data/shadow-frames-global.json';
   import { coefficients, dateToTtHours } from '../../data/besselian-2026';
   import { shadowOutlineAt } from '../../eclipse/shadowOutline';
 
@@ -27,13 +29,24 @@
     SPAIN_PAD = 6;
   const topology = basemapData as unknown as Topology;
   const landFeature = feature(topology, topology.objects.land as GeometryCollection);
-  const spainProjection: GeoProjection = geoMercator().fitExtent(
-    [
-      [SPAIN_PAD, SPAIN_PAD],
-      [SPAIN_VW - SPAIN_PAD, SPAIN_VH - SPAIN_PAD],
-    ],
-    landFeature,
-  );
+  // Locked (not live-recomputed) counterclockwise tilt so the central
+  // line runs roughly horizontal, letting more of the umbra band fit the
+  // panel's horizontal-rectangle aspect ratio -- one fixed value derived
+  // from the bearing between shadow-frames.json's two centralLine
+  // endpoints (the real Spain-transit start/end) is enough; the path
+  // doesn't curve enough over this short a stretch to need a dynamic
+  // per-frame angle. Set via .angle() *before* fitExtent so the fit
+  // itself accounts for the tilted content.
+  const SPAIN_ROTATION_DEG = 39.87;
+  const spainProjection: GeoProjection = geoMercator()
+    .angle(SPAIN_ROTATION_DEG)
+    .fitExtent(
+      [
+        [SPAIN_PAD, SPAIN_PAD],
+        [SPAIN_VW - SPAIN_PAD, SPAIN_VH - SPAIN_PAD],
+      ],
+      landFeature,
+    );
   const landPathD = geoPathGenerator(spainProjection)(landFeature) ?? '';
 
   function project(lat: number, lon: number): [number, number] | null {
@@ -70,6 +83,40 @@
   const PATH_NORTH = withTerminator(shadowFrames.northLimit, shadowFrames.northLimitTerminator);
   const PATH_SOUTH = withTerminator(shadowFrames.southLimit, shadowFrames.southLimitTerminator);
   const band = PATH_NORTH.concat(PATH_SOUTH.slice().reverse());
+
+  // Global tab's own whole-event central line + N/S limits
+  // (shadow-frames-global.json -- coarser, but spans the entire path from
+  // Arctic Russia through Iceland to Spain, unlike shadowFrames above
+  // which only covers the Spain transit slice). Terminator points can
+  // fall at *either* end here (the window starts right where the umbra
+  // first touches the globe at all, not safely mid-visible-disk like the
+  // Spain slice does), hence prepending as well as appending.
+  function withTerminatorBoth(
+    points: { lat: number; lon: number }[],
+    start: { lat: number; lon: number } | null,
+    end: { lat: number; lon: number } | null,
+  ): [number, number][] {
+    const pts = points.map((p): [number, number] => [p.lat, p.lon]);
+    if (start) pts.unshift([start.lat, start.lon]);
+    if (end) pts.push([end.lat, end.lon]);
+    return pts;
+  }
+  const GLOBAL_PATH_CENTER = withTerminatorBoth(
+    shadowFramesGlobal.centralLine,
+    shadowFramesGlobal.centralLineTerminatorStart,
+    shadowFramesGlobal.centralLineTerminatorEnd,
+  );
+  const GLOBAL_PATH_NORTH = withTerminatorBoth(
+    shadowFramesGlobal.northLimit,
+    shadowFramesGlobal.northLimitTerminatorStart,
+    shadowFramesGlobal.northLimitTerminatorEnd,
+  );
+  const GLOBAL_PATH_SOUTH = withTerminatorBoth(
+    shadowFramesGlobal.southLimit,
+    shadowFramesGlobal.southLimitTerminatorStart,
+    shadowFramesGlobal.southLimitTerminatorEnd,
+  );
+  const GLOBAL_BAND = GLOBAL_PATH_NORTH.concat(GLOBAL_PATH_SOUTH.slice().reverse());
   const TERMINATOR_POINTS: { lat: number; lon: number }[] = [
     shadowFrames.centralLineTerminator,
     shadowFrames.northLimitTerminator,
@@ -108,6 +155,17 @@
     return shadowOutlineAt(coefficients, tHours).map((p): [number, number] => [p.lat, p.lon]);
   });
 
+  // Penumbral footprint -- same idea as the umbral outline above, but the
+  // much larger partial-eclipse-visibility cone (Global tab only; on the
+  // Spain tab it's bigger than the whole map for most of the event and
+  // would just be visual noise).
+  const outlinePenumbraLatLon = $derived.by((): [number, number][] => {
+    const tHours = dateToTtHours($effectiveTime);
+    return shadowOutlineAt(coefficients, tHours, 60, 'penumbra').map(
+      (p): [number, number] => [p.lat, p.lon],
+    );
+  });
+
   // Click-to-set and drag-to-fine-tune are the same gesture: a single
   // pointerdown+pointermove+pointerup sequence.
   let mapSvg: SVGSVGElement;
@@ -139,49 +197,38 @@
   // Stereographic projection centered near the point of greatest eclipse
   // (off Iceland) -- a standard equirectangular/Mercator would badly
   // distort or clip a path that starts in Siberia and crosses the Arctic.
-  // Coastline is a very rough Northern-Hemisphere sketch, much less detail
-  // than the Spain tab needs.
+  // Custom raw projection (d3-geo's core geoProjection wrapper, not the
+  // separate d3-geo-projection package this repo doesn't depend on) --
+  // the standard oblique-stereographic raw formula, composed with d3's
+  // own rotate/scale/translate so it can drive geoPath over real
+  // coastline data (basemap-global.topojson) the same way spainProjection
+  // does, instead of hand-computing screen coordinates per point.
   const GLOBAL_LAT0 = 65.22,
     GLOBAL_LON0 = -25.24;
   const GLOBAL_PXPERUNIT = 70,
     GLOBAL_CX = 100,
     GLOBAL_CY = 100;
+  function stereographicRaw(x: number, y: number): [number, number] {
+    const cosy = Math.cos(y),
+      k = 1 + Math.cos(x) * cosy;
+    return [(cosy * Math.sin(x)) / k, Math.sin(y) / k];
+  }
+  const globalProjection: GeoProjection = geoProjection(stereographicRaw)
+    .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
+    .scale(2 * GLOBAL_PXPERUNIT)
+    .translate([GLOBAL_CX, GLOBAL_CY]);
   function stereo(lat: number, lon: number): [number, number] {
-    const phi0 = (GLOBAL_LAT0 * Math.PI) / 180,
-      lam0 = (GLOBAL_LON0 * Math.PI) / 180;
-    const phi = (lat * Math.PI) / 180,
-      lam = (lon * Math.PI) / 180;
-    const dlam = lam - lam0;
-    const cosc =
-      Math.sin(phi0) * Math.sin(phi) + Math.cos(phi0) * Math.cos(phi) * Math.cos(dlam);
-    const k = 2 / (1 + cosc);
-    const x = k * Math.cos(phi) * Math.sin(dlam);
-    const y = k * (Math.cos(phi0) * Math.sin(phi) - Math.sin(phi0) * Math.cos(phi) * Math.cos(dlam));
-    return [GLOBAL_CX + x * GLOBAL_PXPERUNIT, GLOBAL_CY - y * GLOBAL_PXPERUNIT];
+    return globalProjection([lon, lat]) ?? [GLOBAL_CX, GLOBAL_CY];
   }
   function stereoPts(pairs: [number, number][]) {
     return pairs.map(([lat, lon]) => stereo(lat, lon).join(',')).join(' ');
   }
-  const GLOBAL_GREENLAND: [number, number][] = [
-    [59.8, -43.9], [64, -51], [70, -53], [76, -68], [82, -55], [83.6, -30], [76, -18],
-    [70, -22], [59.8, -43.9],
-  ];
-  const GLOBAL_ICELAND: [number, number][] = [
-    [66.4, -22.7], [65.9, -14.3], [63.4, -19.1], [64.9, -24], [66.4, -22.7],
-  ];
-  const GLOBAL_EURASIA_COAST: [number, number][] = [
-    [76, 105], [74, 55], [69, 33], [71.1, 25.8], [65, 12], [59, 10.7], [57, 10], [53, 6],
-    [50, 2], [48.5, -4.5], [43.38, -1.79], [41.38, 2.18],
-  ];
-  const GLOBAL_CENTERLINE_PRE: [number, number][] = [
-    [75.0783, 113.4433], [79.94, 114.155], [83.8717, 109.545], [87.2467, 82.2983],
-    [87.465, 12.55], [85.4367, -15.0133], [83.2383, -22.9133], [81.14, -25.9783],
-    [79.1517, -27.305], [77.26, -27.8367], [75.45, -27.945], [73.7083, -27.805],
-    [72.025, -27.5067], [70.3883, -27.1], [68.7933, -26.61], [67.2333, -26.055],
-    [65.7, -25.4433], [64.19, -24.78], [62.6983, -24.0667], [61.2217, -23.3017],
-    [59.755, -22.4817], [58.2933, -21.6], [56.8317, -20.6483], [55.365, -19.6167],
-    [53.8883, -18.49], [52.395, -17.245], [50.8717, -15.855], [49.31, -14.2783],
-  ];
+  const globalTopology = basemapGlobalData as unknown as Topology;
+  const globalLandFeature = feature(
+    globalTopology,
+    globalTopology.objects.land as GeometryCollection,
+  );
+  const globalLandPathD = geoPathGenerator(globalProjection)(globalLandFeature) ?? '';
   const GREATEST_ECLIPSE: [number, number] = [65.2233, -25.24];
   const gePos = stereo(GREATEST_ECLIPSE[0], GREATEST_ECLIPSE[1]);
 </script>
@@ -239,11 +286,14 @@
       preserveAspectRatio="xMidYMid meet"
       style:display={tab === 'global' ? 'block' : 'none'}
     >
-      <polygon class="coast" points={stereoPts(GLOBAL_GREENLAND)} />
-      <polygon class="coast" points={stereoPts(GLOBAL_ICELAND)} />
-      <polyline class="globalcoast" points={stereoPts(GLOBAL_EURASIA_COAST)} />
-      <polyline class="globalpath" points={stereoPts(GLOBAL_CENTERLINE_PRE)} />
-      <polyline class="pathline" points={stereoPts(PATH_CENTER)} />
+      <path class="coast" d={globalLandPathD} />
+      <polygon class="pathband" points={stereoPts(GLOBAL_BAND)} />
+      <polyline class="limitline" points={stereoPts(GLOBAL_PATH_NORTH)} />
+      <polyline class="limitline" points={stereoPts(GLOBAL_PATH_SOUTH)} />
+      <polyline class="pathline" points={stereoPts(GLOBAL_PATH_CENTER)} />
+      {#if outlinePenumbraLatLon.length >= 3}
+        <polygon class="penumbraOutline" points={stereoPts(outlinePenumbraLatLon)} />
+      {/if}
       {#if outlineLatLon.length >= 3}
         <polygon class="umbraOutline" points={stereoPts(outlineLatLon)} />
       {/if}
@@ -343,6 +393,17 @@
     stroke-width: 1;
     stroke-linejoin: round;
   }
+  /* Penumbral (partial-visibility) footprint -- same convention as
+     .umbraOutline but much lighter, since it's a far larger area and
+     sits underneath the umbra outline rather than replacing it. */
+  .penumbraOutline {
+    fill: var(--ink);
+    fill-opacity: 0.06;
+    stroke: var(--ink);
+    stroke-opacity: 0.25;
+    stroke-width: 0.75;
+    stroke-linejoin: round;
+  }
   .shadowmarker {
     fill: #c22;
     fill-opacity: 0.8;
@@ -352,18 +413,6 @@
     fill: var(--screen);
     stroke: var(--ink);
     stroke-width: 2;
-  }
-  .globalcoast {
-    fill: none;
-    stroke: var(--line);
-    stroke-width: 1;
-  }
-  .globalpath {
-    fill: none;
-    stroke: var(--muted);
-    stroke-width: 1.5;
-    stroke-linecap: round;
-    stroke-linejoin: round;
   }
   .gemarker {
     fill: var(--accent);
