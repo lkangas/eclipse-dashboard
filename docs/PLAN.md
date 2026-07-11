@@ -671,6 +671,42 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        the disk edge, small relative to the shape's own several-degree
        extent); Calamocha sits inside the outline at its own local Max.
        `npm run test`: 61/61 (+6 new); `npm run check`: 0 errors/warnings.
+   - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
+     placeholders** -- per direct request, Magnitude itself is dropped
+     (not interesting), replaced with two obscuration numbers instead,
+     both derived entirely from the same L1 (penumbral)/L2 (umbral)
+     shadow radii and observer-to-axis distance `m` the C1-C4 root-finder
+     already computes -- no separate ephemeris/angular-radius lookup
+     needed (`eclipse/localCircumstances.ts`'s new `obscurationAt`).
+     Classical relationship: `L1 = r_sun + r_moon`, `L2 = r_sun - r_moon`
+     (negative here since the Moon's disk is bigger), so
+     `r_sun=(L1+L2)/2`, `r_moon=(L1-L2)/2` solve out of the sum/
+     difference pair. **Linear** (`(L1-m)/(L1+L2)`, what "magnitude"
+     already measured, just renamed/reframed as a %) genuinely exceeds
+     100% at/near mid-totality since the Moon's disk is bigger than the
+     Sun's -- clamped to [0,1] for display per direct request. **Area**
+     (the real "% of the Sun's disk actually hidden") uses the standard
+     two-circle intersection-area formula, with `m <= |L2|` (fully in
+     the umbra, area=1 exactly) the same condition the C2/C3 root-finder
+     already uses. Both are **live** (a new `stores/obscuration.ts`
+     keyed on `[observer, effectiveTime]`, unlike the fixed-per-observer
+     `localCircumstances` store), per direct request. Caught and fixed a
+     real bug while verifying: far from the event (e.g. real "now",
+     weeks before 2026-08-12), the Besselian cubic polynomial is wildly
+     extrapolated hundreds of hours outside its valid window, and `m`
+     can come out arbitrarily small by coincidence -- without a guard
+     this showed a clamped "100% obscured" on an ordinary day, not just
+     an unclamped garbage number. Fixed with a `VALID_WINDOW_HOURS = 4`
+     domain guard returning exactly `{linear:0, area:0}` outside it
+     (contact-time searches don't have this problem, being bounded root-
+     finds anchored near T0 regardless of "now" -- this is a plain
+     function evaluation with no such bound of its own). Verified
+     against known values: 0%/0% at C1 and C4 exactly, 100%/100% at C2
+     and C3, 101.6%/100% (unclamped/clamped) at Max, and area
+     legitimately lagging linear during the partial phase (38.6% vs.
+     49.2% at the C1-C2 midpoint) -- matches known real eclipse
+     behavior, not just internally self-consistent numbers. `npm run
+     test`: 61/61; `npm run check`: 0 errors/warnings.
    - 🟡 Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`:
      - ✅ New `stores/skyView.ts` derived store: real Sun/Moon alt-az

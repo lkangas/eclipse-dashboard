@@ -2,9 +2,8 @@
   // Real contact times for the live observer (PLAN.md §4), replacing the
   // Zaragoza-reference stub. Alt not wired up yet (needs a per-event Sun
   // altitude, not just sunset) -- shown as "--" rather than left as a
-  // stale stub number. Magnitude/Obscuration/Sun az have no oracle at
-  // all yet (PLAN.md §4/§14 #6) -- kept as placeholder values, visually
-  // flagged provisional.
+  // stale stub number. Sun az has no oracle wired up yet either (PLAN.md
+  // §4/§14 #6) -- kept as a placeholder, visually flagged provisional.
   //
   // Sunset is real (astronomy-engine, stores/localCircumstances.ts) and
   // interleaved chronologically among C1-C4/Max rather than always
@@ -16,6 +15,7 @@
   // table of what you can actually see.
   import { localCircumstances } from '../../stores/localCircumstances';
   import { effectiveTime } from '../../stores/clock';
+  import { obscuration } from '../../stores/obscuration';
   import { formatCountdown, formatDurationSeconds, formatCest } from '../format';
 
   const rows = $derived.by(() => {
@@ -52,11 +52,22 @@
       : 'no totality here',
   );
 
-  const circ = [
-    { label: 'Magnitude', value: '1.039' },
-    { label: 'Obscuration', value: '100%' },
-    { label: 'Sun az', value: '296°' },
-  ];
+  // Live, not a per-event snapshot -- both update continuously with
+  // effectiveTime (PLAN.md §4/§14 #6), derived from the same L1/L2/m
+  // the contact-time root-finder above already uses (see
+  // eclipse/localCircumstances.ts's obscurationAt for the math), not a
+  // separate ephemeris lookup. Linear ("magnitude", classically) is
+  // clamped to [0,1] for display -- it genuinely exceeds 100% at/near
+  // mid-totality since the Moon's disk is bigger than the Sun's, which
+  // reads as a bug rather than the honest number it is; area (what
+  // fraction of the Sun's disk is actually hidden) is naturally already
+  // bounded and the more meaningful of the two, kept unclamped/exact.
+  const linearObscurationText = $derived(
+    `${(Math.max(0, Math.min(1, $obscuration.linear)) * 100).toFixed(1)}%`,
+  );
+  const areaObscurationText = $derived(`${($obscuration.area * 100).toFixed(1)}%`);
+
+  const circ = [{ label: 'Sun az', value: '296°' }];
 </script>
 
 <div class="contacts">
@@ -82,6 +93,8 @@
   </table>
   <div class="circ">
     <div><span>Duration</span><b>{durationText}</b></div>
+    <div><span>Obsc. (linear)</span><b>{linearObscurationText}</b></div>
+    <div><span>Obsc. (area)</span><b>{areaObscurationText}</b></div>
     {#each circ as item (item.label)}
       <div class="provisional" title="Not yet computed for this observer -- placeholder value">
         <span>{item.label}</span><b>{item.value}<sup>†</sup></b>

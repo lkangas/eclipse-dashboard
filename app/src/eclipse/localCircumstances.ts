@@ -244,3 +244,83 @@ export function findContactTimes(
 
   return { c1, c2, c3, c4 };
 }
+
+export interface Obscuration {
+  /** Fraction of the Sun's *diameter* covered, along the line of
+   * centers -- classically "magnitude". Unclamped: for a total eclipse
+   * this genuinely exceeds 1 at/near mid-totality, since the Moon's
+   * disk is larger than the Sun's -- the caller decides whether to
+   * clamp for display. */
+  linear: number;
+  /** Fraction of the Sun's disk *area* actually covered -- always in
+   * [0, 1]. This is the number worth showing as "how much of the Sun
+   * is hidden right now". */
+  area: number;
+}
+
+// The Besselian coefficients are a low-order (cubic) polynomial fit
+// valid only for a few hours around T0 -- the event itself (C1..C4)
+// spans well under 2 hours, entirely within +-1.5h of T0. Evaluated at
+// a `tHoursFromT0` far outside that (e.g. real "Live" now, weeks before
+// the actual eclipse -- hundreds of hours away), x/y/mu0 are wildly
+// extrapolated and essentially meaningless: m = hypot(x-ksi, y-eta) can
+// come out arbitrarily small by coincidence, which without this guard
+// fed a nonsensical "100% obscured" (after the [0,1] display clamp) at
+// an ordinary Tuesday weeks before the eclipse. Contact-time searches
+// above don't have this problem since they're bounded root-finds
+// anchored near T0 regardless of "now" -- this is a plain function
+// evaluation with no such bound, so it needs its own.
+const VALID_WINDOW_HOURS = 4;
+
+/** Linear and area obscuration for one observer at `tHoursFromT0`,
+ * derived entirely from the same L1 (penumbral)/L2 (umbral) shadow
+ * radii and observer-to-axis distance `m` that findContactTimes already
+ * uses -- no separate ephemeris/angular-radius lookup needed. The
+ * classical Besselian relationship: L1 = r_sun + r_moon (their angular
+ * radii, in the same fundamental-plane units `m` is measured in) and L2
+ * = r_sun - r_moon (negative here, since the Moon's disk is bigger for
+ * this eclipse), so r_sun = (L1+L2)/2, r_moon = (L1-L2)/2 -- solving the
+ * two sum/difference equations. `m <= |L2|` (fully in the umbra) is the
+ * exact same condition the C2/C3 root-finder above already uses.
+ * Returns exactly {linear: 0, area: 0} outside the polynomial's valid
+ * window (see VALID_WINDOW_HOURS) rather than extrapolating. */
+export function obscurationAt(
+  coefficients: BesselianCoefficients,
+  lonDeg: number,
+  rhoSinPhiPrime: number,
+  rhoCosPhiPrime: number,
+  tHoursFromT0: number,
+): Obscuration {
+  if (Math.abs(tHoursFromT0) > VALID_WINDOW_HOURS) {
+    return { linear: 0, area: 0 };
+  }
+
+  const { x, y, ksi, eta, L1, L2 } = localElementsAt(
+    coefficients,
+    lonDeg,
+    rhoSinPhiPrime,
+    rhoCosPhiPrime,
+    tHoursFromT0,
+  );
+  const m = Math.hypot(x - ksi, y - eta);
+
+  const linear = (L1 - m) / (L1 + L2);
+
+  let area: number;
+  if (m >= L1) {
+    area = 0;
+  } else if (m <= Math.abs(L2)) {
+    area = 1;
+  } else {
+    const r = (L1 + L2) / 2; // Sun's angular radius
+    const R = (L1 - L2) / 2; // Moon's angular radius
+    const d = m;
+    const clampAcos = (v: number) => Math.acos(Math.min(1, Math.max(-1, v)));
+    const term1 = r * r * clampAcos((d * d + r * r - R * R) / (2 * d * r));
+    const term2 = R * R * clampAcos((d * d + R * R - r * r) / (2 * d * R));
+    const term3 = 0.5 * Math.sqrt(Math.max(0, (-d + r + R) * (d + r - R) * (d - r + R) * (d + r + R)));
+    area = (term1 + term2 - term3) / (Math.PI * r * r);
+  }
+
+  return { linear, area };
+}
