@@ -541,19 +541,36 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        reference site. `npm run test`: 105/105; `npm run check`: 0
        errors/warnings.
      - ✅ Shadow marker now interpolates over the real UT timestamps of
-       the sampled central-line grid above (still driven by
-       `clock.simTimeSec`, which is itself still the stub `TimeBar`
-       clock -- wiring the *clock* to the real timeline is the separate
-       item below)
+       the sampled central-line grid above, driven by the real
+       `effectiveTime` clock (see below) instead of a CEST-seconds stub
    - ⬜ Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`
-   - ⬜ Wire TimeBar to real contact times instead of `STUB_CONTACTS`
+   - ✅ Wire TimeBar to real contact times instead of `STUB_CONTACTS` --
+     the `clock` store was redesigned around a real UTC epoch
+     (`simTimeMs`, standard `Date` convention) plus a new `effectiveTime`
+     derived store (`clock` in `live` mode always tracks the real
+     ticking `now`, continuously -- a correctness fix over the mock,
+     which never actually animated the cursor in Live; `sim` mode uses
+     `simTimeMs` as before). Domain, warp/stretch curve, tick/hour
+     labels (now real CEST wall-clock via `Intl`, timezone-aware), and
+     the C1..C4/Max lines all derive reactively from the live
+     observer's `localCircumstances`. Gracefully degrades outside
+     totality: C2/C3/totband are simply omitted rather than breaking
+     (verified against Paris). Live/Sim arm-confirm guard, fresh-sim-
+     entry positioning (C2-90s, falling back to Max-90s outside
+     totality), and playback all verified working. `npm run test`:
+     105/105; `npm run check`: 0 errors/warnings.
 5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
    started (mock has manual entry + map click/drag + a geolocation
    placeholder button; serial GPS not touched at all yet).
-6. **Time control** + LIVE lock + GPS clock — ⬜ not started (mock's time
-   control is UI/interaction only, not driven by real computation yet).
-7. **Contacts + sound warnings** — ⬜ not started.
+6. **Time control** + LIVE lock + GPS clock — 🟡 in progress: Live/Sim
+   mode switching, the arm-confirm guard, the warp/stretch curve, and
+   slider drag/scrub/playback are all real and driven by the live
+   observer's actual contact times (§4 above) -- ⬜ **GPS-disciplined
+   clock source** (serial NMEA, §6) not started, blocked on milestone 5's
+   serial GPS input.
+7. **Contacts + sound warnings** — 🟡 in progress: contacts table +
+   countdown are real (§4 above) -- sound warnings not started.
 8. **Polish / field-hardening**; full **desktop (Tauri) packaging** — ⬜ not
    started. **Tauri admin-rights spike (§2) should happen independently and
    well before this milestone**, not bundled with it — it's a deal-breaker

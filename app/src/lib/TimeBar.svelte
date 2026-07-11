@@ -1,15 +1,15 @@
 <script lang="ts">
-  // Ported from design/layout-v3-fullscreen.html's time-slider script.
-  // Times as seconds-since-midnight (STUB_CONTACTS -- Zaragoza reference
-  // data). Real contact times (from findContactTimes against the live
-  // observer) are wired in as a follow-up slice; this is a mechanical
-  // structural + interaction port only.
+  // Ported from design/layout-v3-fullscreen.html's time-slider script,
+  // now driven by real per-observer contact times (localCircumstances)
+  // instead of the mock's hardcoded STUB_CONTACTS. Internally works in
+  // epoch SECONDS (not ms) so the K_STRETCH/warp constants below are
+  // unchanged from the original design; the clock store itself holds ms
+  // (standard JS Date convention).
   import { get } from 'svelte/store';
-  import { clock, STUB_CONTACTS as T } from '../stores/clock';
+  import { clock, effectiveTime } from '../stores/clock';
+  import { localCircumstances } from '../stores/localCircumstances';
 
-  const MARGIN = 30 * 60; // comfortable margin shown before C1 / after C4
-  const domainStart = T.c1 - MARGIN;
-  const domainEnd = T.c4 + MARGIN;
+  const MARGIN_S = 30 * 60; // comfortable margin shown before C1 / after C4
 
   // "real": identity (linear, true spacing). "stretch"/"stretchplus": arcsinh,
   // symmetric around max by construction -- near-linear within about ±K
@@ -20,29 +20,58 @@
   const K_STRETCH = 60,
     K_STRETCH_PLUS = 20;
 
-  function fmtHM(t: number) {
-    const h = Math.floor(t / 3600),
-      m = Math.floor((t % 3600) / 60);
-    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  const hmFmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Madrid',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const mFmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Madrid',
+    minute: '2-digit',
+    hour12: false,
+  });
+  function fmtHM(epochSec: number): string {
+    return hmFmt.format(new Date(epochSec * 1000));
   }
-  function fmtM(t: number) {
-    return String(Math.floor((t % 3600) / 60)).padStart(2, '0');
+  function fmtM(epochSec: number): string {
+    return mFmt.format(new Date(epochSec * 1000));
   }
+
+  // Event contact times for the live observer, in epoch seconds. C2/C3
+  // (totality) can be null outside the umbral path -- C1/C4 (partial)
+  // fall back to a ±1h window around Max so the timeline never breaks
+  // even for a pathological observer with no partial eclipse either.
+  const eventSec = $derived.by(() => {
+    const lc = $localCircumstances;
+    const maxS = lc.max.getTime() / 1000;
+    return {
+      c1: lc.c1 ? lc.c1.getTime() / 1000 : maxS - 3600,
+      c2: lc.c2 ? lc.c2.getTime() / 1000 : null,
+      max: maxS,
+      c3: lc.c3 ? lc.c3.getTime() / 1000 : null,
+      c4: lc.c4 ? lc.c4.getTime() / 1000 : maxS + 3600,
+    };
+  });
+  const hasTotality = $derived(eventSec.c2 !== null && eventSec.c3 !== null);
+  const domainStart = $derived(eventSec.c1 - MARGIN_S);
+  const domainEnd = $derived(eventSec.c4 + MARGIN_S);
 
   const timeScale = $derived.by(() => {
     const level = $clock.curveLevel;
     const k = level === 'stretchplus' ? K_STRETCH_PLUS : K_STRETCH;
-    const warp = (t: number) => (level === 'real' ? t : Math.asinh((t - T.max) / k));
-    const unwarp = (w: number) => (level === 'real' ? w : T.max + Math.sinh(w) * k);
+    const maxS = eventSec.max;
+    const warp = (t: number) => (level === 'real' ? t : Math.asinh((t - maxS) / k));
+    const unwarp = (w: number) => (level === 'real' ? w : maxS + Math.sinh(w) * k);
     const lo = warp(domainStart),
       hi = warp(domainEnd);
     const pct = (t: number) => ((warp(t) - lo) / (hi - lo)) * 100;
     return { level, k, warp, unwarp, pct };
   });
 
-  const hourBefore = Math.floor(T.max / 3600) * 3600;
-  const hourAfter = hourBefore + 3600;
-  const tickFirst = Math.ceil(domainStart / 600) * 600;
+  const hourBefore = $derived(Math.floor(eventSec.max / 3600) * 3600);
+  const hourAfter = $derived(hourBefore + 3600);
+  const tickFirst = $derived(Math.ceil(domainStart / 600) * 600);
 
   const mainTicks = $derived.by(() => {
     const ts = timeScale;
@@ -69,7 +98,7 @@
   const minuteTicks = $derived.by(() => {
     const ts = timeScale;
     if (ts.level === 'real') return [];
-    const maxRound10 = Math.round(T.max / 600) * 600;
+    const maxRound10 = Math.round(eventSec.max / 600) * 600;
     const winStart = Math.max(domainStart, maxRound10 - 600);
     const winEnd = Math.min(domainEnd, maxRound10 + 600);
     const marks: { key: string; t: number; p: number }[] = [];
@@ -109,13 +138,14 @@
   });
 
   // C1..C4/Max labels: all on a single row. C1/C4 always render at their
-  // true position. C2/Max/C3 can sit only seconds apart on the linear
-  // curve, so instead of stacking them, Max stays anchored at its true
-  // position and C2/C3 are each pushed away from it by the SAME distance
-  // (symmetric), using each label's REAL measured width to find the
-  // minimum distance that clears the overlap -- never less than their
-  // natural/true spacing, so the stretch curve (already spread out) is
-  // untouched.
+  // true position. When this observer sees totality, C2/Max/C3 can sit
+  // only seconds apart on the linear curve, so instead of stacking them,
+  // Max stays anchored at its true position and C2/C3 are each pushed
+  // away from it by the SAME distance (symmetric), using each label's
+  // REAL measured width to find the minimum distance that clears the
+  // overlap -- never less than their natural/true spacing, so the
+  // stretch curve (already spread out) is untouched. Outside totality,
+  // C2/C3 don't exist and Max just renders at its true position too.
   const TICK_DEFS = [
     { key: 'c1', lab: 'C1' },
     { key: 'c2', lab: 'C2' },
@@ -123,7 +153,15 @@
     { key: 'c3', lab: 'C3' },
     { key: 'c4', lab: 'C4' },
   ] as const;
-  const clineItems = $derived(TICK_DEFS.map(({ key, lab }) => ({ key, lab, p: timeScale.pct(T[key]) })));
+  const clineItems = $derived.by(() => {
+    const ts = timeScale;
+    const ev = eventSec;
+    return TICK_DEFS.filter(({ key }) => ev[key] !== null).map(({ key, lab }) => ({
+      key,
+      lab,
+      p: ts.pct(ev[key] as number),
+    }));
+  });
 
   let slidertrackEl: HTMLDivElement;
   let clabelEls: Record<string, HTMLDivElement> = $state({});
@@ -132,33 +170,36 @@
     const trackEl = slidertrackEl;
     if (!trackEl) return;
     const trackW = trackEl.getBoundingClientRect().width;
-    const pOf = (key: string) => items.find((i) => i.key === key)!.p;
-    const pxOf = (key: string) => (pOf(key) / 100) * trackW;
+    const pOf = (key: string) => items.find((i) => i.key === key)?.p ?? 0;
     const widthOf = (key: string) => clabelEls[key]?.getBoundingClientRect().width ?? 0;
-    const PAD = 6;
 
-    const mx = pxOf('max'),
-      wMax = widthOf('max');
-    const c2px = pxOf('c2'),
-      wC2 = widthOf('c2');
-    const c3px = pxOf('c3'),
-      wC3 = widthOf('c3');
-    const neededLeft = wMax / 2 + wC2 / 2 + PAD;
-    const neededRight = wMax / 2 + wC3 / 2 + PAD;
-    const trueLeft = mx - c2px,
-      trueRight = c3px - mx;
-    const D = Math.max(neededLeft, neededRight, trueLeft, trueRight);
-
+    if (hasTotality) {
+      const PAD = 6;
+      const pxOf = (key: string) => (pOf(key) / 100) * trackW;
+      const mx = pxOf('max'),
+        wMax = widthOf('max');
+      const c2px = pxOf('c2'),
+        wC2 = widthOf('c2');
+      const c3px = pxOf('c3'),
+        wC3 = widthOf('c3');
+      const neededLeft = wMax / 2 + wC2 / 2 + PAD;
+      const neededRight = wMax / 2 + wC3 / 2 + PAD;
+      const trueLeft = mx - c2px,
+        trueRight = c3px - mx;
+      const D = Math.max(neededLeft, neededRight, trueLeft, trueRight);
+      if (clabelEls.c2) clabelEls.c2.style.left = ((mx - D) / trackW) * 100 + '%';
+      if (clabelEls.max) clabelEls.max.style.left = (mx / trackW) * 100 + '%';
+      if (clabelEls.c3) clabelEls.c3.style.left = ((mx + D) / trackW) * 100 + '%';
+    } else if (clabelEls.max) {
+      clabelEls.max.style.left = pOf('max') + '%';
+    }
     if (clabelEls.c1) clabelEls.c1.style.left = pOf('c1') + '%';
-    if (clabelEls.c2) clabelEls.c2.style.left = ((mx - D) / trackW) * 100 + '%';
-    if (clabelEls.max) clabelEls.max.style.left = (mx / trackW) * 100 + '%';
-    if (clabelEls.c3) clabelEls.c3.style.left = ((mx + D) / trackW) * 100 + '%';
     if (clabelEls.c4) clabelEls.c4.style.left = pOf('c4') + '%';
   });
 
-  const totLeft = $derived(timeScale.pct(T.c2));
-  const totWidth = $derived(timeScale.pct(T.c3) - totLeft);
-  const cursorPct = $derived(timeScale.pct($clock.simTimeSec));
+  const totLeft = $derived(hasTotality ? timeScale.pct(eventSec.c2 as number) : 0);
+  const totWidth = $derived(hasTotality ? timeScale.pct(eventSec.c3 as number) - totLeft : 0);
+  const cursorPct = $derived(timeScale.pct($effectiveTime.getTime() / 1000));
 
   function setCurve(level: 'real' | 'stretch' | 'stretchplus') {
     clock.update((c) => ({ ...c, curveLevel: level }));
@@ -179,9 +220,9 @@
     e.preventDefault();
     pauseClock();
     slidertrackEl.setPointerCapture(e.pointerId);
-    clock.update((c) => ({ ...c, simTimeSec: trackPointerToTime(e.clientX) }));
+    clock.update((c) => ({ ...c, simTimeMs: trackPointerToTime(e.clientX) * 1000 }));
     function move(e: PointerEvent) {
-      clock.update((c) => ({ ...c, simTimeSec: trackPointerToTime(e.clientX) }));
+      clock.update((c) => ({ ...c, simTimeMs: trackPointerToTime(e.clientX) * 1000 }));
     }
     function up() {
       document.removeEventListener('pointermove', move);
@@ -204,20 +245,21 @@
     if (rafId !== null) cancelAnimationFrame(rafId);
     rafId = null;
   }
-  function clockTick(now: number) {
+  function clockTick(nowMs: number) {
     let stillPlaying = false;
     clock.update((c) => {
       if (!c.playing) return c;
-      const dt = (now - (lastTickWallClock ?? now)) / 1000;
-      lastTickWallClock = now;
-      let simTimeSec = c.simTimeSec + dt;
+      const dtMs = nowMs - (lastTickWallClock ?? nowMs);
+      lastTickWallClock = nowMs;
+      let simTimeMs = c.simTimeMs + dtMs;
       let playing: boolean = c.playing;
-      if (simTimeSec >= domainEnd) {
-        simTimeSec = domainEnd;
+      const endMs = domainEnd * 1000;
+      if (simTimeMs >= endMs) {
+        simTimeMs = endMs;
         playing = false;
       }
       stillPlaying = playing;
-      return { ...c, simTimeSec, playing };
+      return { ...c, simTimeMs, playing };
     });
     if (stillPlaying) rafId = requestAnimationFrame(clockTick);
   }
@@ -240,6 +282,14 @@
     clock.update((c) => ({ ...c, mode: 'live' }));
     pauseClock();
   }
+  // Fresh entry into sim always starts 90s before C2 (or, outside
+  // totality, 90s before Max) -- resuming after a pause/drag continues
+  // from wherever it was left instead.
+  function freshSimStartMs(): number {
+    const lc = get(localCircumstances);
+    const base = lc.c2 ?? lc.max;
+    return base.getTime() - 90_000;
+  }
   function onSimClick() {
     if (get(clock).mode === 'sim') return;
     if (!confirmPending) {
@@ -250,9 +300,7 @@
     } else {
       if (confirmTimer) clearTimeout(confirmTimer);
       confirmPending = false;
-      // Fresh entry into sim always starts here, running -- resuming after
-      // a pause/drag continues from wherever it was left instead.
-      clock.update((c) => ({ ...c, mode: 'sim', simTimeSec: T.c2 - 90 }));
+      clock.update((c) => ({ ...c, mode: 'sim', simTimeMs: freshSimStartMs() }));
       startClock();
     }
   }
@@ -282,9 +330,9 @@
     class="slidertrack"
     role="slider"
     aria-label="Simulated time"
-    aria-valuemin={domainStart}
-    aria-valuemax={domainEnd}
-    aria-valuenow={$clock.simTimeSec}
+    aria-valuemin={domainStart * 1000}
+    aria-valuemax={domainEnd * 1000}
+    aria-valuenow={$effectiveTime.getTime()}
     tabindex={$clock.mode === 'sim' ? 0 : -1}
     bind:this={slidertrackEl}
     style:cursor={$clock.mode === 'sim' ? 'pointer' : 'default'}
@@ -311,7 +359,9 @@
         <div class="tick min1" style:left={t.p + '%'}></div>
       {/each}
     </div>
-    <div class="totband" style:left={totLeft + '%'} style:width={totWidth + '%'}></div>
+    {#if hasTotality}
+      <div class="totband" style:left={totLeft + '%'} style:width={totWidth + '%'}></div>
+    {/if}
     <div class="clines">
       {#each clineItems as it (it.key)}
         <div class="cline" style:left={it.p + '%'}></div>

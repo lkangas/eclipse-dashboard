@@ -1,28 +1,30 @@
-// PLAN.md §6: the "current simulated instant" plus mode.
-//
-// STUB: simTimeSec is seconds-since-midnight local (CEST), matching the
-// design/layout-v3-fullscreen.html mock's stub contact-time table. This
-// will be revisited once the time slider is wired to real contact times
-// (an actual UT instant) instead of the mock's hardcoded T.c1..c4.
-import { writable } from 'svelte/store';
+// PLAN.md §6: the "current simulated instant" plus mode. simTimeMs is a
+// real UTC epoch (ms) -- only meaningful in 'sim' mode; in 'live' mode the
+// effective instant is always the real live clock (see effectiveTime
+// below), continuously, not a frozen snapshot.
+import { derived, writable } from 'svelte/store';
+import { now } from './now';
 
 export type ClockMode = 'live' | 'sim';
 export type CurveLevel = 'real' | 'stretch' | 'stretchplus';
 
 export interface ClockState {
   mode: ClockMode;
-  simTimeSec: number;
+  simTimeMs: number;
   playing: boolean;
   curveLevel: CurveLevel;
 }
 
-// Matches the mock's stub Zaragoza-reference contact times (seconds since
-// midnight CEST) and its initial simTime (T.c2 - 41).
-export const STUB_CONTACTS = { c1: 70500, c2: 73744, max: 73784, c3: 73828, c4: 76920 };
-
 export const clock = writable<ClockState>({
   mode: 'live',
-  simTimeSec: STUB_CONTACTS.c2 - 41,
+  simTimeMs: Date.now(),
   playing: false,
   curveLevel: 'real',
 });
+
+// The instant every time-driven view (map shadow marker, time slider
+// cursor, ...) should actually display.
+export const effectiveTime = derived(
+  [clock, now],
+  ([$clock, $now]) => ($clock.mode === 'live' ? $now : new Date($clock.simTimeMs)),
+);

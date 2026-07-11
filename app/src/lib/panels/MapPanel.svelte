@@ -5,7 +5,7 @@
   // coastline below is now the real basemap.topojson, via d3-geo +
   // topojson-client (PLAN.md §2 stack decision).
   import { observer, setObserver } from '../../stores/observer';
-  import { clock } from '../../stores/clock';
+  import { effectiveTime } from '../../stores/clock';
   import { feature } from 'topojson-client';
   import type { Topology, GeometryCollection } from 'topojson-specification';
   import { geoMercator, geoPath as geoPathGenerator } from 'd3-geo';
@@ -53,18 +53,15 @@
     PATH_SAMPLES = 150;
 
   const PATH_CENTER: [number, number][] = [];
-  const PATH_CENTER_UT: number[] = [];
+  const PATH_CENTER_MS: number[] = [];
   const PATH_NORTH: [number, number][] = [];
   const PATH_SOUTH: [number, number][] = [];
   for (let i = 0; i <= PATH_SAMPLES; i++) {
     const t = PATH_WINDOW_START_H + ((PATH_WINDOW_END_H - PATH_WINDOW_START_H) * i) / PATH_SAMPLES;
     const central = centralLineAt(coefficients, t);
     if (central) {
-      const utDate = ttHoursToDate(t);
       PATH_CENTER.push([central.lat, central.lon]);
-      PATH_CENTER_UT.push(
-        utDate.getUTCHours() * 3600 + utDate.getUTCMinutes() * 60 + utDate.getUTCSeconds(),
-      );
+      PATH_CENTER_MS.push(ttHoursToDate(t).getTime());
     }
     const limits = shadowLimitsAt(coefficients, t);
     if (limits.north) PATH_NORTH.push([limits.north.lat, limits.north.lon]);
@@ -72,21 +69,22 @@
   }
   const band = PATH_NORTH.concat(PATH_SOUTH.slice().reverse());
 
-  // clock.simTimeSec is local (CEST); the path table above is UT.
-  // CEST = UT+2, so UT = simTime - 7200. Marker is hidden outside the
-  // table's covered window (before/after the shadow transits Spain).
-  function shadowPosAtUT(ut: number): [number, number] | null {
-    if (ut < PATH_CENTER_UT[0] || ut > PATH_CENTER_UT[PATH_CENTER_UT.length - 1]) return null;
+  // The shadow marker's position is driven by effectiveTime (live "now",
+  // or the sim clock -- PLAN.md §6), interpolated over the real central-
+  // line samples above. Hidden outside the sampled window (before/after
+  // the shadow transits Spain).
+  function shadowPosAtMs(ms: number): [number, number] | null {
+    if (ms < PATH_CENTER_MS[0] || ms > PATH_CENTER_MS[PATH_CENTER_MS.length - 1]) return null;
     let i = 0;
-    while (i < PATH_CENTER_UT.length - 2 && ut > PATH_CENTER_UT[i + 1]) i++;
-    const t0 = PATH_CENTER_UT[i],
-      t1 = PATH_CENTER_UT[i + 1];
-    const f = (ut - t0) / (t1 - t0);
+    while (i < PATH_CENTER_MS.length - 2 && ms > PATH_CENTER_MS[i + 1]) i++;
+    const t0 = PATH_CENTER_MS[i],
+      t1 = PATH_CENTER_MS[i + 1];
+    const f = (ms - t0) / (t1 - t0);
     const [lat0, lon0] = PATH_CENTER[i],
       [lat1, lon1] = PATH_CENTER[i + 1];
     return [lat0 + (lat1 - lat0) * f, lon0 + (lon1 - lon0) * f];
   }
-  const shadowPos = $derived(shadowPosAtUT($clock.simTimeSec - 7200));
+  const shadowPos = $derived(shadowPosAtMs($effectiveTime.getTime()));
   const shadowXY = $derived(shadowPos ? project(shadowPos[0], shadowPos[1]) : null);
   const obsXY = $derived(project($observer.lat, $observer.lon));
 
