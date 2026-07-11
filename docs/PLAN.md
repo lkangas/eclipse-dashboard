@@ -322,9 +322,10 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
 - **Big countdown display** — large text, no separate label line: `EVENT±ttt`
   (e.g. `C2−00:41.6`), paired with the flat monochrome Sun/Moon schematic (§10).
   **Display logic**: normally show only the *one* next upcoming event
-  (`C1−ttt` before C1, `C2−ttt` before C2, `C4−ttt` after C3, …). **Exception:**
-  between C2 and C3 (during totality) show *two* lines, `MAX±ttt` and `C3−ttt`,
-  since both are live-relevant while totality is running.
+  (`C1−ttt` before C1, `C2−ttt` before C2, `C3−ttt` after Max, `C4−ttt` after
+  C3, …). **Exception:** between C2 and Max (not all the way to C3) show
+  *two* lines, `MAX±ttt` and `C3−ttt` — once Max has passed, C3 *is* the
+  next contact, so it reverts to a single line like everywhere else.
 - **Configurable sound warnings** — per-contact, user-set lead times (e.g. beep
   at C2−2m, spoken countdown C2−10s, distinct tone at C2/C3). Web Audio for
   precise scheduled tones; optional **SpeechSynthesis** for spoken calls
@@ -515,8 +516,17 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      port, respectively, neither done yet) rather than left as stale
      stub numbers; Magnitude/Obscuration/Sun az (no oracle at all yet,
      §4/§14 #6) kept as placeholder values with a visible "provisional"
-     flag (†) rather than silently presented as real. `npm run test`:
-     105/105; `npm run check`: 0 errors/warnings.
+     flag (†) rather than silently presented as real. Both panels
+     initially followed `stores/now` (real wall clock), which meant Sim
+     mode moved the map's shadow marker and the time-slider cursor but
+     left the contacts table/countdown showing real-time offsets --
+     fixed to follow the new `effectiveTime` (§6 below) like everything
+     else. The countdown's dual-line window is corrected to C2→Max only
+     (not all the way to C3, per §9) -- once Max has passed, C3 is
+     itself the next contact, so it's a single line like everywhere
+     else; the manual single/dual dev toggle is removed now that the
+     real phase detection covers it correctly. `npm run test`: 105/105;
+     `npm run check`: 0 errors/warnings.
    - 🟡 Wire MapPanel to `basemap.topojson` (d3-geo) + `path.ts`'s central
      line/limits/shadow outline, replacing the stub coastline/path arrays:
      - ✅ Spain-tab coastline is now the real `basemap.topojson`, via

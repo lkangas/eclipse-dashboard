@@ -1,30 +1,30 @@
 <script lang="ts">
   // Countdown display logic against real contact times (PLAN.md §4/§9).
-  // Normally ONE line, the next upcoming event. Between C2 and C3 (during
-  // totality), TWO lines: MAX and C3 -- both matter while totality is
-  // running. The dev toggle is a review-only override that pins single/
-  // dual view regardless of the real phase -- not part of the final UI.
+  // Normally ONE line, the next upcoming event. Two lines only between
+  // C2 and Max -- once Max has passed, C3 is itself the next contact, so
+  // it goes back to a single line ("C3-ttt") like everywhere else.
   import { localCircumstances } from '../../stores/localCircumstances';
   import { effectiveTime } from '../../stores/clock';
   import { formatCountdown } from '../format';
 
-  let forceDual: boolean | null = $state(null);
-
-  const phase = $derived.by((): { mode: 'single'; key: 'c1' | 'c2' | 'max' | 'c4' } | { mode: 'dual' } => {
-    const lc = $localCircumstances;
-    const nowMs = $effectiveTime.getTime();
-    if (lc.c1 && nowMs < lc.c1.getTime()) return { mode: 'single', key: 'c1' };
-    if (lc.c2 && lc.c3) {
-      if (nowMs < lc.c2.getTime()) return { mode: 'single', key: 'c2' };
-      if (nowMs < lc.c3.getTime()) return { mode: 'dual' };
+  const phase = $derived.by(
+    (): { mode: 'single'; key: 'c1' | 'c2' | 'max' | 'c3' | 'c4' } | { mode: 'dual' } => {
+      const lc = $localCircumstances;
+      const nowMs = $effectiveTime.getTime();
+      if (lc.c1 && nowMs < lc.c1.getTime()) return { mode: 'single', key: 'c1' };
+      if (lc.c2 && lc.c3) {
+        if (nowMs < lc.c2.getTime()) return { mode: 'single', key: 'c2' };
+        if (nowMs < lc.max.getTime()) return { mode: 'dual' };
+        if (nowMs < lc.c3.getTime()) return { mode: 'single', key: 'c3' };
+        return { mode: 'single', key: 'c4' };
+      }
+      if (nowMs < lc.max.getTime()) return { mode: 'single', key: 'max' };
       return { mode: 'single', key: 'c4' };
-    }
-    if (nowMs < lc.max.getTime()) return { mode: 'single', key: 'max' };
-    return { mode: 'single', key: 'c4' };
-  });
-  const dual = $derived(forceDual ?? phase.mode === 'dual');
+    },
+  );
+  const dual = $derived(phase.mode === 'dual');
 
-  const singleLabels = { c1: 'C1', c2: 'C2', max: 'MAX', c4: 'C4' } as const;
+  const singleLabels = { c1: 'C1', c2: 'C2', max: 'MAX', c3: 'C3', c4: 'C4' } as const;
   const singleText = $derived.by(() => {
     if (phase.mode !== 'single') return '';
     const date = $localCircumstances[phase.key];
@@ -40,9 +40,6 @@
   });
 </script>
 
-<button class="devtoggle" onclick={() => (forceDual = !dual)}>
-  {dual ? 'single view' : 'totality view'}
-</button>
 <div class="countdown">
   <div class="numwrap" class:dual>
     {#if dual}
@@ -104,24 +101,5 @@
       flex-direction: row;
       gap: 28px;
     }
-  }
-
-  /* review-only control, not final UI */
-  .devtoggle {
-    position: absolute;
-    top: 10px;
-    right: 12px;
-    z-index: 2;
-    background: none;
-    border: 1px dashed var(--line);
-    color: var(--muted);
-    font-size: 11px;
-    padding: 3px 9px;
-    border-radius: 20px;
-    cursor: pointer;
-  }
-  .devtoggle:hover {
-    color: var(--ink);
-    border-color: var(--muted);
   }
 </style>

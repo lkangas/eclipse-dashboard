@@ -22,7 +22,9 @@ export function formatCountdown(secondsUntilEvent: number): string {
     return `${sign}${hours}:${String(minutes).padStart(2, '0')}:${String(Math.floor(seconds)).padStart(2, '0')}`;
   }
   const secText =
-    Math.abs(secondsUntilEvent) < 120 ? seconds.toFixed(1) : String(Math.floor(seconds)).padStart(2, '0');
+    Math.abs(secondsUntilEvent) < 120
+      ? seconds.toFixed(1).padStart(4, '0')
+      : String(Math.floor(seconds)).padStart(2, '0');
   return `${sign}${String(minutes).padStart(2, '0')}:${secText}`;
 }
 
