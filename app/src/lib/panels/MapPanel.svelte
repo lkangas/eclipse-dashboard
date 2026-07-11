@@ -1,9 +1,10 @@
 <script lang="ts">
-  // STUB path data, ported verbatim from design/layout-v3-fullscreen.html
-  // -- the central line/N-S limits are a follow-up slice (path.ts is
-  // already computed and tested, see app/src/eclipse/path.ts). The
-  // coastline below is now the real basemap.topojson, via d3-geo +
-  // topojson-client (PLAN.md §2 stack decision).
+  // Coastline is the real basemap.topojson, via d3-geo + topojson-client
+  // (PLAN.md §2 stack decision). Central line + N/S limits are the real
+  // path.ts output too, but precomputed at build time into
+  // shadow-frames.json (scripts/generate-shadow-frames.ts) rather than
+  // recomputed in every browser -- it's static geometry for the whole
+  // event, not observer- or clock-dependent.
   import { observer, setObserver } from '../../stores/observer';
   import { effectiveTime } from '../../stores/clock';
   import { feature } from 'topojson-client';
@@ -11,8 +12,7 @@
   import { geoMercator, geoPath as geoPathGenerator } from 'd3-geo';
   import type { GeoProjection } from 'd3-geo';
   import basemapData from '../../data/basemap.topojson';
-  import { coefficients, ttHoursToDate } from '../../data/besselian-2026';
-  import { centralLineAt, shadowLimitsAt } from '../../eclipse/path';
+  import shadowFrames from '../../data/shadow-frames.json';
 
   let tab: 'spain' | 'global' = $state('spain');
 
@@ -41,32 +41,13 @@
       .join(' ');
   }
 
-  // Central line + N/S umbral limits, computed for real from path.ts over
-  // a dense grid spanning the shadow's Spain transit (~18:18-18:33 UT,
-  // i.e. roughly +0.25h to +0.62h from T0 -- padded a bit beyond the
-  // known ~0.32-0.56h window). Static (doesn't depend on observer/clock),
-  // so computed once here rather than as a reactive value. Points where
-  // shadowLimitsAt doesn't converge (e.g. very near the sunset cusp) are
-  // simply omitted -- a slightly shorter band there, not an error.
-  const PATH_WINDOW_START_H = 0.25,
-    PATH_WINDOW_END_H = 0.58,
-    PATH_SAMPLES = 150;
-
-  const PATH_CENTER: [number, number][] = [];
-  const PATH_CENTER_MS: number[] = [];
-  const PATH_NORTH: [number, number][] = [];
-  const PATH_SOUTH: [number, number][] = [];
-  for (let i = 0; i <= PATH_SAMPLES; i++) {
-    const t = PATH_WINDOW_START_H + ((PATH_WINDOW_END_H - PATH_WINDOW_START_H) * i) / PATH_SAMPLES;
-    const central = centralLineAt(coefficients, t);
-    if (central) {
-      PATH_CENTER.push([central.lat, central.lon]);
-      PATH_CENTER_MS.push(ttHoursToDate(t).getTime());
-    }
-    const limits = shadowLimitsAt(coefficients, t);
-    if (limits.north) PATH_NORTH.push([limits.north.lat, limits.north.lon]);
-    if (limits.south) PATH_SOUTH.push([limits.south.lat, limits.south.lon]);
-  }
+  // Points where shadowLimitsAt didn't converge when this was generated
+  // (e.g. very near the sunset cusp) are simply absent -- a slightly
+  // shorter band there, not an error.
+  const PATH_CENTER: [number, number][] = shadowFrames.centralLine.map((p) => [p.lat, p.lon]);
+  const PATH_CENTER_MS: number[] = shadowFrames.centralLine.map((p) => p.utMs);
+  const PATH_NORTH: [number, number][] = shadowFrames.northLimit.map((p) => [p.lat, p.lon]);
+  const PATH_SOUTH: [number, number][] = shadowFrames.southLimit.map((p) => [p.lat, p.lon]);
   const band = PATH_NORTH.concat(PATH_SOUTH.slice().reverse());
 
   // The shadow marker's position is driven by effectiveTime (live "now",

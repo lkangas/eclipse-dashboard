@@ -550,6 +550,27 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        chosen throughout this project specifically as a near-centerline
        reference site. `npm run test`: 105/105; `npm run check`: 0
        errors/warnings.
+     - ✅ **Precomputed at build time**, not recomputed client-side:
+       central line/N-S limits are static geometry for the whole event
+       (not observer- or clock-dependent -- only *where along the fixed
+       line* the marker sits depends on the clock), so the sampling
+       loop above moved out of `MapPanel` and into
+       `app/scripts/generate-shadow-frames.ts` (`npm run
+       gen:shadow-frames` in `app/`, needs `tsx`, new devDependency),
+       committed as `src/data/shadow-frames.json` (~28KB) -- matches
+       PLAN.md §3 item 4's original design, which this had shortcut
+       past when first wired up. `MapPanel` just imports the JSON now.
+       Verified byte-identical map output before/after the switch, plus
+       a new end-to-end test (`shadow-frames.test.ts`) round-tripping
+       against a fresh `path.ts` recompute and cross-checking one
+       sample against the independent oracle reference at 18:26 UT.
+       `npm run test`: 108/108; `npm run check`: 0 errors/warnings.
+       Next: the shadow *outline* polygon (not just the marker point),
+       precomputed at 1Hz over the same window -- interpolating between
+       sparser frames was considered and rejected, since the outline
+       distorts non-linearly near the sunset terminator (e.g. Palma)
+       and can't be interpolated safely; native per-second frames are
+       small enough (confirmed) that there's no reason to.
      - ✅ Shadow marker now interpolates over the real UT timestamps of
        the sampled central-line grid above, driven by the real
        `effectiveTime` clock (see below) instead of a CEST-seconds stub

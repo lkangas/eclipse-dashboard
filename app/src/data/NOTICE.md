@@ -11,6 +11,14 @@ Skyfield. Not derived from or redistributing any third-party dataset —
 no additional attribution required. Regenerate with
 `tools/build-data/generate_besselian.py`.
 
+## shadow-frames.json
+
+Computed by `app/src/eclipse/path.ts` (this project's own tested port of
+`eclipse-calc`'s central-line/shadow-limit math, MIT), a first-party
+tool. Not derived from or redistributing any third-party dataset — no
+additional attribution required. Regenerate with `npm run
+gen:shadow-frames` in `app/` (needs `tsx`).
+
 ## basemap.topojson
 
 Countries + land, from [`world-atlas`](https://github.com/topojson/world-atlas)'s
