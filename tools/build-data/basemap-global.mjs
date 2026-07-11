@@ -21,9 +21,23 @@ const OUTPUT_DIR = path.join(HERE, '..', '..', 'app', 'src', 'data');
 // Arctic Russia/Svalbard through Greenland/Iceland to Spain, with margin.
 const BBOX = '-65,45,135,90';
 
+// Plain `-clip bbox=` mishandles Russia here: its unclipped polygon
+// crosses the antimeridian (continuing past +180 as negative longitudes
+// toward Alaska), and a naive planar box-clip of that -- even though our
+// own bbox above never wraps -- inserted long spurious straight edges
+// at constant latitude (e.g. one ran from 67E to -65W along a single
+// parallel), several thousand km of straight "coastline" nowhere near
+// any real coast. `bbox2` (mapshaper's alternate/fast clip
+// implementation) doesn't have this bug -- confirmed by scanning every
+// ring for consecutive points with a >10deg longitude jump but <1deg
+// latitude change (the signature of one of these fake edges): many with
+// plain bbox=, zero with bbox2=. `-filter-islands` drops the flyspeck
+// islands that would otherwise be indistinguishable noise at this map's
+// small on-screen scale.
 const commands = [
   `-i "${SOURCE}"`,
-  `-clip bbox=${BBOX}`,
+  `-clip bbox2=${BBOX}`,
+  '-filter-islands min-area=200km2',
   '-simplify 15% keep-shapes',
   `-o format=topojson quantization=1e5 "${path.join(OUTPUT_DIR, 'basemap-global.topojson')}"`,
 ].join(' ');

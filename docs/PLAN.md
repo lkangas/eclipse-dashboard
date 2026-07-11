@@ -815,7 +815,28 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
          magnitude ~215 (previously could blow up much larger near the
          antipodal singularity), zero same-subpath jumps over 100px
          across all 65 subpaths (a proxy for "does any edge tear across
-         the shape").
+         the shape"). **Turned out to be real but insufficient** --
+         reported back as still looking broken. The actual dominant
+         bug was upstream, in the *data*, not the projection: Russia's
+         unclipped polygon crosses the antimeridian (continuing past
+         +180 as negative longitudes toward Alaska), and plain
+         `mapshaper -clip bbox=...` mishandled that, inserting several
+         spurious dead-straight edges thousands of km long at constant
+         latitude (e.g. one ran from 67E to -65W along a single
+         parallel) -- exactly the "spiky, self-intersecting-looking"
+         mess reported, just not visible in the coordinate-jump/NaN
+         checks above since these edges are individually well-formed,
+         just geographically nonsensical. Found by scanning every ring
+         for consecutive points with a >10deg longitude jump but <1deg
+         latitude change; confirmed by testing `-clip bbox2=...`
+         (mapshaper's alternate/experimental clip implementation)
+         instead, which produces zero such jumps against many with the
+         default. `tools/build-data/basemap-global.mjs` switched to
+         `bbox2=`, plus `-filter-islands min-area=200km2` (flyspeck
+         islands were otherwise indistinguishable noise at this map's
+         small on-screen scale). Regenerated and reverified the same
+         jump-scan directly against the live rendered `<path>` in the
+         browser: 0 jumps, max coordinate magnitude ~165, 62 subpaths.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,
