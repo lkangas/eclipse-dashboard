@@ -1,43 +1,43 @@
 <script lang="ts">
-  // STUB path/coastline data, ported verbatim from
-  // design/layout-v3-fullscreen.html. Real basemap.topojson + path.ts
-  // (already computed and tested, see app/src/data + app/src/eclipse) are
-  // wired in as a follow-up slice -- this one is a mechanical structural
-  // port only.
+  // STUB path data, ported verbatim from design/layout-v3-fullscreen.html
+  // -- the central line/N-S limits are a follow-up slice (path.ts is
+  // already computed and tested, see app/src/eclipse/path.ts). The
+  // coastline below is now the real basemap.topojson, via d3-geo +
+  // topojson-client (PLAN.md §2 stack decision).
   import { observer, setObserver } from '../../stores/observer';
   import { clock } from '../../stores/clock';
+  import { feature } from 'topojson-client';
+  import type { Topology, GeometryCollection } from 'topojson-specification';
+  import { geoMercator, geoPath as geoPathGenerator } from 'd3-geo';
+  import type { GeoProjection } from 'd3-geo';
+  import basemapData from '../../data/basemap.topojson';
 
   let tab: 'spain' | 'global' = $state('spain');
 
-  const MAP_LON_MIN = -10,
-    MAP_LAT_MIN = 35.5,
-    MAP_LAT_MAX = 44.5;
-  const MAP_VH = 200;
-  const MAP_K = MAP_VH / (MAP_LAT_MAX - MAP_LAT_MIN);
-  const MAP_COS = Math.cos((40 * Math.PI) / 180);
-  function mapX(lon: number) {
-    return (lon - MAP_LON_MIN) * MAP_COS * MAP_K;
-  }
-  function mapY(lat: number) {
-    return (MAP_LAT_MAX - lat) * MAP_K;
-  }
-  function mapPts(pairs: [number, number][]) {
-    return pairs.map(([lat, lon]) => mapX(lon) + ',' + mapY(lat)).join(' ');
-  }
+  const SPAIN_VW = 280,
+    SPAIN_VH = 200,
+    SPAIN_PAD = 6;
+  const topology = basemapData as unknown as Topology;
+  const landFeature = feature(topology, topology.objects.land as GeometryCollection);
+  const spainProjection: GeoProjection = geoMercator().fitExtent(
+    [
+      [SPAIN_PAD, SPAIN_PAD],
+      [SPAIN_VW - SPAIN_PAD, SPAIN_VH - SPAIN_PAD],
+    ],
+    landFeature,
+  );
+  const landPathD = geoPathGenerator(spainProjection)(landFeature) ?? '';
 
-  const COAST_IBERIA: [number, number][] = [
-    [42.88, -9.27], [43.37, -8.4], [43.54, -7.04], [43.53, -5.66], [43.46, -3.8],
-    [43.42, -2.92], [43.38, -1.79], [44.5, -1.5], [44.5, 3.0], [42.32, 3.32],
-    [41.38, 2.18], [41.12, 1.25], [40.36, 0.4], [39.47, -0.38], [38.35, -0.48],
-    [37.63, -0.68], [36.84, -2.47], [36.72, -4.42], [36.0, -5.6], [36.53, -6.3],
-    [37.26, -6.95], [37.02, -7.93], [37.02, -8.93], [38.72, -9.14], [39.6, -9.07],
-    [41.15, -8.71], [41.69, -8.83], [42.23, -8.72],
-  ];
-  const BALEARICS = [
-    { c: [39.6, 2.9] as [number, number], rx: 10, ry: 7 }, // Mallorca
-    { c: [40.0, 4.1] as [number, number], rx: 5, ry: 3 }, // Menorca
-    { c: [38.95, 1.43] as [number, number], rx: 4, ry: 5 }, // Ibiza
-  ];
+  function project(lat: number, lon: number): [number, number] | null {
+    return spainProjection([lon, lat]);
+  }
+  function projectPts(pairs: [number, number][]): string {
+    return pairs
+      .map(([lat, lon]) => project(lat, lon))
+      .filter((p): p is [number, number] => p !== null)
+      .map((p) => p[0] + ',' + p[1])
+      .join(' ');
+  }
 
   // Northern limit, southern limit, central line -- decimal degrees,
   // [lat, lon], 18:18-18:33 UT plus the path's terminal "Limit" point (sun
@@ -88,24 +88,27 @@
     return [lat0 + (lat1 - lat0) * f, lon0 + (lon1 - lon0) * f];
   }
   const shadowPos = $derived(shadowPosAtUT($clock.simTimeSec - 7200));
+  const shadowXY = $derived(shadowPos ? project(shadowPos[0], shadowPos[1]) : null);
+  const obsXY = $derived(project($observer.lat, $observer.lon));
 
   // Click-to-set and drag-to-fine-tune are the same gesture: a single
   // pointerdown+pointermove+pointerup sequence.
   let mapSvg: SVGSVGElement;
-  function mapClientToLatLon(clientX: number, clientY: number): [number, number] {
+  function mapClientToLatLon(clientX: number, clientY: number): [number, number] | null {
     const pt = mapSvg.createSVGPoint();
     pt.x = clientX;
     pt.y = clientY;
     const p = pt.matrixTransform(mapSvg.getScreenCTM()!.inverse());
-    return [MAP_LAT_MAX - p.y / MAP_K, p.x / (MAP_COS * MAP_K) + MAP_LON_MIN];
+    const inv = spainProjection.invert?.([p.x, p.y]);
+    return inv ? [inv[1], inv[0]] : null;
   }
   function onMapPointerDown(e: PointerEvent) {
     mapSvg.setPointerCapture(e.pointerId);
-    const [lat, lon] = mapClientToLatLon(e.clientX, e.clientY);
-    setObserver(lat, lon, 'map');
+    const start = mapClientToLatLon(e.clientX, e.clientY);
+    if (start) setObserver(start[0], start[1], 'map');
     function move(e: PointerEvent) {
-      const [lat, lon] = mapClientToLatLon(e.clientX, e.clientY);
-      setObserver(lat, lon, 'map');
+      const p = mapClientToLatLon(e.clientX, e.clientY);
+      if (p) setObserver(p[0], p[1], 'map');
     }
     function up() {
       document.removeEventListener('pointermove', move);
@@ -181,20 +184,17 @@
       role="application"
       aria-label="Eclipse path map -- click or drag to set the observer location"
     >
-      <polygon class="coast" points={mapPts(COAST_IBERIA)} />
-      {#each BALEARICS as isl (isl.c.join(','))}
-        <ellipse class="coast" cx={mapX(isl.c[1])} cy={mapY(isl.c[0])} rx={isl.rx} ry={isl.ry} />
-      {/each}
-      <polygon class="pathband" points={mapPts(band)} />
-      <polyline class="pathline" points={mapPts(PATH_CENTER)} />
+      <path class="coast" d={landPathD} />
+      <polygon class="pathband" points={projectPts(band)} />
+      <polyline class="pathline" points={projectPts(PATH_CENTER)} />
       <circle
         class="shadowmarker"
         r="4"
-        cx={shadowPos ? mapX(shadowPos[1]) : 0}
-        cy={shadowPos ? mapY(shadowPos[0]) : 0}
-        opacity={shadowPos ? 1 : 0}
+        cx={shadowXY ? shadowXY[0] : 0}
+        cy={shadowXY ? shadowXY[1] : 0}
+        opacity={shadowXY ? 1 : 0}
       />
-      <circle class="obsmarker" r="3.5" cx={mapX($observer.lon)} cy={mapY($observer.lat)} />
+      <circle class="obsmarker" r="3.5" cx={obsXY ? obsXY[0] : 0} cy={obsXY ? obsXY[1] : 0} />
     </svg>
     <svg
       viewBox="0 0 200 200"

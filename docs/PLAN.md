@@ -517,8 +517,21 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      §4/§14 #6) kept as placeholder values with a visible "provisional"
      flag (†) rather than silently presented as real. `npm run test`:
      105/105; `npm run check`: 0 errors/warnings.
-   - ⬜ Wire MapPanel to `basemap.topojson` (d3-geo) + `path.ts`'s central
-     line/limits/shadow outline, replacing the stub coastline/path arrays
+   - 🟡 Wire MapPanel to `basemap.topojson` (d3-geo) + `path.ts`'s central
+     line/limits/shadow outline, replacing the stub coastline/path arrays:
+     - ✅ Spain-tab coastline is now the real `basemap.topojson`, via
+       `d3-geo`'s `geoMercator` fitted to the data + `topojson-client`'s
+       `feature()` (PLAN.md §2 stack decision) -- replaces the hand-drawn
+       `COAST_IBERIA`/`BALEARICS` stub arrays (Balearic islands now come
+       from the real data, no separate hand-drawn ellipses needed).
+       Click/drag-to-locate now uses the projection's own `.invert()`
+       instead of the hand-rolled inverse formula. `npm run test`:
+       105/105; `npm run check`: 0 errors/warnings.
+     - ⬜ Central line + N/S umbral limits from `path.ts`, replacing the
+       hand-picked `PATH_NORTH`/`PATH_SOUTH`/`PATH_CENTER` stub arrays
+     - ⬜ Shadow marker driven by `path.ts`'s `centralLineAt` at the
+       current clock time instead of linear interpolation over the stub
+       `PATH_CENTER_UT` table
    - ⬜ Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`
    - ⬜ Wire TimeBar to real contact times instead of `STUB_CONTACTS`

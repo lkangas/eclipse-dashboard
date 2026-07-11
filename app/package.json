@@ -13,6 +13,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tsconfig/svelte": "^5.0.8",
+    "@types/d3-geo": "^3.1.0",
     "@types/node": "^24.13.2",
     "@types/topojson-client": "^3.1.5",
     "svelte": "^5.56.4",
@@ -22,6 +23,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "d3-geo": "^3.1.1",
     "topojson-client": "^3.1.0"
   }
 }
