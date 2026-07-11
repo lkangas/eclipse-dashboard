@@ -4,13 +4,17 @@
   // C2 and Max -- once Max has passed, C3 is itself the next contact, so
   // it goes back to a single line ("C3-ttt") like everywhere else.
   //
-  // C4 is only ever shown if it's actually observable -- this event is
-  // sunset-limited for Spain (PLAN.md §1), and the Besselian shadow-cone
-  // geometry has no concept of the horizon, so C4 commonly falls after
-  // the sun has already set (even at Calamocha). When it's not
-  // observable, Sunset itself becomes the countdown target instead (the
-  // real end of visibility); once that's passed too, there's nothing
-  // left to count down to.
+  // Every event is only ever shown if it's actually observable -- this
+  // event is sunset-limited for Spain (PLAN.md §1), and the Besselian
+  // shadow-cone geometry has no concept of the horizon, so ANY of
+  // C2/Max/C3/C4 can fall after the sun has already set here (not just
+  // C4 -- sunset can even land between C1 and C2, e.g. skipping the
+  // countdown straight to Sunset without ever mentioning C2). Rather
+  // than special-casing "C4 might not be observable" like the previous
+  // version did, this picks the next observable event out of all of
+  // them uniformly. Once none are left, Sunset itself becomes the
+  // countdown target (the real end of visibility); once that's passed
+  // too, there's nothing left to count down to.
   import { localCircumstances } from '../../stores/localCircumstances';
   import { effectiveTime } from '../../stores/clock';
   import { formatCountdown } from '../format';
@@ -22,23 +26,35 @@
     const lc = $localCircumstances;
     const nowMs = $effectiveTime.getTime();
     const sunsetMs = lc.sunset ? lc.sunset.getTime() : null;
-    const c4Observable = lc.c4 && (sunsetMs === null || lc.c4.getTime() <= sunsetMs);
+    const observable = (d: Date | null) => d !== null && (sunsetMs === null || d.getTime() <= sunsetMs);
 
-    function afterC3(): { mode: 'single'; key: 'c4' | 'sunset' } | { mode: 'none' } {
-      if (c4Observable && nowMs < lc.c4!.getTime()) return { mode: 'single', key: 'c4' };
-      if (sunsetMs !== null && nowMs < sunsetMs) return { mode: 'single', key: 'sunset' };
-      return { mode: 'none' };
+    // Dual mode only when C2/Max/C3 are ALL observable -- sunset is one
+    // cutoff, so if C2 already isn't, nothing chronologically after it
+    // is either.
+    if (
+      observable(lc.c2) &&
+      observable(lc.max) &&
+      observable(lc.c3) &&
+      nowMs >= lc.c2!.getTime() &&
+      nowMs < lc.max.getTime()
+    ) {
+      return { mode: 'dual' };
     }
 
-    if (lc.c1 && nowMs < lc.c1.getTime()) return { mode: 'single', key: 'c1' };
-    if (lc.c2 && lc.c3) {
-      if (nowMs < lc.c2.getTime()) return { mode: 'single', key: 'c2' };
-      if (nowMs < lc.max.getTime()) return { mode: 'dual' };
-      if (nowMs < lc.c3.getTime()) return { mode: 'single', key: 'c3' };
-      return afterC3();
-    }
-    if (nowMs < lc.max.getTime()) return { mode: 'single', key: 'max' };
-    return afterC3();
+    const candidates: { key: 'c1' | 'c2' | 'max' | 'c3' | 'c4'; date: Date | null }[] = [
+      { key: 'c1', date: lc.c1 },
+      { key: 'c2', date: lc.c2 },
+      { key: 'max', date: lc.max },
+      { key: 'c3', date: lc.c3 },
+      { key: 'c4', date: lc.c4 },
+    ];
+    const next = candidates
+      .filter((c) => observable(c.date) && c.date!.getTime() >= nowMs)
+      .sort((a, b) => a.date!.getTime() - b.date!.getTime())[0];
+    if (next) return { mode: 'single', key: next.key };
+
+    if (sunsetMs !== null && nowMs < sunsetMs) return { mode: 'single', key: 'sunset' };
+    return { mode: 'none' };
   });
   const dual = $derived(phase.mode === 'dual');
 

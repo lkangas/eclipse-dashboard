@@ -568,10 +568,17 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      visible at all") -- from `ContactsPanel`'s rows, from `TimeBar`'s
      `clineItems` (its `domainEnd` also caps at sunset rather than C4,
      so the track doesn't reserve space for a hidden contact), and from
-     `CountdownPanel`'s "next event" logic, which now falls through to
-     counting down to Sunset itself once C4 isn't observable, and to an
-     "Event ended" state once sunset has passed too. `npm run test`:
-     55/55; `npm run check`: 0 errors/warnings.
+     `CountdownPanel`'s "next event" logic. The first version of that
+     last one only guarded C4 (the common case), missing that *any* of
+     C2/Max/C3 can equally fall after sunset -- caught when the project
+     owner found it counting down to a C2 that was never actually
+     observable (sunset lands between C1 and C2 for some locations,
+     e.g. 37.5N 6.5E). Rewritten to pick the next observable event out
+     of C1-C4 uniformly (dual mode now requires C2/Max/C3 *all*
+     observable) rather than special-casing "C4 might not be
+     observable" -- once none are left, falls through to counting down
+     to Sunset itself, then to "Event ended". `npm run test`: 55/55;
+     `npm run check`: 0 errors/warnings.
    - 🟡 Wire MapPanel to `basemap.topojson` (d3-geo) + `path.ts`'s central
      line/limits/shadow outline, replacing the stub coastline/path arrays:
      - ✅ Spain-tab coastline is now the real `basemap.topojson`, via
