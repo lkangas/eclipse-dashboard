@@ -14,14 +14,19 @@ import json
 import os
 from pathlib import Path
 
+import numpy as np
+from numpy import arctan, cos, deg2rad, sin, sqrt, tan
 from skyfield.api import load
+from skyfield.toposlib import wgs84
 
 from eclipse_calc import BesselianEclipse, Location, load_ephemeris
+from eclipse_calc.constants import RE, f
 
 DEFAULT_EPHEMERIS = Path(r"C:\Users\lauri.kangas\OneDrive\python\eclipse\de440s.bsp")
 FIXTURES = Path(__file__).resolve().parent.parent.parent / "app" / "test" / "fixtures"
 OUTPUT = FIXTURES / "golden-vectors.json"
 ELEMENTS_OUTPUT = FIXTURES / "golden-elements.json"
+OBSERVER_OUTPUT = FIXTURES / "golden-observer.json"
 
 # Besselian elements elements.ts needs to evaluate as a plain degree-3
 # polynomial (PLAN.md Sec4) -- excludes `gast`, which BesselianEclipse
@@ -91,6 +96,32 @@ def elements_fixture(eclipse, ts, t0):
     }
 
 
+def observer_fixture():
+    """rho*sin(geocentric_lat) / rho*cos(geocentric_lat) per site, computed
+    the same way eclipse_calc.observer.local_elements does (same constants,
+    same Skyfield WGS84 call) -- authoritative, not a re-derivation."""
+    sites_out = {}
+    for name, lat, lon, elev in SITES:
+        lat_rad = deg2rad(lat)
+        geocentric_lat = arctan((1 - f) ** 2 * tan(lat_rad))
+        position = wgs84.latlon(lat, lon, elevation_m=elev)
+        rho = sqrt((position.itrs_xyz.m ** 2).sum()) / RE
+        sites_out[name] = {
+            "lat": lat,
+            "lon": lon,
+            "elevation_m": elev,
+            "rho": float(rho),
+            "geocentric_lat_rad": float(geocentric_lat),
+            "rho_sin_phi_prime": float(rho * np.sin(geocentric_lat)),
+            "rho_cos_phi_prime": float(rho * np.cos(geocentric_lat)),
+        }
+    return {
+        "generated_by": "eclipse-calc 0.1.0 (eclipse_calc.observer.local_elements, rho/geocentric_lat steps)",
+        "note": "geocentric_lat ignores elevation by design (matches eclipse-calc); rho includes it via full WGS84 XYZ",
+        "sites": sites_out,
+    }
+
+
 def main():
     eph_path = Path(os.environ.get("ECLIPSE_CALC_EPHEMERIS", DEFAULT_EPHEMERIS))
     eph = load_ephemeris(eph_path)
@@ -120,6 +151,9 @@ def main():
 
     ELEMENTS_OUTPUT.write_text(json.dumps(elements_fixture(eclipse, ts, t0), indent=2))
     print(f"Wrote {ELEMENTS_OUTPUT}")
+
+    OBSERVER_OUTPUT.write_text(json.dumps(observer_fixture(), indent=2))
+    print(f"Wrote {OBSERVER_OUTPUT}")
 
 
 if __name__ == "__main__":
