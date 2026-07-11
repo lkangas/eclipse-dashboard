@@ -27,9 +27,21 @@
           font-size:13px; color:var(--muted); border-bottom:1px solid var(--line);}
   .topbar b{color:var(--ink); font-weight:500;}
   .topbar .fill{flex:1;}
-  .siteselect{font:inherit; font-weight:500; color:var(--ink); background:none;
+  /* Dev-only convenience: fills the coordinate fields below from a preset
+     site. Muted/small on purpose -- the real input is lat/lon + map. */
+  .siteselect{font:inherit; font-size:12px; color:var(--muted); background:none;
               border:none; padding:0; margin:0; cursor:pointer;}
-  .siteselect:hover{color:var(--accent-ink);}
+  .siteselect:hover{color:var(--ink);}
+  .coordinput{font:inherit; font-variant-numeric:tabular-nums; color:var(--ink);
+              background:none; border:none; border-bottom:1px solid var(--line);
+              padding:1px 2px; width:52px; text-align:right; -moz-appearance:textfield;}
+  .coordinput:focus{outline:none; border-bottom-color:var(--accent);}
+  .coordinput::-webkit-inner-spin-button, .coordinput::-webkit-outer-spin-button{
+    -webkit-appearance:none; margin:0;}
+  .geobtn{flex:0 0 auto; width:22px; height:22px; border:1px solid var(--line); border-radius:6px;
+          background:none; color:var(--ink); font-size:13px; cursor:pointer;
+          display:flex; align-items:center; justify-content:center; padding:0;}
+  .geobtn:hover{border-color:var(--muted);}
 
   .main{flex:1; display:flex; min-height:0;}
   .col{display:flex; flex-direction:column; min-width:160px;}
@@ -124,7 +136,7 @@
 
   /* --- map --- */
   .map{background:var(--zone); height:100%;}
-  .map svg{display:block; width:100%; height:100%;}
+  .map svg{display:block; width:100%; height:100%; cursor:crosshair; touch-action:none;}
   .coast{fill:var(--screen); stroke:var(--line); stroke-width:1;}
   .pathband{fill:var(--accent-bg); stroke:var(--accent); stroke-width:.75; stroke-opacity:.5;}
   .pathline{fill:none; stroke:var(--cline); stroke-width:2; stroke-linecap:round; stroke-linejoin:round;}
@@ -234,18 +246,21 @@
   <div class="app">
     <div class="topbar">
       <select id="siteSelect" class="siteselect">
+        <option value="" selected disabled>Presets</option>
         <option value="acoruna">A Coruña</option>
         <option value="oviedo">Oviedo / Gijón</option>
         <option value="leon">León</option>
         <option value="burgos">Burgos</option>
         <option value="santander">Santander</option>
         <option value="bilbao">Bilbao</option>
-        <option value="zaragoza" selected>Zaragoza</option>
+        <option value="zaragoza">Zaragoza</option>
         <option value="valencia">Valencia</option>
         <option value="castellon">Castellón / Peñíscola</option>
         <option value="palma">Palma de Mallorca</option>
       </select>
-      <span id="siteCoords">41.65°N 0.89°W</span>
+      <input type="number" id="latInput" class="coordinput" step="0.01" value="40.92">
+      <input type="number" id="lonInput" class="coordinput" step="0.01" value="-1.30">
+      <button id="geoBtn" class="geobtn" title="Use device location">⌖</button>
       <span class="fill"></span>
       <span>20:28:23 CEST</span>
       <span>18:28:23 UT</span>
@@ -426,7 +441,9 @@ function fmtHM(t){ const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 6
 function fmtM(t){ return String(Math.floor((t % 3600) / 60)).padStart(2, '0'); }
 
 const siteSelect = document.getElementById('siteSelect');
-const siteCoords = document.getElementById('siteCoords');
+const latInput = document.getElementById('latInput');
+const lonInput = document.getElementById('lonInput');
+const geoBtn = document.getElementById('geoBtn'); // UI only -- geolocation wiring is a later step
 const slidertrack = document.getElementById('slidertrack');
 const hourLabelsEl = document.getElementById('hourLabels');
 const ticksEl = document.getElementById('ticks');
@@ -757,35 +774,74 @@ const PATH_CENTER_UT = [
   66360,66420,66480,66540,66600,66660,66720,66732
 ];
 
-// Observer site presets -- the representative Spanish sites from PLAN.md §1.
-// Picking one only moves the map marker and the topbar coords for now; it
-// does not recompute the countdown/contacts (that needs the real Besselian
-// port, not built yet -- those panels are still fixed mock data).
+// Observer location. Calamocha is the fixed default; the dev preset list
+// (PLAN.md §1's representative sites) is kept only as a quick way to jump
+// the lat/lon fields around while testing -- it is not the primary input.
+// Real inputs are the lat/lon fields, dragging/clicking the map, and (later,
+// not wired up yet -- UI placeholder only) the geolocation button.
 const SITES = {
-  acoruna:   { name: 'A Coruña',              lat: 43.36, lon: -8.41 },
-  oviedo:    { name: 'Oviedo / Gijón',        lat: 43.36, lon: -5.85 },
-  leon:      { name: 'León',                  lat: 42.60, lon: -5.57 },
-  burgos:    { name: 'Burgos',                lat: 42.34, lon: -3.70 },
-  santander: { name: 'Santander',             lat: 43.46, lon: -3.81 },
-  bilbao:    { name: 'Bilbao',                lat: 43.26, lon: -2.94 },
-  zaragoza:  { name: 'Zaragoza',              lat: 41.65, lon: -0.89 },
-  valencia:  { name: 'Valencia',              lat: 39.47, lon: -0.38 },
-  castellon: { name: 'Castellón / Peñíscola', lat: 40.36, lon: 0.40 },
-  palma:     { name: 'Palma de Mallorca',     lat: 39.57, lon: 2.65 },
+  acoruna:   { lat: 43.36, lon: -8.41 },
+  oviedo:    { lat: 43.36, lon: -5.85 },
+  leon:      { lat: 42.60, lon: -5.57 },
+  burgos:    { lat: 42.34, lon: -3.70 },
+  santander: { lat: 43.46, lon: -3.81 },
+  bilbao:    { lat: 43.26, lon: -2.94 },
+  zaragoza:  { lat: 41.65, lon: -0.89 },
+  valencia:  { lat: 39.47, lon: -0.38 },
+  castellon: { lat: 40.36, lon: 0.40 },
+  palma:     { lat: 39.57, lon: 2.65 },
 };
-function formatCoord(lat, lon){
-  const ns = lat >= 0 ? 'N' : 'S', ew = lon >= 0 ? 'E' : 'W';
-  return Math.abs(lat).toFixed(2) + '°' + ns + ' ' + Math.abs(lon).toFixed(2) + '°' + ew;
-}
-function updateObserverMarker(){
-  const site = SITES[siteSelect.value];
-  siteCoords.textContent = formatCoord(site.lat, site.lon);
+const CALAMOCHA = { lat: 40.92, lon: -1.30 };
+
+function moveObserverMarker(lat, lon){
   const marker = document.getElementById('obsMarker');
   if(!marker) return;
-  marker.setAttribute('cx', mapX(site.lon));
-  marker.setAttribute('cy', mapY(site.lat));
+  marker.setAttribute('cx', mapX(lon));
+  marker.setAttribute('cy', mapY(lat));
 }
-siteSelect.onchange = updateObserverMarker;
+// Sets the fields AND moves the marker -- used by presets, map click/drag,
+// and (eventually) geolocation. Typing directly in the fields uses
+// updateObserverFromInputs() below instead, so it doesn't fight the field
+// the user is mid-edit on.
+function setObserver(lat, lon){
+  latInput.value = lat.toFixed(2);
+  lonInput.value = lon.toFixed(2);
+  moveObserverMarker(lat, lon);
+}
+function updateObserverFromInputs(){
+  const lat = parseFloat(latInput.value), lon = parseFloat(lonInput.value);
+  if(Number.isNaN(lat) || Number.isNaN(lon)) return;
+  moveObserverMarker(lat, lon);
+}
+latInput.oninput = updateObserverFromInputs;
+lonInput.oninput = updateObserverFromInputs;
+siteSelect.onchange = () => {
+  const site = SITES[siteSelect.value];
+  if(site) setObserver(site.lat, site.lon);
+};
+
+// Click-to-set and drag-to-fine-tune are the same gesture: a single
+// pointerdown+pointermove+pointerup sequence, matching the slidertrack's
+// drag pattern elsewhere in this file.
+function mapClientToLatLon(clientX, clientY){
+  const svg = document.getElementById('mapsvg');
+  const pt = svg.createSVGPoint();
+  pt.x = clientX; pt.y = clientY;
+  const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return [MAP_LAT_MAX - p.y / MAP_K, p.x / (MAP_COS * MAP_K) + MAP_LON_MIN];
+}
+function bindMapPointerHandler(){
+  const svg = document.getElementById('mapsvg');
+  svg.addEventListener('pointerdown', e => {
+    svg.setPointerCapture(e.pointerId);
+    const [lat, lon] = mapClientToLatLon(e.clientX, e.clientY);
+    setObserver(lat, lon);
+    function move(e){ const [lat, lon] = mapClientToLatLon(e.clientX, e.clientY); setObserver(lat, lon); }
+    function up(){ document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); }
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  });
+}
 
 function renderMap(){
   const svg = document.getElementById('mapsvg');
@@ -825,7 +881,8 @@ function updateShadowMarker(simT){
 }
 
 renderMap();
-updateObserverMarker();
+bindMapPointerHandler();
+moveObserverMarker(CALAMOCHA.lat, CALAMOCHA.lon);
 renderTimebar();
 renderTimeMode();
 </script>
