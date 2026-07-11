@@ -125,6 +125,7 @@
   .coast{fill:var(--screen); stroke:var(--line); stroke-width:1;}
   .pathband{fill:var(--accent-bg); stroke:var(--accent); stroke-width:.75; stroke-opacity:.5;}
   .pathline{fill:none; stroke:var(--cline); stroke-width:2; stroke-linecap:round; stroke-linejoin:round;}
+  .shadowmarker{fill:#c22; fill-opacity:.8; stroke:none;}
 
   /* --- wide/allsky --- */
   .skywrap{height:100%; display:flex; flex-direction:column;}
@@ -543,6 +544,7 @@ function renderCLines(){
 
 function renderCursor(){
   cursor.style.left = pct(simTime) + '%';
+  updateShadowMarker(simTime);
 }
 
 function renderTimebar(){
@@ -668,9 +670,6 @@ simBtn.onclick = () => {
   }
 };
 
-renderTimebar();
-renderTimeMode();
-
 // --- Eclipse path map ---
 // Path coordinates (1-min steps) from ytliu's independent eclipse calculator
 // (JPL DE441, dT=69.2s -- cross-checked against NASA GSFC's VSOP87/dT=75.4s
@@ -725,6 +724,11 @@ const PATH_CENTER = [
   [44.7417,-8.4567],[44.0917,-7.4233],[43.4050,-6.2583],[42.6683,-4.9117],
   [41.8567,-3.2833],[40.9050,-1.1433],[39.5150,2.6067],[38.6800,5.4017]
 ];
+// UT seconds-since-midnight for each PATH_CENTER point above (18:18-18:32:12).
+const PATH_CENTER_UT = [
+  65880,65940,66000,66060,66120,66180,66240,66300,
+  66360,66420,66480,66540,66600,66660,66720,66732
+];
 
 function renderMap(){
   const svg = document.getElementById('mapsvg');
@@ -736,9 +740,35 @@ function renderMap(){
   }
   parts.push(`<polygon class="pathband" points="${mapPts(band)}"/>`);
   parts.push(`<polyline class="pathline" points="${mapPts(PATH_CENTER)}"/>`);
+  parts.push(`<circle class="shadowmarker" id="shadowMarker" r="4"/>`);
   svg.innerHTML = parts.join('');
 }
+
+// simTime is this mock's local clock (CEST, seconds since midnight); the path
+// table above is UT. CEST = UT+2, so UT = simTime - 7200. Marker is hidden
+// outside the table's covered window (before/after the shadow transits Spain).
+function shadowPosAtUT(ut){
+  if(ut < PATH_CENTER_UT[0] || ut > PATH_CENTER_UT[PATH_CENTER_UT.length - 1]) return null;
+  let i = 0;
+  while(i < PATH_CENTER_UT.length - 2 && ut > PATH_CENTER_UT[i + 1]) i++;
+  const t0 = PATH_CENTER_UT[i], t1 = PATH_CENTER_UT[i + 1];
+  const f = (ut - t0) / (t1 - t0);
+  const [lat0, lon0] = PATH_CENTER[i], [lat1, lon1] = PATH_CENTER[i + 1];
+  return [lat0 + (lat1 - lat0) * f, lon0 + (lon1 - lon0) * f];
+}
+function updateShadowMarker(simT){
+  const marker = document.getElementById('shadowMarker');
+  if(!marker) return;
+  const pos = shadowPosAtUT(simT - 7200);
+  if(!pos){ marker.style.opacity = '0'; return; }
+  marker.style.opacity = '1';
+  marker.setAttribute('cx', mapX(pos[1]));
+  marker.setAttribute('cy', mapY(pos[0]));
+}
+
 renderMap();
+renderTimebar();
+renderTimeMode();
 </script>
 </body>
 </html>
