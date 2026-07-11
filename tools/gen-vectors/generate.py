@@ -73,8 +73,14 @@ def elements_fixture(eclipse, ts, t0):
     samples = []
     for hours in (-2, -1, 0, 1, 2):
         t = ts.tt_jd(t0.tt + hours / 24)
+        # elements_at recomputes t_hours as (t - t0) * 24, which round-trips
+        # through Julian-date floating point and isn't exactly `hours` (off
+        # by ~3.7e-9h/13us) -- record the value it actually used, not the
+        # requested one, so a consumer evaluating at this exact t matches
+        # to full float precision instead of ~1e-9 short of it.
+        actual_t_hours = (t.tt - t0.tt) * 24
         row = eclipse.elements_at(t, derivatives=False).iloc[0]
-        samples.append({"t_hours_from_t0": hours, **{col: float(row[col]) for col in ELEMENT_COLS}})
+        samples.append({"t_hours_from_t0": actual_t_hours, **{col: float(row[col]) for col in ELEMENT_COLS}})
 
     return {
         "generated_by": "eclipse-calc 0.1.0",
