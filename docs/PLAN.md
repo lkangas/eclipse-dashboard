@@ -426,7 +426,10 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      function, not a port of eclipse-calc's boolean-step bisection
      search -- validated to sub-millisecond accuracy against all 13
      golden sites (well inside Sec12's sub-second tolerance)
-   - ⬜ `path.ts`: not started
+   - 🟡 `path.ts`: central line done (validated against 15 golden
+     points, and cross-checked against the mock's independently-
+     sourced PATH_CENTER data); N/S totality limits and the shadow
+     outline still to come
 4. **Map + shadow** and **sky views** on real computation — ⬜ not started.
 5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
    started (mock has manual entry + map click/drag + a geolocation
