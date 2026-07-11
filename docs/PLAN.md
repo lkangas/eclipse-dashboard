@@ -433,9 +433,16 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      search -- validated to sub-millisecond accuracy against all 13
      golden sites (well inside Sec12's sub-second tolerance)
    - 🟡 `path.ts`: central line done (validated against 15 golden
-     points, and cross-checked against the mock's independently-
-     sourced PATH_CENTER data); N/S totality limits and the shadow
-     outline still to come
+     points, cross-checked against the mock's independently-sourced
+     PATH_CENTER data); N/S **umbral** limits done too (penumbral
+     limits out of scope for this event, confirmed with the user) --
+     found and worked around a real bug in eclipse-calc along the way
+     (see project memory: `L` leaks between the north/south tangent
+     searches instead of resetting, spuriously dropping the south
+     limit near the sunset cusp; this port doesn't reproduce it).
+     Shadow outline still to come; the **penumbral** shadow outline
+     specifically is a separate, later need for the Global map tab
+     (§8), not urgent now
 4. **Map + shadow** and **sky views** on real computation — ⬜ not started.
 5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
    started (mock has manual entry + map click/drag + a geolocation
