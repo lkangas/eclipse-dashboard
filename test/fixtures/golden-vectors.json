@@ -1,0 +1,150 @@
+{
+  "generated_by": "eclipse-calc 0.1.0",
+  "t0_tt": "2026-08-12T18:00:00 TD",
+  "delta_t_note": "eclipse-calc uses Skyfield's own DeltaT (~68.8-69.2s); the app locks DeltaT to 69.1s (PLAN.md Sec15) -- expect sub-second drift vs this file for that reason alone, within Sec12's tolerance.",
+  "sites": {
+    "A Coruna": {
+      "lat": 43.36,
+      "lon": -8.41,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:30:59Z",
+      "c2": "2026-08-12T18:27:44Z",
+      "c3": "2026-08-12T18:28:59Z",
+      "c4": "2026-08-12T19:22:02Z",
+      "is_total": true,
+      "duration_s": 75.08617490530014
+    },
+    "Oviedo/Gijon": {
+      "lat": 43.36,
+      "lon": -5.85,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:31:22Z",
+      "c2": "2026-08-12T18:27:07Z",
+      "c3": "2026-08-12T18:28:55Z",
+      "c4": "2026-08-12T19:21:06Z",
+      "is_total": true,
+      "duration_s": 108.20383876562119
+    },
+    "Leon": {
+      "lat": 42.6,
+      "lon": -5.57,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:32:46Z",
+      "c2": "2026-08-12T18:28:21Z",
+      "c3": "2026-08-12T18:30:06Z",
+      "c4": "2026-08-12T19:22:08Z",
+      "is_total": true,
+      "duration_s": 104.47845160961151
+    },
+    "Burgos": {
+      "lat": 42.34,
+      "lon": -3.7,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:33:24Z",
+      "c2": "2026-08-12T18:28:26Z",
+      "c3": "2026-08-12T18:30:10Z",
+      "c4": "2026-08-12T19:21:45Z",
+      "is_total": true,
+      "duration_s": 103.85600477457047
+    },
+    "Santander": {
+      "lat": 43.46,
+      "lon": -3.81,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:31:24Z",
+      "c2": "2026-08-12T18:26:59Z",
+      "c3": "2026-08-12T18:28:01Z",
+      "c4": "2026-08-12T19:20:09Z",
+      "is_total": true,
+      "duration_s": 62.604810297489166
+    },
+    "Bilbao": {
+      "lat": 43.26,
+      "lon": -2.94,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:31:49Z",
+      "c2": "2026-08-12T18:27:24Z",
+      "c3": "2026-08-12T18:27:54Z",
+      "c4": "2026-08-12T19:20:05Z",
+      "is_total": true,
+      "duration_s": 29.906778037548065
+    },
+    "Zaragoza": {
+      "lat": 41.65,
+      "lon": -0.89,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:34:43Z",
+      "c2": "2026-08-12T18:29:04Z",
+      "c3": "2026-08-12T18:30:28Z",
+      "c4": "2026-08-12T19:21:29Z",
+      "is_total": true,
+      "duration_s": 83.8892251253128
+    },
+    "Valencia": {
+      "lat": 39.47,
+      "lon": -0.38,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:38:26Z",
+      "c2": "2026-08-12T18:32:31Z",
+      "c3": "2026-08-12T18:33:30Z",
+      "c4": "2026-08-12T19:24:16Z",
+      "is_total": true,
+      "duration_s": 59.30420458316803
+    },
+    "Castellon/Peniscola": {
+      "lat": 40.36,
+      "lon": 0.4,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:36:54Z",
+      "c2": "2026-08-12T18:30:35Z",
+      "c3": "2026-08-12T18:32:14Z",
+      "c4": "2026-08-12T19:22:40Z",
+      "is_total": true,
+      "duration_s": 99.1540789604187
+    },
+    "Palma de Mallorca": {
+      "lat": 39.57,
+      "lon": 2.65,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:38:05Z",
+      "c2": "2026-08-12T18:31:06Z",
+      "c3": "2026-08-12T18:32:42Z",
+      "c4": "2026-08-12T19:22:33Z",
+      "is_total": true,
+      "duration_s": 96.0584208369255
+    },
+    "Calamocha": {
+      "lat": 40.92,
+      "lon": -1.3,
+      "elevation_m": 884,
+      "c1": "2026-08-12T17:35:58Z",
+      "c2": "2026-08-12T18:30:10Z",
+      "c3": "2026-08-12T18:31:52Z",
+      "c4": "2026-08-12T19:22:43Z",
+      "is_total": true,
+      "duration_s": 101.59546583890915
+    },
+    "Madrid": {
+      "lat": 40.4168,
+      "lon": -3.7038,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:36:46Z",
+      "c2": null,
+      "c3": null,
+      "c4": "2026-08-12T19:24:31Z",
+      "is_total": false,
+      "duration_s": null
+    },
+    "Barcelona": {
+      "lat": 41.3874,
+      "lon": 2.1686,
+      "elevation_m": 0,
+      "c1": "2026-08-12T17:35:05Z",
+      "c2": null,
+      "c3": null,
+      "c4": "2026-08-12T19:20:21Z",
+      "is_total": false,
+      "duration_s": null
+    }
+  }
+}
