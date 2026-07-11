@@ -4,7 +4,11 @@
   // path.ts output too, but precomputed at build time into
   // shadow-frames.json (scripts/generate-shadow-frames.ts) rather than
   // recomputed in every browser -- it's static geometry for the whole
-  // event, not observer- or clock-dependent.
+  // event, not observer- or clock-dependent. The umbra *outline* (the
+  // instantaneous shadow footprint, as opposed to the swept central
+  // line/limits above) is the opposite case -- a function of "right now",
+  // so it's computed client-side each tick from the tiny Besselian
+  // coefficients, not precomputed (see eclipse/shadowOutline.ts).
   import { observer, setObserver } from '../../stores/observer';
   import { effectiveTime } from '../../stores/clock';
   import { feature } from 'topojson-client';
@@ -13,6 +17,8 @@
   import type { GeoProjection } from 'd3-geo';
   import basemapData from '../../data/basemap.topojson';
   import shadowFrames from '../../data/shadow-frames.json';
+  import { coefficients, dateToTtHours } from '../../data/besselian-2026';
+  import { shadowOutlineAt } from '../../eclipse/shadowOutline';
 
   let tab: 'spain' | 'global' = $state('spain');
 
@@ -90,6 +96,17 @@
   const shadowPos = $derived(shadowPosAtMs($effectiveTime.getTime()));
   const shadowXY = $derived(shadowPos ? project(shadowPos[0], shadowPos[1]) : null);
   const obsXY = $derived(project($observer.lat, $observer.lon));
+
+  // The umbra outline: the actual shape of the umbral shadow's footprint
+  // on Earth at effectiveTime, as opposed to shadowXY above (just its
+  // center). Recomputed every tick directly from the Besselian
+  // coefficients (shadowOutlineAt is cheap -- ~60 trig-heavy points, no
+  // precomputation needed). Empty outside the umbral window (the shadow
+  // isn't touching the Earth at all, e.g. long before/after the event).
+  const outlineLatLon = $derived.by((): [number, number][] => {
+    const tHours = dateToTtHours($effectiveTime);
+    return shadowOutlineAt(coefficients, tHours).map((p): [number, number] => [p.lat, p.lon]);
+  });
 
   // Click-to-set and drag-to-fine-tune are the same gesture: a single
   // pointerdown+pointermove+pointerup sequence.
@@ -205,6 +222,9 @@
         {@const p = project(tp.lat, tp.lon)}
         {#if p}<circle class="terminatorpoint" cx={p[0]} cy={p[1]} r="1.6" />{/if}
       {/each}
+      {#if outlineLatLon.length >= 3}
+        <polygon class="umbraOutline" points={projectPts(outlineLatLon)} />
+      {/if}
       <circle
         class="shadowmarker"
         r="4"
@@ -224,6 +244,9 @@
       <polyline class="globalcoast" points={stereoPts(GLOBAL_EURASIA_COAST)} />
       <polyline class="globalpath" points={stereoPts(GLOBAL_CENTERLINE_PRE)} />
       <polyline class="pathline" points={stereoPts(PATH_CENTER)} />
+      {#if outlineLatLon.length >= 3}
+        <polygon class="umbraOutline" points={stereoPts(outlineLatLon)} />
+      {/if}
       <circle class="gemarker" cx={gePos[0]} cy={gePos[1]} r="2.5" />
     </svg>
   </div>
@@ -306,6 +329,19 @@
     fill: #c22;
     stroke: var(--screen);
     stroke-width: 0.3;
+  }
+  /* The umbral shadow's actual instantaneous footprint (as opposed to
+     .shadowmarker below, just its center point) -- a dark, semi-
+     transparent shape with a crisper outline stroke, matching the
+     convention real eclipse-tracking maps use for "this is the shadow
+     right now". */
+  .umbraOutline {
+    fill: var(--ink);
+    fill-opacity: 0.22;
+    stroke: var(--ink);
+    stroke-opacity: 0.55;
+    stroke-width: 1;
+    stroke-linejoin: round;
   }
   .shadowmarker {
     fill: #c22;

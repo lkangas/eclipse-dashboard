@@ -639,6 +639,38 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      - ✅ Shadow marker now interpolates over the real UT timestamps of
        the sampled central-line grid above, driven by the real
        `effectiveTime` clock (see below) instead of a CEST-seconds stub
+     - ✅ **Umbra outline** -- the umbral shadow's actual instantaneous
+       footprint (not just its center point/the swept path band above),
+       animated with `effectiveTime`. Unlike the central line/N-S limits,
+       this is a function of "right now", so -- after an initial wrong
+       attempt at precomputing it into a data file, same mistake as the
+       swept-path pattern but not applicable here, caught and corrected
+       -- it's computed live client-side each tick from the already-
+       bundled Besselian coefficients (`eclipse/shadowOutline.ts`,
+       reviving the `shadowOutlineAt` algorithm from the since-deleted
+       `path.ts`/`ellipsoid.ts`, narrowed to just that one function).
+       Evaluating one instant is cheap (~60 trig-heavy points), so no
+       precomputation or caching needed. Renders as a filled, semi-
+       transparent `<polygon>` in both the Spain and Global tabs.
+       Terminator handling matters here too: a naive sweep just omits
+       points that fall outside Earth's visible disk (expected late in
+       the event, as the umbra nears the day/night boundary), which
+       would leave a straight illegal chord across the shape instead of
+       following the true curved edge -- fixed by detecting sign flips
+       in an un-iterated visibility margin between adjacent sample
+       angles and bisecting (25 iterations) to insert an exact
+       terminator-crossing point at each of the (at most two)
+       transitions, mirroring `generate_shadow_frames.py`'s own
+       terminator root-finds for the central line/limits. Verified
+       against eclipse-calc directly: golden-fixture match at three
+       instants well inside the disk; a partial-exit case (29/61 raw
+       samples off-disk) confirmed to produce exactly 2 bisected
+       insertions and zero NaNs; a fully-outside case returns an empty
+       polygon. Centroid tracks the already-validated central line
+       (offset grows from ~0.1° to ~0.7° as the shape foreshortens near
+       the disk edge, small relative to the shape's own several-degree
+       extent); Calamocha sits inside the outline at its own local Max.
+       `npm run test`: 61/61 (+6 new); `npm run check`: 0 errors/warnings.
    - 🟡 Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`:
      - ✅ New `stores/skyView.ts` derived store: real Sun/Moon alt-az
