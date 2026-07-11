@@ -56,15 +56,23 @@ SITES = [
 ]
 
 
-def contact_dict(ct):
+def contact_dict(ct, t0):
     # Truthy-checking a Skyfield Time (`if ct.c1`) falls back to __len__,
     # which raises for a genuinely scalar Time -- must use `is not None`,
     # same as eclipse-calc's own ContactTimes.is_total_or_annular does.
+    # *_hours_from_t0 are TT-based, matching elements.ts/localCircumstances.ts's
+    # internal time representation directly -- deliberately not going through
+    # UTC/DeltaT here, since that's a separate, orthogonal concern (PLAN.md
+    # Sec15) from whether the root-finder itself lands on the right instant.
     return {
         "c1": ct.c1.utc_iso() if ct.c1 is not None else None,
         "c2": ct.c2.utc_iso() if ct.c2 is not None else None,
         "c3": ct.c3.utc_iso() if ct.c3 is not None else None,
         "c4": ct.c4.utc_iso() if ct.c4 is not None else None,
+        "c1_hours_from_t0": (ct.c1.tt - t0.tt) * 24 if ct.c1 is not None else None,
+        "c2_hours_from_t0": (ct.c2.tt - t0.tt) * 24 if ct.c2 is not None else None,
+        "c3_hours_from_t0": (ct.c3.tt - t0.tt) * 24 if ct.c3 is not None else None,
+        "c4_hours_from_t0": (ct.c4.tt - t0.tt) * 24 if ct.c4 is not None else None,
         "is_total": ct.is_total_or_annular,
         "duration_s": (ct.c3.tt - ct.c2.tt) * 86400 if ct.is_total_or_annular else None,
     }
@@ -163,8 +171,13 @@ def main():
     sites_out = {}
     for name, lat, lon, elev in SITES:
         loc = Location(lat_deg=lat, lon_deg=lon, elevation_m=elev)
+        t_max = eclipse.maximum_time(loc)
         ct = eclipse.contact_times(loc)
-        sites_out[name] = {"lat": lat, "lon": lon, "elevation_m": elev, **contact_dict(ct)}
+        sites_out[name] = {
+            "lat": lat, "lon": lon, "elevation_m": elev,
+            "t_max_hours_from_t0": (t_max.tt - t0.tt) * 24,
+            **contact_dict(ct, t0),
+        }
         print(f"{name}: {'total ' + str(round(sites_out[name]['duration_s'], 1)) + 's' if ct.is_total_or_annular else 'partial only'}")
 
     FIXTURES.mkdir(parents=True, exist_ok=True)
