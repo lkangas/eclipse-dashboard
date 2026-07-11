@@ -21,6 +21,7 @@ from skyfield.toposlib import wgs84
 
 from eclipse_calc import BesselianEclipse, Location, load_ephemeris
 from eclipse_calc.constants import RE, f
+from eclipse_calc.shadow import shadow_limits
 
 DEFAULT_EPHEMERIS = Path(r"C:\Users\lauri.kangas\OneDrive\python\eclipse\de440s.bsp")
 FIXTURES = Path(__file__).resolve().parent.parent.parent / "app" / "test" / "fixtures"
@@ -29,6 +30,7 @@ ELEMENTS_OUTPUT = FIXTURES / "golden-elements.json"
 OBSERVER_OUTPUT = FIXTURES / "golden-observer.json"
 LOCAL_ELEMENTS_OUTPUT = FIXTURES / "golden-local-elements.json"
 CENTRAL_LINE_OUTPUT = FIXTURES / "golden-central-line.json"
+SHADOW_LIMITS_OUTPUT = FIXTURES / "golden-shadow-limits.json"
 
 LOCAL_ELEMENTS_COLS = ["x", "y", "d", "mu0", "ksi", "eta", "zeta", "L1", "L2"]
 AUX1_COLS = ["rho1", "rho2", "sind1", "cosd1", "sind1d2", "cosd1d2"]
@@ -198,6 +200,32 @@ def central_line_fixture(eclipse, ts, t0):
     }
 
 
+def shadow_limits_fixture(eclipse, ts, t0):
+    """N/S umbral limit points (path edges) at 1-min steps across the
+    Spain-crossing window -- same window as golden-central-line.json, so
+    it cross-checks against the mock's PATH_NORTH/PATH_SOUTH too. Umbral
+    only (umbra=True); penumbral limits aren't needed for this event and
+    aren't validated upstream (PLAN.md Sec4)."""
+    cases = []
+    for minute in range(18, 33):  # 18:18 .. 18:32 UT
+        t = ts.utc(2026, 8, 12, 18, minute, 0)
+        t_hours = (t.tt - t0.tt) * 24
+        B = eclipse.elements_at(t, derivatives=True)
+        limits = shadow_limits(B, umbra=True).iloc[0]
+        has_n = "N_lat" in limits.index and np.isfinite(limits.get("N_lat", np.nan))
+        has_s = "S_lat" in limits.index and np.isfinite(limits.get("S_lat", np.nan))
+        cases.append({
+            "utc": t.utc_iso(),
+            "t_hours_from_t0": t_hours,
+            "north": {"lat": float(limits.N_lat), "lon": float(limits.N_lon)} if has_n else None,
+            "south": {"lat": float(limits.S_lat), "lon": float(limits.S_lon)} if has_s else None,
+        })
+    return {
+        "generated_by": "eclipse-calc 0.1.0 (eclipse_calc.shadow.shadow_limits, umbra=True)",
+        "cases": cases,
+    }
+
+
 def main():
     eph_path = Path(os.environ.get("ECLIPSE_CALC_EPHEMERIS", DEFAULT_EPHEMERIS))
     eph = load_ephemeris(eph_path)
@@ -241,6 +269,9 @@ def main():
 
     CENTRAL_LINE_OUTPUT.write_text(json.dumps(central_line_fixture(eclipse, ts, t0), indent=2))
     print(f"Wrote {CENTRAL_LINE_OUTPUT}")
+
+    SHADOW_LIMITS_OUTPUT.write_text(json.dumps(shadow_limits_fixture(eclipse, ts, t0), indent=2))
+    print(f"Wrote {SHADOW_LIMITS_OUTPUT}")
 
 
 if __name__ == "__main__":
