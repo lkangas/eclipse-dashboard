@@ -209,6 +209,11 @@
     height: 100%;
     gap: 4px;
     padding: 4px;
+    /* Dark night-sky backdrop, covering the countdown text as well as
+       the Sun/Moon graphic -- one shared panel background, not just
+       behind the svg. */
+    background: #173a6e;
+    border-radius: 6px;
   }
   .numwrap {
     flex: 0 0 auto;
@@ -218,6 +223,7 @@
     justify-content: center;
     gap: 4px;
     min-width: 0;
+    color: #ffffff;
     /* Reserved for the DUAL-stacked worst case regardless of which mode
        is actually showing, so switching between single/dual (or
        stacked/row) never changes this box's height -- that height
@@ -248,13 +254,9 @@
     /* Explicit, not relying on the browser default: the Moon is
        unclamped and can render partway (or fully) outside the
        viewBox near/outside C1-C4 -- this box is what gives that a
-       clean edge instead of bleeding into surrounding UI. */
+       clean edge instead of bleeding into surrounding UI. The dark
+       sky background now lives on .countdown itself (shared with the
+       text), so this box stays transparent and just shows it through. */
     overflow: hidden;
-    /* Dark night-sky backdrop for the Sun/Moon disks -- a CSS
-       background rather than an in-viewBox <rect> so it covers the
-       whole rendered box, including any preserveAspectRatio
-       letterboxing, not just the viewBox area. */
-    background: #0d1b3a;
-    border-radius: 6px;
   }
 </style>

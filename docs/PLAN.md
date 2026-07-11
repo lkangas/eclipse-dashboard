@@ -776,12 +776,14 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        departs from the flat-monochrome-outline treatment used
        elsewhere (SkyPanel's dome/wide views): both circles are now
        fill-only (no stroke/border), Sun `#f6c445` (yellow-gold), Moon
-       `#000000` (black), on a dark navy `#0d1b3a` sky background set
-       as the svg's own CSS `background` (covers the whole rendered
-       box, including any `preserveAspectRatio` letterboxing, not just
-       the viewBox area a `<rect>` would). Verified via computed style
-       in-browser. `npm run test`: 55/55; `npm run check`: 0
-       errors/warnings.
+       `#000000` (black), on a dark navy sky background. Moved the
+       background from just the svg to `.countdown` itself (the shared
+       parent of both the text and the graphic) after a follow-up
+       request -- lightened to `#173a6e` (was `#0d1b3a`, "too dark")
+       and now covers the countdown text too, with the text set to
+       white; the svg itself is transparent and just shows the parent
+       background through. Verified via computed style in-browser.
+       `npm run test`: 55/55; `npm run check`: 0 errors/warnings.
    - ✅ Wire TimeBar to real contact times instead of `STUB_CONTACTS` --
      the `clock` store was redesigned around a real UTC epoch
      (`simTimeMs`, standard `Date` convention) plus a new `effectiveTime`
