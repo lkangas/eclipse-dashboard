@@ -17,6 +17,7 @@
   // too, there's nothing left to count down to.
   import { localCircumstances } from '../../stores/localCircumstances';
   import { effectiveTime } from '../../stores/clock';
+  import { skyView } from '../../stores/skyView';
   import { formatCountdown } from '../format';
 
   const phase = $derived.by(():
@@ -72,6 +73,48 @@
     const c3 = $localCircumstances.c3;
     return c3 ? 'C3' + formatCountdown((c3.getTime() - $effectiveTime.getTime()) / 1000) : '';
   });
+
+  // Real Sun/Moon schematic (PLAN.md §9/§10 -- "flat monochrome", still
+  // no gradients/photorealism, just no longer a fixed placeholder).
+  // Sun radius is pinned to SUN_R_PX; everything else (Moon's radius,
+  // and the Sun-Moon offset) is scaled by the same real degrees-per-
+  // pixel factor, so relative sizes/positions stay physically correct
+  // as the real angular radii/separation (stores/skyView.ts) change.
+  // Far from any contact the true offset would be way off-canvas --
+  // clamped to MAX_OFFSET_PX (direction preserved) so the Moon always
+  // renders somewhere near the Sun rather than disappearing or blowing
+  // up the viewBox.
+  const SUN_R_PX = 44;
+  const MAX_OFFSET_PX = 68;
+  const schematic = $derived.by(() => {
+    const { sun, moon, moonSunSeparationDeg } = $skyView;
+    const pxPerDeg = SUN_R_PX / sun.angularRadiusDeg;
+    const moonRPx = moon.angularRadiusDeg * pxPerDeg;
+
+    // Local tangent-plane offset (accurate enough at the sub-degree
+    // separations that matter here): azimuth compressed by cos(altitude).
+    const altRad = (sun.altitude * Math.PI) / 180;
+    let dAz = moon.azimuth - sun.azimuth;
+    if (dAz > 180) dAz -= 360;
+    if (dAz < -180) dAz += 360;
+    const dxDeg = dAz * Math.cos(altRad);
+    const dyDeg = moon.altitude - sun.altitude;
+    let offsetX = dxDeg * pxPerDeg;
+    let offsetY = -dyDeg * pxPerDeg;
+    const offsetMag = Math.hypot(offsetX, offsetY);
+    if (offsetMag > MAX_OFFSET_PX) {
+      const scale = MAX_OFFSET_PX / offsetMag;
+      offsetX *= scale;
+      offsetY *= scale;
+    }
+
+    return {
+      moonRPx,
+      moonCx: 60 + offsetX,
+      moonCy: 60 + offsetY,
+      separationDeg: moonSunSeparationDeg,
+    };
+  });
 </script>
 
 <div class="countdown">
@@ -86,8 +129,8 @@
     {/if}
   </div>
   <svg viewBox="0 0 120 120">
-    <circle cx="60" cy="60" r="44" fill="none" stroke="#20201e" stroke-width="1.5" />
-    <circle cx="53" cy="61" r="45.3" fill="#20201e" />
+    <circle cx="60" cy="60" r={SUN_R_PX} fill="none" stroke="#20201e" stroke-width="1.5" />
+    <circle cx={schematic.moonCx} cy={schematic.moonCy} r={schematic.moonRPx} fill="#20201e" />
   </svg>
 </div>
 

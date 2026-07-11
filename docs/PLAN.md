@@ -665,6 +665,30 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        tangent-plane projection (narrow azimuth window around the Sun's
        current azimuth, altitude vertical) rather than the whole-dome
        formula -- a real follow-up, not a trivial plug-in.
+     - ✅ **`CountdownPanel`'s flat Sun/Moon schematic (§9) is real too**,
+       not just the All-sky dome -- was a fixed, always-identical pair
+       of circles regardless of actual eclipse phase. `skyView.ts`
+       extended with `angularRadiusDeg` (physical radius / topocentric
+       `Equator().dist` -- already observer-corrected, not geocentric,
+       which matters for the Moon) and `moonSunSeparationDeg` (spherical
+       law of cosines on alt-az). Deliberately plain two-body geometry,
+       *not* astronomy-engine's own `SearchLocalSolarEclipse` -- this
+       project's one source of truth for eclipse *timing* is the
+       Besselian/eclipse-calc pipeline (§14 #4); a second independent
+       "when does the eclipse happen" source wasn't wanted even from a
+       library that happens to offer one (caught before implementing,
+       per project-owner pushback). Sun pinned at a fixed pixel radius;
+       Moon's radius and the Sun-Moon offset both scale off the same
+       real degrees-per-pixel factor, clamped to stay near the Sun
+       on-canvas when the true offset would be way outside the viewBox
+       (i.e. most of the time, outside the ~2h event window). Verified
+       at three real phases: far from any contact today (moon clamped
+       to the canvas edge, no overlap), mid-partial-phase (partial,
+       physically-consistent overlap), and simulated Max (moon centered
+       within half a pixel of the Sun, r=45.44 vs Sun's 44 -- matching
+       the mock's original hand-picked placeholder, 45.3, almost
+       exactly). `npm run test`: 55/55; `npm run check`: 0
+       errors/warnings.
    - ✅ Wire TimeBar to real contact times instead of `STUB_CONTACTS` --
      the `clock` store was redesigned around a real UTC epoch
      (`simTimeMs`, standard `Date` convention) plus a new `effectiveTime`
