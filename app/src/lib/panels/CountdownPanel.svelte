@@ -148,24 +148,16 @@
   // separate flex child BELOW .numwrap, so this clipping can never
   // cover the countdown text.
   //
-  // KNOWN ISSUE (not yet fixed, under investigation): this offset
-  // comes from astronomy-engine's own real-time ephemeris
+  // This offset comes from astronomy-engine's own real-time ephemeris
   // (stores/skyView.ts), independent of the Besselian/eclipse-calc
   // pipeline that computes the official C2/C3 shown in the countdown
-  // text. The two visibly disagree by enough to matter right at
-  // totality -- the Sun's crescent was observed vanishing before C2
-  // and reappearing before C3, while still officially total, because
-  // the Moon is only barely bigger than the Sun for this eclipse (the
-  // full-coverage tolerance is only ~1-2px). A clamp to the official
-  // [C2,C3] window was tried and reverted (it produced a visible
-  // abrupt snap-to-center at C2 and release at C3, not the smooth
-  // in-between look wanted) -- next step is root-causing *why* the
-  // two ephemerides disagree (refraction? ΔT? something else) rather
-  // than papering over it with a clamp. See PLAN.md.
+  // text -- the two agree closely (eclipse/astronomyEngineDeltaT.ts
+  // makes astronomy-engine use the same ΔT as the Besselian side; see
+  // PLAN.md for the small residual that's left).
   const VIEWBOX_HALF = 60;
   const SUN_R_PX = 44;
   const schematic = $derived.by(() => {
-    const { sun, moon, moonSunSeparationDeg } = $skyView;
+    const { sun, moon, moonSunSeparationDeg, horizonDepressionDeg } = $skyView;
     const pxPerDeg = SUN_R_PX / sun.angularRadiusDeg;
     const moonRPx = moon.angularRadiusDeg * pxPerDeg;
 
@@ -180,10 +172,33 @@
     const offsetX = dxDeg * pxPerDeg;
     const offsetY = -dyDeg * pxPerDeg;
 
+    // Horizon line: positioned so the Sun's rendered upper edge (its
+    // disk is drawn fixed at the viewBox center, radius SUN_R_PX --
+    // "upper edge" is always exactly SUN_R_PX above that center)
+    // crosses it at the SAME instant astronomy-engine's own
+    // SearchRiseSet (stores/localCircumstances.ts's Sunset) reports.
+    // That takes real care: SearchRiseSet's criterion is "the Sun's
+    // UNREFRACTED (geometric) center altitude equals -horizonDepressionDeg
+    // - angularRadiusDeg" -- using a fixed ~34' refraction CONSTANT
+    // (scaled by atmospheric density at the observer's elevation), NOT
+    // the altitude-dependent Saemundsson formula 'normal' mode uses for
+    // sun.altitude above. Those two refraction models genuinely
+    // disagree at these shallow angles (measured: ~37' vs the standard
+    // 34' right at this event's sunset, an ~8.5px difference in this
+    // schematic's scale) -- reusing the refracted sun.altitude here,
+    // as an earlier version did, made the horizon line cross the Sun's
+    // edge several seconds off from the real Sunset time. Using
+    // altitudeTrueDeg + horizonDepressionDeg instead (both computed in
+    // skyView.ts using the exact same constant/formula SearchRiseSet
+    // uses) verified to sub-second alignment against the real Sunset
+    // instant (a temporary scratch test, deleted after).
+    const horizonY = VIEWBOX_HALF + (sun.altitudeTrueDeg + horizonDepressionDeg) * pxPerDeg;
+
     return {
       moonRPx,
       moonCx: VIEWBOX_HALF + offsetX,
       moonCy: VIEWBOX_HALF + offsetY,
+      horizonY,
       separationDeg: moonSunSeparationDeg,
     };
   });
@@ -203,6 +218,17 @@
   <svg viewBox="0 0 {VIEWBOX_HALF * 2} {VIEWBOX_HALF * 2}">
     <circle cx={VIEWBOX_HALF} cy={VIEWBOX_HALF} r={SUN_R_PX} fill="#f6c445" />
     <circle cx={schematic.moonCx} cy={schematic.moonCy} r={schematic.moonRPx} fill="#000000" />
+    <!-- Ground: painted over the Sun/Moon (not behind them) so the
+         setting Sun visibly sinks behind it, dimly showing through the
+         transparent fill rather than being hard-clipped. -->
+    <rect
+      class="ground"
+      x="0"
+      y={schematic.horizonY}
+      width={VIEWBOX_HALF * 2}
+      height={Math.max(0, VIEWBOX_HALF * 2 - schematic.horizonY)}
+    />
+    <line class="horizonline" x1="0" y1={schematic.horizonY} x2={VIEWBOX_HALF * 2} y2={schematic.horizonY} />
   </svg>
 </div>
 
@@ -269,5 +295,13 @@
        sky background now lives on .countdown itself (shared with the
        text), so this box stays transparent and just shows it through. */
     overflow: hidden;
+  }
+  .ground {
+    fill: #05070d;
+    fill-opacity: 0.6;
+  }
+  .horizonline {
+    stroke: #dce4f2;
+    stroke-width: 1.5;
   }
 </style>

@@ -17,7 +17,7 @@
 // #4), so a second independent "when does the eclipse happen" source
 // isn't wanted, even from a library that happens to offer one.
 import { derived } from 'svelte/store';
-import { Body, Equator, Horizon, Observer } from 'astronomy-engine';
+import { Atmosphere, Body, Equator, Horizon, Observer } from 'astronomy-engine';
 import '../eclipse/astronomyEngineDeltaT';
 import { observer } from './observer';
 import { effectiveTime } from './clock';
@@ -27,6 +27,16 @@ const SUN_RADIUS_KM = 696000;
 const MOON_RADIUS_KM = 1737.4;
 const KM_PER_AU = 149597870.7;
 
+// The constant astronomy-engine's own SearchRiseSet uses for the Sun/Moon
+// (REFRACTION_NEAR_HORIZON in its source) -- not re-exported by the
+// library, so duplicated here deliberately to stay byte-for-byte in sync
+// with the convention SearchRiseSet (stores/localCircumstances.ts's
+// sunset) actually uses, rather than the altitude-dependent 'normal'
+// Horizon() refraction model, which gives a visibly different value at
+// the shallow angles right at the horizon (see CountdownPanel.svelte's
+// horizon-line comment for why the difference matters).
+const REFRACTION_NEAR_HORIZON_DEG = 34 / 60;
+
 export interface AltAz {
   altitude: number;
   azimuth: number;
@@ -34,6 +44,8 @@ export interface AltAz {
 
 export interface BodyPosition extends AltAz {
   angularRadiusDeg: number;
+  /** Geometric (unrefracted) altitude -- see horizonDepressionDeg below. */
+  altitudeTrueDeg: number;
 }
 
 export interface StarPosition extends AltAz {
@@ -47,6 +59,13 @@ export interface SkyView {
   moon: BodyPosition;
   moonSunSeparationDeg: number;
   stars: StarPosition[];
+  /** How far below the true geometric horizon (in degrees) a point needs
+   * to be for standard refraction to bring it back up to the visible
+   * horizon -- i.e. the Sun's true altitude at official sunset/sunrise is
+   * -angularRadiusDeg - horizonDepressionDeg, matching SearchRiseSet's own
+   * criterion exactly (same constant, same elevation-dependent atmosphere
+   * density scaling). */
+  horizonDepressionDeg: number;
 }
 
 // Small-angle approximation (angularRadius ~= physicalRadius / distance)
@@ -73,10 +92,12 @@ export const skyView = derived([observer, effectiveTime], ([$observer, $now]): S
   function bodyPosition(body: Body, physicalRadiusKm: number): BodyPosition {
     const eq = Equator(body, $now, astroObserver, true, true);
     const hor = Horizon($now, astroObserver, eq.ra, eq.dec, 'normal');
+    const horTrue = Horizon($now, astroObserver, eq.ra, eq.dec, undefined);
     return {
       altitude: hor.altitude,
       azimuth: hor.azimuth,
       angularRadiusDeg: angularRadiusDeg(physicalRadiusKm, eq.dist),
+      altitudeTrueDeg: horTrue.altitude,
     };
   }
 
@@ -93,5 +114,6 @@ export const skyView = derived([observer, effectiveTime], ([$observer, $now]): S
     moon,
     moonSunSeparationDeg: angularSeparationDeg(sun, moon),
     stars,
+    horizonDepressionDeg: REFRACTION_NEAR_HORIZON_DEG * Atmosphere($observer.elevationM).density,
   };
 });

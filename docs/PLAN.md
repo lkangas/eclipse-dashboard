@@ -827,6 +827,52 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        smooth motion wanted; this ΔT fix addresses the actual root
        cause instead. `npm run test`: 55/55; `npm run check`: 0
        errors/warnings.
+     - 💡 **Possible future upgrade** (not started, not currently
+       warranted): the ~2.5" residual left after the ΔT fix comes from
+       astronomy-engine's own lower-precision analytic Sun/Moon series,
+       not from anything fixable by more tuning. The strongest
+       available fix would follow the same pattern already used for
+       `shadow-frames.json`: have `tools/build-data/` fit a small
+       Chebyshev polynomial to Skyfield/DE440s Sun+Moon positions over
+       just the ~2h event window (a few KB, not a full SPICE kernel),
+       ship it as bundled JSON, and have the client evaluate the
+       polynomial instead of calling astronomy-engine for the
+       schematic -- this would make the schematic agree with the
+       Besselian times *exactly*, since it's the same ephemeris source.
+       Limitation: only valid for the specific observer it was
+       generated for, so arbitrary map-click locations would still need
+       a fallback (the current ΔT-corrected astronomy-engine path).
+       Worth revisiting only if the residual ever becomes visually
+       noticeable again.
+     - ✅ **Horizon line added to the countdown schematic** -- a solid
+       line with a semi-transparent "ground" fill below it (painted
+       *over* the Sun/Moon disks, not behind, so a setting Sun visibly
+       sinks behind it rather than being hard-clipped), rising as sim
+       time approaches and passes sunset. Getting the crossing moment
+       to actually line up with the official Sunset time (shown
+       elsewhere in ContactsPanel/TimeBar) took real care: the Sun's
+       disk is drawn using its *refracted* altitude (`sun.altitude`,
+       astronomy-engine's `'normal'` Horizon() mode, Saemundsson's
+       altitude-dependent formula), but `SearchRiseSet` (which computes
+       the official Sunset) uses a completely different, fixed ~34'
+       refraction *constant* (scaled by atmospheric density at the
+       observer's elevation) applied to the Sun's *unrefracted*
+       altitude. Those two refraction models measurably disagree at
+       these shallow angles (~37' vs 34' at this event's sunset, an
+       ~8.5px difference in the schematic's scale) -- an initial
+       version that reused the refracted `sun.altitude` for the horizon
+       line crossed the Sun's edge about a second-and-a-half off from
+       the real Sunset instant. Fixed by adding `altitudeTrueDeg`
+       (unrefracted) to `skyView.ts`'s `BodyPosition` and a
+       `horizonDepressionDeg` field computed with the exact same
+       constant/`Atmosphere()` density scaling `SearchRiseSet` uses
+       internally, then positioning the horizon line at
+       `sun.altitudeTrueDeg + horizonDepressionDeg` in the same
+       Sun-relative pixel scale as the Moon's offset. Verified via a
+       temporary scratch test sweeping ±30s around the real Sunset
+       instant: the crossing lands within 0.02px (a small fraction of a
+       second) of the official time. `npm run test`: 55/55; `npm run
+       check`: 0 errors/warnings.
      - ⬜ **Elevation bug found during the above investigation, not yet
        fixed**: `stores/observer.ts` hardcodes `elevationM: 0` and
        `setObserver()` never updates it -- there's no UI field for it
