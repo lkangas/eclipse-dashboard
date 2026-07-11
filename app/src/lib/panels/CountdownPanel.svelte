@@ -3,28 +3,46 @@
   // Normally ONE line, the next upcoming event. Two lines only between
   // C2 and Max -- once Max has passed, C3 is itself the next contact, so
   // it goes back to a single line ("C3-ttt") like everywhere else.
+  //
+  // C4 is only ever shown if it's actually observable -- this event is
+  // sunset-limited for Spain (PLAN.md §1), and the Besselian shadow-cone
+  // geometry has no concept of the horizon, so C4 commonly falls after
+  // the sun has already set (even at Calamocha). When it's not
+  // observable, Sunset itself becomes the countdown target instead (the
+  // real end of visibility); once that's passed too, there's nothing
+  // left to count down to.
   import { localCircumstances } from '../../stores/localCircumstances';
   import { effectiveTime } from '../../stores/clock';
   import { formatCountdown } from '../format';
 
-  const phase = $derived.by(
-    (): { mode: 'single'; key: 'c1' | 'c2' | 'max' | 'c3' | 'c4' } | { mode: 'dual' } => {
-      const lc = $localCircumstances;
-      const nowMs = $effectiveTime.getTime();
-      if (lc.c1 && nowMs < lc.c1.getTime()) return { mode: 'single', key: 'c1' };
-      if (lc.c2 && lc.c3) {
-        if (nowMs < lc.c2.getTime()) return { mode: 'single', key: 'c2' };
-        if (nowMs < lc.max.getTime()) return { mode: 'dual' };
-        if (nowMs < lc.c3.getTime()) return { mode: 'single', key: 'c3' };
-        return { mode: 'single', key: 'c4' };
-      }
-      if (nowMs < lc.max.getTime()) return { mode: 'single', key: 'max' };
-      return { mode: 'single', key: 'c4' };
-    },
-  );
+  const phase = $derived.by(():
+    | { mode: 'single'; key: 'c1' | 'c2' | 'max' | 'c3' | 'c4' | 'sunset' }
+    | { mode: 'dual' }
+    | { mode: 'none' } => {
+    const lc = $localCircumstances;
+    const nowMs = $effectiveTime.getTime();
+    const sunsetMs = lc.sunset ? lc.sunset.getTime() : null;
+    const c4Observable = lc.c4 && (sunsetMs === null || lc.c4.getTime() <= sunsetMs);
+
+    function afterC3(): { mode: 'single'; key: 'c4' | 'sunset' } | { mode: 'none' } {
+      if (c4Observable && nowMs < lc.c4!.getTime()) return { mode: 'single', key: 'c4' };
+      if (sunsetMs !== null && nowMs < sunsetMs) return { mode: 'single', key: 'sunset' };
+      return { mode: 'none' };
+    }
+
+    if (lc.c1 && nowMs < lc.c1.getTime()) return { mode: 'single', key: 'c1' };
+    if (lc.c2 && lc.c3) {
+      if (nowMs < lc.c2.getTime()) return { mode: 'single', key: 'c2' };
+      if (nowMs < lc.max.getTime()) return { mode: 'dual' };
+      if (nowMs < lc.c3.getTime()) return { mode: 'single', key: 'c3' };
+      return afterC3();
+    }
+    if (nowMs < lc.max.getTime()) return { mode: 'single', key: 'max' };
+    return afterC3();
+  });
   const dual = $derived(phase.mode === 'dual');
 
-  const singleLabels = { c1: 'C1', c2: 'C2', max: 'MAX', c3: 'C3', c4: 'C4' } as const;
+  const singleLabels = { c1: 'C1', c2: 'C2', max: 'MAX', c3: 'C3', c4: 'C4', sunset: 'SUNSET' } as const;
   const singleText = $derived.by(() => {
     if (phase.mode !== 'single') return '';
     const date = $localCircumstances[phase.key];
@@ -45,6 +63,8 @@
     {#if dual}
       <div class="numline">{maxText}</div>
       <div class="numline">{c3Text}</div>
+    {:else if phase.mode === 'none'}
+      <div class="numline">Event ended</div>
     {:else}
       <div class="numline">{singleText}</div>
     {/if}

@@ -11,14 +11,16 @@
   // last -- this event is sunset-limited for Spain (PLAN.md §1), so the
   // Besselian shadow-cone geometry alone (no concept of the horizon)
   // can and does place C3/C4 -- sometimes even C2/Max -- after the sun
-  // has actually set here. Rows after sunset are flagged, not hidden:
-  // still chronologically real events, just not observable.
+  // has actually set here. Rows after sunset are dropped entirely, not
+  // just flagged: they're not observable, so they don't belong in a
+  // table of what you can actually see.
   import { localCircumstances } from '../../stores/localCircumstances';
   import { effectiveTime } from '../../stores/clock';
   import { formatCountdown, formatDurationSeconds, formatCest } from '../format';
 
   const rows = $derived.by(() => {
     const lc = $localCircumstances;
+    const sunsetMs = lc.sunset ? lc.sunset.getTime() : null;
     const candidates: { key: string; label: string; date: Date | null }[] = [
       { key: 'c1', label: 'C1', date: lc.c1 },
       { key: 'c2', label: 'C2', date: lc.c2 },
@@ -29,6 +31,7 @@
     ];
     return candidates
       .filter((r): r is { key: string; label: string; date: Date } => r.date !== null)
+      .filter((r) => r.key === 'sunset' || sunsetMs === null || r.date.getTime() <= sunsetMs)
       .sort((a, b) => a.date.getTime() - b.date.getTime())
       .map((r) => ({
         key: r.key,
@@ -37,7 +40,6 @@
         time: formatCest(r.date),
         alt: r.key === 'sunset' ? '0°' : '—',
         offset: formatCountdown((r.date.getTime() - $effectiveTime.getTime()) / 1000),
-        pastSunset: r.key !== 'sunset' && lc.sunset !== null && r.date.getTime() > lc.sunset.getTime(),
       }));
   });
   const nextKey = $derived(
@@ -69,12 +71,8 @@
     </thead>
     <tbody>
       {#each rows as row (row.key)}
-        <tr
-          class:next={row.key === nextKey}
-          class:pastsunset={row.pastSunset}
-          title={row.pastSunset ? 'Sun has already set here -- not observable' : undefined}
-        >
-          <td>{row.label}{row.pastSunset ? ' *' : ''}</td>
+        <tr class:next={row.key === nextKey}>
+          <td>{row.label}</td>
           <td class="num">{row.offset}</td>
           <td class="num">{row.time}</td>
           <td class="num">{row.alt}</td>
@@ -134,13 +132,6 @@
     color: var(--accent-ink);
     font-weight: 500;
   }
-  /* Chronologically real, but the sun has already set here -- not
-     observable. Muted rather than hidden, so the table still shows the
-     event actually happened, just not visibly. */
-  tr.pastsunset td {
-    color: var(--muted);
-  }
-
   .circ {
     display: flex;
     gap: 22px;

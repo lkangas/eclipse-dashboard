@@ -562,11 +562,16 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      (`Astronomy.SearchRiseSet`) in `stores/localCircumstances.ts`.
      Sunset is interleaved chronologically among C1-C4/Max in both the
      contacts table (`ContactsPanel`) and the time slider (`TimeBar`,
-     dashed accent-colored line) rather than always shown last; any
-     contact row that falls after sunset is flagged (`pastsunset` class,
-     muted, marked with `*`) rather than hidden -- it did chronologically
-     happen, it just isn't observable. `npm run test`: 55/55; `npm run
-     check`: 0 errors/warnings.
+     dashed accent-colored line) rather than always shown last. Any
+     contact after sunset is **dropped entirely, not just flagged**
+     (per-project-owner correction: "non observable should not be
+     visible at all") -- from `ContactsPanel`'s rows, from `TimeBar`'s
+     `clineItems` (its `domainEnd` also caps at sunset rather than C4,
+     so the track doesn't reserve space for a hidden contact), and from
+     `CountdownPanel`'s "next event" logic, which now falls through to
+     counting down to Sunset itself once C4 isn't observable, and to an
+     "Event ended" state once sunset has passed too. `npm run test`:
+     55/55; `npm run check`: 0 errors/warnings.
    - 🟡 Wire MapPanel to `basemap.topojson` (d3-geo) + `path.ts`'s central
      line/limits/shadow outline, replacing the stub coastline/path arrays:
      - ✅ Spain-tab coastline is now the real `basemap.topojson`, via

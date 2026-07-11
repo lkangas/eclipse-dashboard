@@ -60,7 +60,12 @@
   });
   const hasTotality = $derived(eventSec.c2 !== null && eventSec.c3 !== null);
   const domainStart = $derived(eventSec.c1 - MARGIN_S);
-  const domainEnd = $derived(eventSec.c4 + MARGIN_S);
+  // Cap at sunset, not C4, when C4 isn't observable (sunset-limited
+  // event -- PLAN.md §1) -- otherwise the track would reserve space for
+  // a contact that's hidden from clineItems below anyway.
+  const domainEnd = $derived(
+    (eventSec.sunset !== null ? Math.min(eventSec.c4, eventSec.sunset) : eventSec.c4) + MARGIN_S,
+  );
 
   const timeScale = $derived.by(() => {
     const level = $clock.curveLevel;
@@ -162,7 +167,13 @@
   const clineItems = $derived.by(() => {
     const ts = timeScale;
     const ev = eventSec;
-    return TICK_DEFS.filter(({ key }) => ev[key] !== null).map(({ key, lab }) => ({
+    return TICK_DEFS.filter(({ key }) => {
+      if (ev[key] === null) return false;
+      // Non-observable (past sunset) events don't belong on the
+      // timeline either -- same reasoning as ContactsPanel.
+      if (key === 'sunset' || ev.sunset === null) return true;
+      return (ev[key] as number) <= ev.sunset;
+    }).map(({ key, lab }) => ({
       key,
       lab,
       p: ts.pct(ev[key] as number),
