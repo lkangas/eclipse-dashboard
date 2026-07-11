@@ -143,16 +143,27 @@
   .shadowmarker{fill:#c22; fill-opacity:.8; stroke:none;}
   .obsmarker{fill:var(--screen); stroke:var(--ink); stroke-width:2;}
 
-  /* --- wide/allsky --- */
+  /* --- wide/allsky ---
+     Stub sky content -- flat/monochrome, same treatment as the countdown
+     schematic (no gradients, no photorealism). Sun/Moon alt-az here are
+     placeholder values (Calamocha's spot-checked totality figures: ~5.9deg
+     alt, ~285deg az) not live computation -- that's blocked on the eclipse
+     core port. */
   .skywrap{height:100%; display:flex; flex-direction:column;}
   .tabs{flex:0 0 32px; display:flex; gap:2px; padding:8px 14px 0;}
   .tabs button{background:none; border:none; font-size:13px; color:var(--muted);
                padding:4px 8px; border-bottom:2px solid transparent; cursor:pointer;}
   .tabs button.on{color:var(--ink); border-bottom-color:var(--accent);}
-  .skyzone{flex:1; background:var(--zone); margin:0 14px 14px; border-radius:6px; position:relative;}
-  .fovbox{position:absolute; inset:18% 14%; border:1px dashed var(--muted); border-radius:2px;}
-  .fovbox::after{content:''; position:absolute; left:50%; top:50%; width:16px; height:16px;
-                 margin:-8px 0 0 -8px; border-radius:50%; border:1px solid var(--ink);}
+  .skyzone{flex:1; background:var(--zone); margin:0 14px 14px; border-radius:6px; position:relative; overflow:hidden;}
+  .skyzone svg{display:block; width:100%; height:100%;}
+  .horizon{stroke:var(--ink); stroke-width:1.5;}
+  .settrack{stroke:var(--muted); stroke-width:1; stroke-dasharray:3 3; fill:none;}
+  .sunring{fill:none; stroke:var(--ink); stroke-width:1.5;}
+  .moondisk{fill:var(--ink);}
+  .skystar{fill:var(--muted);}
+  .domecircle{fill:none; stroke:var(--line); stroke-width:1;}
+  .cardinal{fill:var(--muted); font-size:10px; font-weight:500; text-anchor:middle; dominant-baseline:middle;}
+  .fovbox{position:absolute; inset:30% 20%; border:1px dashed var(--muted); border-radius:2px; pointer-events:none;}
 
   /* --- bottom time bar ---
      Live/Sim is deliberately the most visually forceful control on screen --
@@ -321,7 +332,11 @@
               <button class="on" id="tabWide">Wide</button>
               <button id="tabAll">All-sky</button>
             </div>
-            <div class="skyzone" id="skyzone"><div class="fovbox" id="fovbox"></div></div>
+            <div class="skyzone" id="skyzone">
+              <svg id="wideSky" viewBox="0 0 240 160" preserveAspectRatio="xMidYMid meet"></svg>
+              <svg id="allSky" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" style="display:none;"></svg>
+              <div class="fovbox" id="fovbox"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -393,8 +408,16 @@ drag(document.getElementById('vsplit'), 'x', document.getElementById('colLeft'),
 drag(document.getElementById('hsplitLeft'), 'y', document.getElementById('paneContacts'), document.getElementById('paneCountdown'), 'height');
 drag(document.getElementById('hsplitRight'), 'y', document.getElementById('paneMap'), document.getElementById('paneSky'), 'height');
 
-document.getElementById('tabWide').onclick = ()=>{ document.getElementById('tabWide').classList.add('on'); document.getElementById('tabAll').classList.remove('on'); document.getElementById('fovbox').style.display='block'; };
-document.getElementById('tabAll').onclick = ()=>{ document.getElementById('tabAll').classList.add('on'); document.getElementById('tabWide').classList.remove('on'); document.getElementById('fovbox').style.display='none'; };
+document.getElementById('tabWide').onclick = ()=>{
+  document.getElementById('tabWide').classList.add('on'); document.getElementById('tabAll').classList.remove('on');
+  document.getElementById('wideSky').style.display='block'; document.getElementById('allSky').style.display='none';
+  document.getElementById('fovbox').style.display='block';
+};
+document.getElementById('tabAll').onclick = ()=>{
+  document.getElementById('tabAll').classList.add('on'); document.getElementById('tabWide').classList.remove('on');
+  document.getElementById('allSky').style.display='block'; document.getElementById('wideSky').style.display='none';
+  document.getElementById('fovbox').style.display='none';
+};
 
 const numwrap = document.getElementById('numwrap');
 const devToggle = document.getElementById('devToggle');
@@ -885,6 +908,48 @@ bindMapPointerHandler();
 moveObserverMarker(CALAMOCHA.lat, CALAMOCHA.lon);
 renderTimebar();
 renderTimeMode();
+
+// --- Wide / All-sky views ---
+// Placeholder alt-az (Calamocha's spot-checked mid-totality figures --
+// see docs/PYTHON_REVIEW_FINDINGS.md -- not live computation, that's
+// blocked on the eclipse core port). Fixed star scatter, not random, so
+// the mock renders identically on every reload.
+const SUN_ALT = 5.93, SUN_AZ = 284.6;
+const STARS_WIDE = [[30,20],[70,15],[200,30],[210,120],[40,130],[160,25],[95,140],[15,90]];
+const STARS_ALLSKY = [[40,40],[160,35],[170,160],[35,150],[100,20],[60,170],[150,90],[25,110]];
+
+function renderWideSky(){
+  const svg = document.getElementById('wideSky');
+  const cx = 120, cy = 80, horizonY = 108;
+  const parts = [];
+  for(const [x, y] of STARS_WIDE) parts.push(`<circle class="skystar" cx="${x}" cy="${y}" r="1"/>`);
+  parts.push(`<line class="settrack" x1="${cx}" y1="${cy}" x2="${cx - 26}" y2="${horizonY}"/>`);
+  parts.push(`<circle class="moondisk" cx="${cx + 3}" cy="${cy - 3}" r="15"/>`);
+  parts.push(`<circle class="sunring" cx="${cx}" cy="${cy}" r="14"/>`);
+  parts.push(`<line class="horizon" x1="0" y1="${horizonY}" x2="240" y2="${horizonY}"/>`);
+  svg.innerHTML = parts.join('');
+}
+
+function renderAllSky(){
+  const svg = document.getElementById('allSky');
+  const cx = 100, cy = 100, r = 88;
+  const azRad = SUN_AZ * Math.PI / 180;
+  const objR = r * (1 - SUN_ALT / 90); // 90deg alt (zenith) -> center; 0deg (horizon) -> dome edge
+  const ox = cx + objR * Math.sin(azRad), oy = cy - objR * Math.cos(azRad);
+  const parts = [];
+  parts.push(`<circle class="domecircle" cx="${cx}" cy="${cy}" r="${r}"/>`);
+  for(const [x, y] of STARS_ALLSKY) parts.push(`<circle class="skystar" cx="${x}" cy="${y}" r="1"/>`);
+  parts.push(`<circle class="moondisk" cx="${ox + 1.2}" cy="${oy - 1.2}" r="5.5"/>`);
+  parts.push(`<circle class="sunring" cx="${ox}" cy="${oy}" r="5"/>`);
+  parts.push(`<text class="cardinal" x="${cx}" y="${cy - r - 8}">N</text>`);
+  parts.push(`<text class="cardinal" x="${cx + r + 8}" y="${cy}">E</text>`);
+  parts.push(`<text class="cardinal" x="${cx}" y="${cy + r + 8}">S</text>`);
+  parts.push(`<text class="cardinal" x="${cx - r - 8}" y="${cy}">W</text>`);
+  svg.innerHTML = parts.join('');
+}
+
+renderWideSky();
+renderAllSky();
 </script>
 </body>
 </html>
