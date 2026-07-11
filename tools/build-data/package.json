@@ -1,0 +1,14 @@
+{
+  "name": "build-data",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Build-time-only data pipeline (PLAN.md Sec3). Never bundled into the shipped app -- kept out of app/package.json on purpose.",
+  "type": "module",
+  "scripts": {
+    "basemap": "node basemap.mjs"
+  },
+  "devDependencies": {
+    "mapshaper": "^0.7.44",
+    "world-atlas": "^2.0.2"
+  }
+}
