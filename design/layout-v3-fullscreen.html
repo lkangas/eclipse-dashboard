@@ -27,6 +27,9 @@
           font-size:13px; color:var(--muted); border-bottom:1px solid var(--line);}
   .topbar b{color:var(--ink); font-weight:500;}
   .topbar .fill{flex:1;}
+  .siteselect{font:inherit; font-weight:500; color:var(--ink); background:none;
+              border:none; padding:0; margin:0; cursor:pointer;}
+  .siteselect:hover{color:var(--accent-ink);}
 
   .main{flex:1; display:flex; min-height:0;}
   .col{display:flex; flex-direction:column; min-width:160px;}
@@ -126,6 +129,7 @@
   .pathband{fill:var(--accent-bg); stroke:var(--accent); stroke-width:.75; stroke-opacity:.5;}
   .pathline{fill:none; stroke:var(--cline); stroke-width:2; stroke-linecap:round; stroke-linejoin:round;}
   .shadowmarker{fill:#c22; fill-opacity:.8; stroke:none;}
+  .obsmarker{fill:var(--screen); stroke:var(--ink); stroke-width:2;}
 
   /* --- wide/allsky --- */
   .skywrap{height:100%; display:flex; flex-direction:column;}
@@ -228,7 +232,24 @@
 </head>
 <body>
   <div class="app">
-    <div class="topbar"><b>Zaragoza</b><span>41.65°N 0.89°W</span><span class="fill"></span><span>20:28:23 CEST</span><span>18:28:23 UT</span></div>
+    <div class="topbar">
+      <select id="siteSelect" class="siteselect">
+        <option value="acoruna">A Coruña</option>
+        <option value="oviedo">Oviedo / Gijón</option>
+        <option value="leon">León</option>
+        <option value="burgos">Burgos</option>
+        <option value="santander">Santander</option>
+        <option value="bilbao">Bilbao</option>
+        <option value="zaragoza" selected>Zaragoza</option>
+        <option value="valencia">Valencia</option>
+        <option value="castellon">Castellón / Peñíscola</option>
+        <option value="palma">Palma de Mallorca</option>
+      </select>
+      <span id="siteCoords">41.65°N 0.89°W</span>
+      <span class="fill"></span>
+      <span>20:28:23 CEST</span>
+      <span>18:28:23 UT</span>
+    </div>
     <div class="main" id="main">
       <div class="col left" id="colLeft">
         <div class="pane" id="paneContacts">
@@ -404,6 +425,8 @@ function fmtHM(t){ const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 6
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'); }
 function fmtM(t){ return String(Math.floor((t % 3600) / 60)).padStart(2, '0'); }
 
+const siteSelect = document.getElementById('siteSelect');
+const siteCoords = document.getElementById('siteCoords');
 const slidertrack = document.getElementById('slidertrack');
 const hourLabelsEl = document.getElementById('hourLabels');
 const ticksEl = document.getElementById('ticks');
@@ -734,6 +757,36 @@ const PATH_CENTER_UT = [
   66360,66420,66480,66540,66600,66660,66720,66732
 ];
 
+// Observer site presets -- the representative Spanish sites from PLAN.md §1.
+// Picking one only moves the map marker and the topbar coords for now; it
+// does not recompute the countdown/contacts (that needs the real Besselian
+// port, not built yet -- those panels are still fixed mock data).
+const SITES = {
+  acoruna:   { name: 'A Coruña',              lat: 43.36, lon: -8.41 },
+  oviedo:    { name: 'Oviedo / Gijón',        lat: 43.36, lon: -5.85 },
+  leon:      { name: 'León',                  lat: 42.60, lon: -5.57 },
+  burgos:    { name: 'Burgos',                lat: 42.34, lon: -3.70 },
+  santander: { name: 'Santander',             lat: 43.46, lon: -3.81 },
+  bilbao:    { name: 'Bilbao',                lat: 43.26, lon: -2.94 },
+  zaragoza:  { name: 'Zaragoza',              lat: 41.65, lon: -0.89 },
+  valencia:  { name: 'Valencia',              lat: 39.47, lon: -0.38 },
+  castellon: { name: 'Castellón / Peñíscola', lat: 40.36, lon: 0.40 },
+  palma:     { name: 'Palma de Mallorca',     lat: 39.57, lon: 2.65 },
+};
+function formatCoord(lat, lon){
+  const ns = lat >= 0 ? 'N' : 'S', ew = lon >= 0 ? 'E' : 'W';
+  return Math.abs(lat).toFixed(2) + '°' + ns + ' ' + Math.abs(lon).toFixed(2) + '°' + ew;
+}
+function updateObserverMarker(){
+  const site = SITES[siteSelect.value];
+  siteCoords.textContent = formatCoord(site.lat, site.lon);
+  const marker = document.getElementById('obsMarker');
+  if(!marker) return;
+  marker.setAttribute('cx', mapX(site.lon));
+  marker.setAttribute('cy', mapY(site.lat));
+}
+siteSelect.onchange = updateObserverMarker;
+
 function renderMap(){
   const svg = document.getElementById('mapsvg');
   const band = PATH_NORTH.concat([PATH_NORTH_END]).concat(PATH_SOUTH.slice().reverse());
@@ -745,6 +798,7 @@ function renderMap(){
   parts.push(`<polygon class="pathband" points="${mapPts(band)}"/>`);
   parts.push(`<polyline class="pathline" points="${mapPts(PATH_CENTER)}"/>`);
   parts.push(`<circle class="shadowmarker" id="shadowMarker" r="4"/>`);
+  parts.push(`<circle class="obsmarker" id="obsMarker" r="3.5"/>`);
   svg.innerHTML = parts.join('');
 }
 
@@ -771,6 +825,7 @@ function updateShadowMarker(simT){
 }
 
 renderMap();
+updateObserverMarker();
 renderTimebar();
 renderTimeMode();
 </script>
