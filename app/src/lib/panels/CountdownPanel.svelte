@@ -156,6 +156,13 @@
   // PLAN.md for the small residual that's left).
   const VIEWBOX_HALF = 60;
   const SUN_R_PX = 44;
+  // How far past the square viewBox the horizon line/ground fill
+  // extend, so they reach the panel's true left/right (and, if ever
+  // taller than wide, bottom) edges through preserveAspectRatio
+  // letterboxing rather than stopping at the nominal 120-unit square.
+  // Generous on purpose -- cheap to render, and this panel is never
+  // going to be 10x wider than tall.
+  const HORIZON_EXTENT = 1000;
   const schematic = $derived.by(() => {
     const { sun, moon, moonSunSeparationDeg, horizonDepressionDeg } = $skyView;
     const pxPerDeg = SUN_R_PX / sun.angularRadiusDeg;
@@ -220,15 +227,28 @@
     <circle cx={schematic.moonCx} cy={schematic.moonCy} r={schematic.moonRPx} fill="#000000" />
     <!-- Ground: painted over the Sun/Moon (not behind them) so the
          setting Sun visibly sinks behind it, dimly showing through the
-         transparent fill rather than being hard-clipped. -->
+         transparent fill rather than being hard-clipped. Extends far
+         past the nominal 0..VIEWBOX_HALF*2 square -- the panel itself
+         is wider than the (square) viewBox, so with the default
+         xMidYMid preserveAspectRatio the square viewBox is letterboxed
+         and doesn't reach the panel's real left/right edges; going way
+         past it here means it's the *rendered element's* overflow:hidden
+         clip (the true panel bounds) that cuts this off, not the
+         viewBox's own coordinate range. -->
     <rect
       class="ground"
-      x="0"
+      x={-HORIZON_EXTENT}
       y={schematic.horizonY}
-      width={VIEWBOX_HALF * 2}
-      height={Math.max(0, VIEWBOX_HALF * 2 - schematic.horizonY)}
+      width={HORIZON_EXTENT * 2}
+      height={Math.max(0, VIEWBOX_HALF * 2 - schematic.horizonY + HORIZON_EXTENT)}
     />
-    <line class="horizonline" x1="0" y1={schematic.horizonY} x2={VIEWBOX_HALF * 2} y2={schematic.horizonY} />
+    <line
+      class="horizonline"
+      x1={-HORIZON_EXTENT}
+      y1={schematic.horizonY}
+      x2={HORIZON_EXTENT}
+      y2={schematic.horizonY}
+    />
   </svg>
 </div>
 
