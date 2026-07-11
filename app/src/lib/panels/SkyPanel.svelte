@@ -1,19 +1,19 @@
 <script lang="ts">
-  // Stub sky content -- flat/monochrome, same treatment as the countdown
-  // schematic (no gradients, no photorealism). Sun/Moon alt-az here are
-  // placeholder values (Calamocha's spot-checked totality figures: ~5.9deg
-  // alt, ~285deg az) not live computation -- that's blocked on the eclipse
-  // core port / astronomy-engine wiring, a follow-up slice. Fixed star
-  // scatter, not random, so this renders identically on every reload.
+  // All-sky (dome) is real now (PLAN.md §7): Sun/Moon/stars via
+  // stores/skyView.ts (astronomy-engine + the bundled stars.json
+  // catalog) for the live observer + clock. Wide view is still the
+  // mock's stub -- it isn't alt-az-based at all yet (fixed pixel
+  // offsets, not real geometry), a separate follow-up since it needs
+  // its own sun-centered projection design, not just plugging in real
+  // numbers to the existing formula. Flat/monochrome throughout, same
+  // treatment as the countdown schematic (no gradients, no
+  // photorealism) -- stars sized by real magnitude, not tinted.
+  import { skyView } from '../../stores/skyView';
+
   let tab: 'wide' | 'allsky' = $state('wide');
 
-  const SUN_ALT = 5.93,
-    SUN_AZ = 284.6;
   const STARS_WIDE: [number, number][] = [
     [30, 20], [70, 15], [200, 30], [210, 120], [40, 130], [160, 25], [95, 140], [15, 90],
-  ];
-  const STARS_ALLSKY: [number, number][] = [
-    [40, 40], [160, 35], [170, 160], [35, 150], [100, 20], [60, 170], [150, 90], [25, 110],
   ];
 
   const wideCx = 120,
@@ -23,10 +23,28 @@
   const allCx = 100,
     allCy = 100,
     allR = 88;
-  const azRad = (SUN_AZ * Math.PI) / 180;
-  const objR = allR * (1 - SUN_ALT / 90); // 90deg alt (zenith) -> center; 0deg (horizon) -> dome edge
-  const allOx = allCx + objR * Math.sin(azRad);
-  const allOy = allCy - objR * Math.cos(azRad);
+
+  // 90deg alt (zenith) -> center; 0deg (horizon) -> dome edge. Azimuth
+  // convention matches astronomy-engine's (clockwise from north), which
+  // is also how the cardinal-point labels below are placed.
+  function domePos(altitude: number, azimuth: number): [number, number] {
+    const azRad = (azimuth * Math.PI) / 180;
+    const objR = allR * (1 - altitude / 90);
+    return [allCx + objR * Math.sin(azRad), allCy - objR * Math.cos(azRad)];
+  }
+  function starRadius(mag: number): number {
+    return Math.max(0.4, 1.8 - mag * 0.5);
+  }
+
+  const allSun = $derived($skyView.sun);
+  const allMoon = $derived($skyView.moon);
+  const allSunXY = $derived(domePos(allSun.altitude, allSun.azimuth));
+  const allMoonXY = $derived(domePos(allMoon.altitude, allMoon.azimuth));
+  const allStars = $derived(
+    $skyView.stars
+      .filter((s) => s.altitude > 0)
+      .map((s) => ({ ...s, xy: domePos(s.altitude, s.azimuth), r: starRadius(s.mag) })),
+  );
 </script>
 
 <div class="skywrap">
@@ -54,11 +72,15 @@
       style:display={tab === 'allsky' ? 'block' : 'none'}
     >
       <circle class="domecircle" cx={allCx} cy={allCy} r={allR} />
-      {#each STARS_ALLSKY as [x, y] (x + ',' + y)}
-        <circle class="skystar" cx={x} cy={y} r="1" />
+      {#each allStars as star (star.proper ?? star.xy.join(','))}
+        <circle class="skystar" cx={star.xy[0]} cy={star.xy[1]} r={star.r} />
       {/each}
-      <circle class="moondisk" cx={allOx + 1.2} cy={allOy - 1.2} r="5.5" />
-      <circle class="sunring" cx={allOx} cy={allOy} r="5" />
+      {#if allMoon.altitude > 0}
+        <circle class="moondisk" cx={allMoonXY[0]} cy={allMoonXY[1]} r="5.5" />
+      {/if}
+      {#if allSun.altitude > 0}
+        <circle class="sunring" cx={allSunXY[0]} cy={allSunXY[1]} r="5" />
+      {/if}
       <text class="cardinal" x={allCx} y={allCy - allR - 8}>N</text>
       <text class="cardinal" x={allCx + allR + 8} y={allCy}>E</text>
       <text class="cardinal" x={allCx} y={allCy + allR + 8}>S</text>

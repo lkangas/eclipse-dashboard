@@ -639,8 +639,32 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      - ✅ Shadow marker now interpolates over the real UT timestamps of
        the sampled central-line grid above, driven by the real
        `effectiveTime` clock (see below) instead of a CEST-seconds stub
-   - ⬜ Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
-     `stars.json`) against `clock` + `observer`
+   - 🟡 Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
+     `stars.json`) against `clock` + `observer`:
+     - ✅ New `stores/skyView.ts` derived store: real Sun/Moon alt-az
+       (`Equator`+`Horizon`, refraction `"normal"`) and real star alt-az
+       for the whole `stars.json` catalog (mag<3, 174 stars) -- catalog
+       J2000 ra/dec fed to `Horizon()` directly rather than precessed to
+       date first, a sub-degree error well below what this flat,
+       schematic view needs. Sanity-checked against the plan's own
+       spot-checked Calamocha reference: computed Sun alt/az at Max
+       (5.938°/284.57°) matches to 3 decimal places, and Sun/Moon
+       positions coincide almost exactly at that instant (as expected --
+       that's what totality means). `npm run check`: 0 errors/warnings.
+     - ✅ **All-sky (dome) view wired to real data**, replacing the
+       placeholder `SUN_ALT`/`SUN_AZ`/fixed star scatter -- same polar
+       projection formula as before (zenith->center, horizon->edge),
+       now fed real per-object alt/az; stars below the horizon are
+       filtered out, Sun/Moon hidden (not just off-dome) when below the
+       horizon; star dot size now scales with real magnitude (brighter
+       = bigger), not tinted by color index yet. `npm run test`: 55/55;
+       `npm run check`: 0 errors/warnings.
+     - ⬜ **Wide view still the mock's stub** -- it isn't alt-az-based
+       at all yet (fixed pixel offsets), unlike All-sky's direct
+       polar-projection reuse. Needs its own design: a sun-centered
+       tangent-plane projection (narrow azimuth window around the Sun's
+       current azimuth, altitude vertical) rather than the whole-dome
+       formula -- a real follow-up, not a trivial plug-in.
    - ✅ Wire TimeBar to real contact times instead of `STUB_CONTACTS` --
      the `clock` store was redesigned around a real UTC epoch
      (`simTimeMs`, standard `Date` convention) plus a new `effectiveTime`
