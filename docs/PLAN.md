@@ -1066,6 +1066,17 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        binding is simple/type-checked and low-risk, but flagged here as
        not independently confirmed the way the `next`-crosses-types fix
        was.
+     - ✅ **Trimmed to the standard contact-time events only**, per
+       direct request -- P1/P4, U1-U4, GE (7 rows), dropping the
+       central-line begin/end (CL1/CL2) and extreme N/S-limit points
+       (NU2/SU2) that were shown before. Filtered in the display layer
+       only (`GLOBAL_KEYS`), not the data -- `eclipse-times.json` still
+       carries all 11 computed rows, just not all of them are shown in
+       *this* table. Separately, a user question about why NU1/SU1/SP1
+       don't appear at all (the "5 omitted" gaps, unrelated to this
+       trim) came up first -- confirmed the current behavior (leave
+       genuinely omitted rather than show a known-~75km-off value) was
+       already the wanted one, no change needed there.
    - 🟡 Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`:
      - ✅ New `stores/skyView.ts` derived store: real Sun/Moon alt-az

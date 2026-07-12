@@ -75,28 +75,29 @@
   // side -- these are fixed whole-event facts, not this-observer- or
   // clock-dependent). Off by default -- opt-in via the toggle below,
   // never filtered by local sunset (unlike the local rows above: these
-  // aren't about what's visible from here). `c1`/`c2` in the source data
-  // mean the GLOBAL central line's begin/end (a real naming collision
-  // with the LOCAL c1/c2 keys above -- this observer's 2nd/3rd contact),
-  // so relabeled CL1/CL2 for display only; every other key already
-  // matches its own short display code (ytliu/NASA/EclipseWise's own
-  // convention, e.g. "u1", "su1", "ge").
+  // aren't about what's visible from here). Trimmed to the standard
+  // contact-time events only (P1/P4, U1-U4, GE) -- the central-line
+  // begin/end and extreme N/S-limit points that eclipse-times.json also
+  // carries are left out of this table by direct request (not deleted
+  // from the data, just not shown here).
   let showGlobal = $state(false);
-  const GLOBAL_LABEL_OVERRIDE: Record<string, string> = { c1: 'CL1', c2: 'CL2' };
+  const GLOBAL_KEYS = new Set(['p1', 'u1', 'u2', 'u3', 'u4', 'ge', 'p4']);
   const globalEvents = $derived.by(() => {
-    return eclipseTimesData.events.map((e) => {
-      const date = new Date(e.utMs);
-      return {
-        key: 'g-' + e.key,
-        label: GLOBAL_LABEL_OVERRIDE[e.key] ?? e.key.toUpperCase(),
-        fullLabel: e.label,
-        date,
-        time: formatCest(date),
-        posText: formatLatLon(e.lat, e.lon),
-        offset: formatCountdown((date.getTime() - $effectiveTime.getTime()) / 1000),
-        isLocal: false as const,
-      };
-    });
+    return eclipseTimesData.events
+      .filter((e) => GLOBAL_KEYS.has(e.key))
+      .map((e) => {
+        const date = new Date(e.utMs);
+        return {
+          key: 'g-' + e.key,
+          label: e.key.toUpperCase(),
+          fullLabel: e.label,
+          date,
+          time: formatCest(date),
+          posText: formatLatLon(e.lat, e.lon),
+          offset: formatCountdown((date.getTime() - $effectiveTime.getTime()) / 1000),
+          isLocal: false as const,
+        };
+      });
   });
   const displayRows = $derived.by(() => {
     const localRows = rows.map((r) => ({ ...r, fullLabel: r.label, posText: null, isLocal: true as const }));
