@@ -78,7 +78,14 @@
   // radius ratio between them, rather than two independent guessed
   // numbers (that was the actual bug -- the old fixed 5/5.5 pair had no
   // relationship to their true relative sizes at all).
-  const ALL_SUN_R = 5;
+  //
+  // The fixed radius itself is sized to match Vega (direct request) --
+  // magnitude 0 exactly, the traditional reference point the whole
+  // magnitude scale is pinned to, not stars.json's own more precise
+  // catalog value (0.03) -- via the same brightRadius() the star dots
+  // use, rather than an arbitrary pixel value picked to look prominent.
+  const VEGA_MAG = 0;
+  const ALL_SUN_R = brightRadius(VEGA_MAG);
   const allPxPerDeg = $derived(ALL_SUN_R / allSun.angularRadiusDeg);
   const allMoonR = $derived(allMoon.angularRadiusDeg * allPxPerDeg);
   const ALL_CORONA_R = ALL_SUN_R * CORONA_DIAMETER_FACTOR;
