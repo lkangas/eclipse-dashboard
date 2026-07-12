@@ -73,9 +73,10 @@
   // eclipse), independent of this observer, from the ytliu-style
   // "Eclipse Times" table (precomputed via eclipse-calc, not client-
   // side -- these are fixed whole-event facts, not this-observer- or
-  // clock-dependent). Off by default -- opt-in via the toggle below,
-  // never filtered by local sunset (unlike the local rows above: these
-  // aren't about what's visible from here). Trimmed to the standard
+  // clock-dependent). Off by default -- opt-in via the "Global" toggle
+  // in the bottom ribbon, never filtered by local sunset (unlike the
+  // local rows above: these aren't about what's visible from here).
+  // Trimmed to the standard
   // contact-time events only (P1/P4, U1-U4, GE) -- the central-line
   // begin/end and extreme N/S-limit points that eclipse-times.json also
   // carries are left out of this table by direct request (not deleted
@@ -148,14 +149,6 @@
 </script>
 
 <div class="contacts">
-  <div class="tablehead">
-    <button class="globaltoggle" class:on={showGlobal} onclick={() => (showGlobal = !showGlobal)}>
-      {showGlobal ? 'Hide global events' : 'Show global events'}
-    </button>
-    {#if showGlobal}
-      <span class="omitted" title={omittedNote}>5 omitted</span>
-    {/if}
-  </div>
   <div class="tablewrap">
     <table>
       <thead>
@@ -188,6 +181,12 @@
     </table>
   </div>
   <div class="circ">
+    <button class="globaltoggle" class:on={showGlobal} onclick={() => (showGlobal = !showGlobal)}>
+      Global
+    </button>
+    {#if showGlobal}
+      <span class="omitted" title={omittedNote}>5 omitted</span>
+    {/if}
     <div><span>Duration</span><b>{durationText}</b></div>
     <div><span>Obsc. (linear)</span><b>{linearObscurationText}</b></div>
     <div><span>Obsc. (area)</span><b>{areaObscurationText}</b></div>
@@ -200,15 +199,25 @@
   /* Sized off native CSS container-query units (cqw/cqh) -- these are
      PHYSICALLY zoom-invariant on their own: a panel that's a fixed
      proportion of the window stays that same proportion at any zoom,
-     automatically. The real zoom-inconsistency risk is the FIXED PIXEL
-     LITERALS this gets compared against (300px/340px below) -- left as
-     plain literals deliberately: the shrink-to-fit floor only matters in
-     the already-extreme small-panel case. Ceiling stays at 1 (never grows
-     past plain 14px/11px/etc -- the table shouldn't grow past a
-     comfortable reading size, unlike the countdown panel). Requires the
-     nearest ancestor (App.svelte's .pane) to set container-type: size. */
+     automatically. Requires the nearest ancestor (App.svelte's .pane) to
+     set container-type: size.
+
+     This now scales only the chrome (padding + the bottom ribbon), NOT
+     the table -- it used to scale the table too, keyed off the WHOLE
+     pane's height, which caused a visible bug: the table is inside a
+     flex-grow tablewrap that often has slack (unfilled) space below its
+     rows before the ribbon, and that slack shrinks away on its own as
+     the pane shrinks (ordinary flexbox). But because the old threshold
+     (340px) was sized for the whole pane rather than for how cramped the
+     table actually was, row text started shrinking well before that
+     slack ran out -- text visibly shrinking while dead space was still
+     sitting right below it. The table now stays a fixed, comfortable
+     size and just scrolls (tablewrap below) once it's genuinely out of
+     room, so shrinking only ever happens when there's no space left to
+     give. The 200px threshold here is tuned to the ribbon+padding alone,
+     which is much shorter than the table was. */
   .contacts {
-    --tscale: max(0.4, min(1, calc(100cqw / 300px), calc(100cqh / 340px)));
+    --tscale: max(0.4, min(1, calc(100cqw / 300px), calc(100cqh / 200px)));
     height: 100%;
     padding: calc(14px * var(--tscale)) 14px calc(8px * var(--tscale));
     display: flex;
@@ -216,9 +225,9 @@
   }
   /* The table itself scrolls -- with global events interleaved this can
      run to ~17 rows, more than the panel has room for -- while the
-     toggle above and the circumstances strip below stay put. `min-height:
-     0` overrides flexbox's default (a flex child won't shrink below its
-     own content size otherwise, which would silently defeat the scroll
+     circumstances/toggle ribbon below stays put. `min-height: 0`
+     overrides flexbox's default (a flex child won't shrink below its own
+     content size otherwise, which would silently defeat the scroll
      entirely instead of clipping/scrolling as intended). */
   .tablewrap {
     flex: 1 1 auto;
@@ -228,11 +237,11 @@
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: calc(14px * var(--tscale));
+    font-size: 14px;
   }
   td,
   th {
-    padding: calc(6px * var(--tscale)) 10px;
+    padding: 6px 10px;
     text-align: left;
     border-bottom: 1px solid var(--line);
   }
@@ -242,7 +251,7 @@
     background: var(--screen);
     color: var(--muted);
     font-weight: 500;
-    font-size: calc(11px * var(--tscale));
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.4px;
   }
@@ -277,19 +286,12 @@
     color: var(--muted);
   }
   tr.global td.num {
-    font-size: calc(12px * var(--tscale));
+    font-size: 12px;
   }
   .pos {
     display: block;
-    font-size: calc(10px * var(--tscale));
+    font-size: 10px;
     color: var(--muted);
-  }
-  .tablehead {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: calc(6px * var(--tscale));
   }
   .globaltoggle {
     background: none;
@@ -315,6 +317,7 @@
   .circ {
     flex-shrink: 0;
     display: flex;
+    align-items: center;
     gap: 22px;
     flex-wrap: wrap;
     border-top: 1px solid var(--line);

@@ -1077,6 +1077,34 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        trim) came up first -- confirmed the current behavior (leave
        genuinely omitted rather than show a known-~75km-off value) was
        already the wanted one, no change needed there.
+     - ✅ **Global toggle moved into the bottom ribbon** ("Global",
+       next to Duration/Obsc./Sun alt/az), dropping the separate
+       `.tablehead` row above the table entirely -- per direct request.
+       Surfaced and fixed a real layout bug along the way: shrinking the
+       panel vertically left dead space between the table and the ribbon
+       that didn't get resized away, while row text/padding had already
+       started shrinking. Root cause -- `--tscale` (the shrink-to-fit
+       factor) was keyed off the *whole pane's* height against a 340px
+       threshold tuned for the old tablehead+table+circ composition, so
+       it started shrinking rows before `tablewrap`'s own leftover slack
+       (unfilled flex space below the rows) had actually run out. Fixed
+       by decoupling: the table (`table`/`td`/`th`) now renders at a
+       fixed, un-scaled size and relies purely on `tablewrap`'s existing
+       scroll for genuine overflow, while `--tscale` (now keyed off a
+       200px threshold, matched to the much shorter ribbon+padding alone)
+       only shrinks the chrome around it. Verified by reading computed
+       layout geometry directly (`getBoundingClientRect`/`--tscale`) at
+       several simulated pane heights rather than by eye: at 298px, dead
+       space (26px) sat below full-size rows with `--tscale: 1`; shrunk
+       to 208px, the dead space was gone and the table scrolled (rows
+       still full-size, not shrunk); shrunk further to 181px (below the
+       200px chrome threshold), only then did `--tscale` start easing
+       down (0.91) and the ribbon itself shrink slightly. (Also: the
+       in-browser click on the relocated toggle button was flaky via the
+       automated `computer` tool -- the same well-documented synthetic-
+       pointer unreliability as this session's Sim-mode checks, not a
+       code issue; a real `.click()` dispatch after a fresh reload
+       toggled correctly and immediately.)
    - 🟡 Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`:
      - ✅ New `stores/skyView.ts` derived store: real Sun/Moon alt-az
