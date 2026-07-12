@@ -9,14 +9,12 @@
   import { resizable } from './lib/actions/resizable';
   import { fullscreenPanel } from './stores/layout';
 
-  // MVP (direct request): only CountdownPanel has a real entry button
-  // for now, to get one fully working, testable loop end-to-end before
-  // copying the same button onto the other three panes. The underlying
-  // mechanism below (fs-active/fs-hidden classes, FullscreenBar's own
-  // tabs) is already fully generic across all four PanelIds -- it
-  // doesn't know or care which pane's button set fullscreenPanel, so
-  // switching to 'timetable'/'map'/'sky' via the ribbon already works
-  // too, even without their own dedicated entry buttons yet.
+  // Panel fullscreen mode (direct request, stores/layout.ts) -- each
+  // pane below gets a small fsbtn that sets fullscreenPanel to its own
+  // id; FullscreenBar's own tab row (shown once any panel is
+  // fullscreen) switches between all four the same way. Started as a
+  // CountdownPanel-only MVP to prove the mechanism end-to-end before
+  // copying the button onto the other three (see git history).
 </script>
 
 <div class="app">
@@ -31,6 +29,9 @@
         class:fs-active={$fullscreenPanel === 'timetable'}
         class:fs-hidden={$fullscreenPanel !== null && $fullscreenPanel !== 'timetable'}
       >
+        <button class="fsbtn" onclick={() => fullscreenPanel.set('timetable')} title="Full screen">
+          ⛶
+        </button>
         <ContactsPanel />
       </div>
       <div class="hsplit" class:fs-hidden={$fullscreenPanel !== null} use:resizable={{ axis: 'y' }}>
@@ -58,6 +59,7 @@
         class:fs-active={$fullscreenPanel === 'map'}
         class:fs-hidden={$fullscreenPanel !== null && $fullscreenPanel !== 'map'}
       >
+        <button class="fsbtn" onclick={() => fullscreenPanel.set('map')} title="Full screen">⛶</button>
         <MapPanel />
       </div>
       <div class="hsplit" class:fs-hidden={$fullscreenPanel !== null} use:resizable={{ axis: 'y' }}>
@@ -68,6 +70,7 @@
         class:fs-active={$fullscreenPanel === 'sky'}
         class:fs-hidden={$fullscreenPanel !== null && $fullscreenPanel !== 'sky'}
       >
+        <button class="fsbtn" onclick={() => fullscreenPanel.set('sky')} title="Full screen">⛶</button>
         <SkyPanel />
       </div>
     </div>

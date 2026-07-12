@@ -496,11 +496,15 @@
     display: flex;
     flex-direction: column;
   }
+  /* Right padding wider than the other panels' own tab rows: this
+     pane's App.svelte-level fullscreen button (.fsbtn, ~40px inset)
+     floats in the same top-right corner the Global tab's zoom-toggle
+     is pinned to below -- without the extra room they'd overlap. */
   .tabs {
     flex: 0 0 32px;
     display: flex;
     gap: 2px;
-    padding: 8px 14px 0;
+    padding: 8px 40px 0 14px;
   }
   .tabs button {
     background: none;
