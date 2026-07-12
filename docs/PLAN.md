@@ -1247,6 +1247,26 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      clock falls outside whichever domain is selected, which it always
      does before the event itself. `npm run test`: 63/63; `npm run
      check`: 0 errors/warnings.
+   - ✅ **Added a third, "Default" zoom level back in between**, per
+     direct feedback ("the zoom is either in or out. Needs to have the
+     old default setting in between") -- `ZoomLevel` is now
+     `'in'|'default'|'out'`, `'default'` reusing the exact original
+     (pre-zoom-buttons) domain, C1..C4/sunset with the same 30min
+     margin as before, and made the actual initial store value (this IS
+     the old default, restored). **Zoom in** redefined too, twice over
+     direct correction -- first suggested as Max +/-5min, then corrected
+     to **C2..C3 with a 3min margin either side** (falling back to Max
+     +/-3min where this observer sees no totality, so the track still
+     doesn't break). The existing domain-width-adaptive tick step needed
+     no changes -- the new zoom-in span (totality duration + 6min, ~7-8
+     min here) and the restored default span (~2h) both already fall on
+     the correct side of the existing 40min 1min-vs-10min-ticks
+     threshold. Verified in-browser: Default loads by default and shows
+     all five contacts across the original ~19:05-21:37 CEST range; Zoom
+     in now shows only C2/Max/C3 across ~20:27-20:35 CEST (C2-3min to
+     C3+3min); label anti-collision still clean at the new, even
+     narrower zoom-in width. `npm run test`: 63/63; `npm run check`: 0
+     errors/warnings.
 5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
    started (mock has manual entry + map click/drag + a geolocation
    placeholder button; serial GPS not touched at all yet).

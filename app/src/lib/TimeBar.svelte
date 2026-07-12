@@ -4,11 +4,14 @@
   // instead of the mock's hardcoded STUB_CONTACTS. Internally works in
   // epoch SECONDS (not ms); the clock store itself holds ms (standard JS
   // Date convention). The track is always linear -- no more arcsinh warp
-  // curve -- with the visible domain itself switched by the Zoom in/out
-  // buttons instead (see ZoomLevel in stores/clock.ts).
+  // curve -- with the visible domain itself switched by the Zoom in/
+  // Default/Zoom out buttons instead (see ZoomLevel in stores/clock.ts).
   import { get } from 'svelte/store';
   import { clock, effectiveTime } from '../stores/clock';
   import { localCircumstances } from '../stores/localCircumstances';
+
+  const MARGIN_S = 30 * 60; // 'default' zoom: comfortable margin before C1 / after C4
+  const ZOOM_IN_MARGIN_S = 3 * 60; // 'in' zoom: margin either side of C2/C3
 
   // Fixed zoom-out window (UTC), per direct request -- comfortably covers
   // the whole event (partial phase through sunset) with margin either
@@ -17,7 +20,6 @@
   // plain local constant rather than threaded through as configuration.
   const ZOOM_OUT_START_S = Date.UTC(2026, 7, 12, 15, 30, 0) / 1000;
   const ZOOM_OUT_END_S = Date.UTC(2026, 7, 12, 20, 0, 0) / 1000;
-  const ZOOM_IN_HALF_WIDTH_S = 10 * 60;
 
   const hmFmt = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/Madrid',
@@ -59,14 +61,27 @@
   });
   const hasTotality = $derived(eventSec.c2 !== null && eventSec.c3 !== null);
 
-  // Zoom in: a close-up around Max. Zoom out: the fixed placeholder
-  // window declared above. Either way the track itself is plain linear.
-  const domainStart = $derived(
-    $clock.zoomLevel === 'in' ? eventSec.max - ZOOM_IN_HALF_WIDTH_S : ZOOM_OUT_START_S,
-  );
-  const domainEnd = $derived(
-    $clock.zoomLevel === 'in' ? eventSec.max + ZOOM_IN_HALF_WIDTH_S : ZOOM_OUT_END_S,
-  );
+  // Zoom in: a close-up on totality, C2..C3 with a few minutes' margin
+  // (falling back to Max +/- that same margin where there's no totality
+  // for this observer, so the track never breaks). Default: the whole
+  // event, C1..C4/sunset with a comfortable margin -- the original
+  // (pre-zoom-buttons) domain. Zoom out: the fixed placeholder window
+  // declared above. Either way the track itself is plain linear.
+  const domainStart = $derived.by(() => {
+    const z = $clock.zoomLevel;
+    if (z === 'in') return (eventSec.c2 ?? eventSec.max) - ZOOM_IN_MARGIN_S;
+    if (z === 'out') return ZOOM_OUT_START_S;
+    return eventSec.c1 - MARGIN_S;
+  });
+  const domainEnd = $derived.by(() => {
+    const z = $clock.zoomLevel;
+    if (z === 'in') return (eventSec.c3 ?? eventSec.max) + ZOOM_IN_MARGIN_S;
+    if (z === 'out') return ZOOM_OUT_END_S;
+    // Cap at sunset, not C4, when C4 isn't observable (sunset-limited
+    // event -- PLAN.md §1) -- otherwise the track would reserve space
+    // for a contact that's hidden from clineItems below anyway.
+    return (eventSec.sunset !== null ? Math.min(eventSec.c4, eventSec.sunset) : eventSec.c4) + MARGIN_S;
+  });
 
   const timeScale = $derived.by(() => {
     const lo = domainStart,
@@ -196,7 +211,7 @@
   const cursorInDomain = $derived(cursorSec >= domainStart && cursorSec <= domainEnd);
   const cursorPct = $derived(timeScale.pct(cursorSec));
 
-  function setZoom(level: 'in' | 'out') {
+  function setZoom(level: 'in' | 'default' | 'out') {
     clock.update((c) => ({ ...c, zoomLevel: level }));
   }
 
@@ -360,6 +375,7 @@
   </div>
   <div class="curveswitch">
     <button class:on={$clock.zoomLevel === 'in'} onclick={() => setZoom('in')}>Zoom in</button>
+    <button class:on={$clock.zoomLevel === 'default'} onclick={() => setZoom('default')}>Default</button>
     <button class:on={$clock.zoomLevel === 'out'} onclick={() => setZoom('out')}>Zoom out</button>
   </div>
 </div>

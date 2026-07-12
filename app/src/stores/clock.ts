@@ -6,11 +6,12 @@ import { derived, writable } from 'svelte/store';
 import { now } from './now';
 
 export type ClockMode = 'live' | 'sim';
-/** Which fixed time window TimeBar's track currently shows -- 'in' is a
- * close-up around Max, 'out' a wide fixed window (see TimeBar.svelte).
+/** Which window TimeBar's track currently shows -- 'in' is a close-up
+ * around totality, 'default' the whole event (partial phase through
+ * sunset) with margin, 'out' a wide fixed window (see TimeBar.svelte).
  * Replaces the old arcsinh warp-curve levels: the track is always linear
  * now, only the visible domain changes. */
-export type ZoomLevel = 'in' | 'out';
+export type ZoomLevel = 'in' | 'default' | 'out';
 
 export interface ClockState {
   mode: ClockMode;
@@ -23,7 +24,7 @@ export const clock = writable<ClockState>({
   mode: 'live',
   simTimeMs: Date.now(),
   playing: false,
-  zoomLevel: 'out',
+  zoomLevel: 'default',
 });
 
 // The instant every time-driven view (map shadow marker, time slider
