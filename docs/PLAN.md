@@ -1105,6 +1105,43 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        pointer unreliability as this session's Sim-mode checks, not a
        code issue; a real `.click()` dispatch after a fresh reload
        toggled correctly and immediately.)
+     - ✅ **Follow-up correction, same ribbon:** two more direct requests
+       -- move the "Global" button to the ribbon's right edge (wrapped
+       it with the "N omitted" badge in a `.globalgroup` div, pinned via
+       `margin-left: auto`; needed the higher-specificity `.circ
+       .globalgroup` selector, not bare `.globalgroup`, to escape
+       `.circ div`'s column-flex/2px-gap rule) -- and undo the "table
+       never shrinks, always scrolls" trade-off from the previous entry
+       for the *local-only* view specifically: with global events off
+       there are at most ~6 rows, which can always be shrunk to fit
+       instead of ever needing a scrollbar, so a scrollbar there reads
+       as a bug, not a legitimate space constraint. Replaced the fixed
+       table font-size/padding with a new `--tscale-table` factor on
+       `tablewrap` (`min(1, cqh / natural-content-height)`, no floor) --
+       `natural-content-height` is computed in the component from the
+       actual currently-displayed row count/types (measured header/local-
+       row/global-row heights: 28/32/46px at scale 1) and passed down as
+       an inline `--natural-h` custom property, since a container query
+       can't measure a sibling's content size directly. With global
+       events on (`.tablewrap.crowded`, up to ~17 rows of two different
+       heights), full shrink-to-fit would make text illegibly small on
+       anything but a tall panel, so that variant keeps the old 0.4 floor
+       and a scrollbar below it -- deliberately the one case where
+       scrolling is still correct. Hit one rounding gotcha along the way:
+       row `border-bottom: 1px` doesn't shrink with `--tscale-table`
+       (fractional borders round inconsistently across browsers), so at
+       scale<1 the real rendered row height comes out a little taller
+       than a purely linear estimate -- enough (~2px at a 6-row table) to
+       trip the "never" promise right at the boundary. Fixed by padding
+       `natural-content-height` with a small per-row-boundary buffer.
+       Verified, not just by eye, by resizing the pane programmatically
+       across its full range (298px default down to the hard 140px
+       floor) and reading `tablewrap.scrollHeight` vs `clientHeight` at
+       each step: zero scroll in the local-only view at every height
+       tested, including 140px exactly; with global events on, the same
+       sweep shows no scroll at 298px (still fits, floored-but-not-
+       maxed-out) and correctly picks up a scrollbar at 220px and 140px
+       once the floor's reached and content genuinely no longer fits.
    - 🟡 Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`:
      - ✅ New `stores/skyView.ts` derived store: real Sun/Moon alt-az

@@ -123,6 +123,33 @@
     .map((o: { label: string; reason: string }) => `${o.label}: ${o.reason}`)
     .join('\n\n');
 
+  // Natural (scale-1) height of whatever's currently in the table, used
+  // by the CSS below to shrink rows to fit tablewrap's actual available
+  // space instead of scrolling -- see .tablewrap's --tscale-table
+  // comment for why this has to be measured per row-type rather than a
+  // single constant. Header/local-row/global-row heights (28/32/46px)
+  // are measured from the rendered table at scale 1, not derived from
+  // the padding/font-size literals below (duplicated, but simpler than
+  // keeping two representations of the same box-model in sync).
+  const HEADER_H = 28;
+  const LOCAL_ROW_H = 32;
+  const GLOBAL_ROW_H = 46;
+  const naturalTableH = $derived.by(() => {
+    const rowBorders = 1 + rows.length + (showGlobal ? globalEvents.length : 0);
+    const base =
+      HEADER_H + rows.length * LOCAL_ROW_H + (showGlobal ? globalEvents.length * GLOBAL_ROW_H : 0);
+    // Each row's 1px border-bottom doesn't shrink with --tscale-table
+    // (fractional CSS borders round inconsistently across browsers), so
+    // the real rendered height at scale<1 comes out a little taller
+    // than a purely linear (height-at-scale-1 * scale) estimate would
+    // predict -- by up to ~1px per row/header boundary. A small buffer
+    // here keeps the shrink-to-fit calc's target slightly under the
+    // true content height instead of landing right at it, so rounding
+    // can't tip it over into a (for the local-only view, unwanted)
+    // scrollbar.
+    return base + rowBorders * 2;
+  });
+
   const durationText = $derived(
     $localCircumstances.durationS !== null
       ? formatDurationSeconds($localCircumstances.durationS)
@@ -149,7 +176,7 @@
 </script>
 
 <div class="contacts">
-  <div class="tablewrap">
+  <div class="tablewrap" class:crowded={showGlobal} style="--natural-h: {naturalTableH}px">
     <table>
       <thead>
         <tr>
@@ -181,17 +208,19 @@
     </table>
   </div>
   <div class="circ">
-    <button class="globaltoggle" class:on={showGlobal} onclick={() => (showGlobal = !showGlobal)}>
-      Global
-    </button>
-    {#if showGlobal}
-      <span class="omitted" title={omittedNote}>5 omitted</span>
-    {/if}
     <div><span>Duration</span><b>{durationText}</b></div>
     <div><span>Obsc. (linear)</span><b>{linearObscurationText}</b></div>
     <div><span>Obsc. (area)</span><b>{areaObscurationText}</b></div>
     <div><span>Sun alt</span><b>{sunAltText}</b></div>
     <div><span>Sun az</span><b>{sunAzText}</b></div>
+    <div class="globalgroup">
+      {#if showGlobal}
+        <span class="omitted" title={omittedNote}>5 omitted</span>
+      {/if}
+      <button class="globaltoggle" class:on={showGlobal} onclick={() => (showGlobal = !showGlobal)}>
+        Global
+      </button>
+    </div>
   </div>
 </div>
 
@@ -200,22 +229,10 @@
      PHYSICALLY zoom-invariant on their own: a panel that's a fixed
      proportion of the window stays that same proportion at any zoom,
      automatically. Requires the nearest ancestor (App.svelte's .pane) to
-     set container-type: size.
-
-     This now scales only the chrome (padding + the bottom ribbon), NOT
-     the table -- it used to scale the table too, keyed off the WHOLE
-     pane's height, which caused a visible bug: the table is inside a
-     flex-grow tablewrap that often has slack (unfilled) space below its
-     rows before the ribbon, and that slack shrinks away on its own as
-     the pane shrinks (ordinary flexbox). But because the old threshold
-     (340px) was sized for the whole pane rather than for how cramped the
-     table actually was, row text started shrinking well before that
-     slack ran out -- text visibly shrinking while dead space was still
-     sitting right below it. The table now stays a fixed, comfortable
-     size and just scrolls (tablewrap below) once it's genuinely out of
-     room, so shrinking only ever happens when there's no space left to
-     give. The 200px threshold here is tuned to the ribbon+padding alone,
-     which is much shorter than the table was. */
+     set container-type: size. Governs the chrome (padding + the bottom
+     ribbon) only -- the table has its own --tscale-table below, since a
+     single whole-pane-height threshold can't tell whether the table
+     itself is actually cramped (see that comment for the full story). */
   .contacts {
     --tscale: max(0.4, min(1, calc(100cqw / 300px), calc(100cqh / 200px)));
     height: 100%;
@@ -223,25 +240,45 @@
     display: flex;
     flex-direction: column;
   }
-  /* The table itself scrolls -- with global events interleaved this can
-     run to ~17 rows, more than the panel has room for -- while the
-     circumstances/toggle ribbon below stays put. `min-height: 0`
-     overrides flexbox's default (a flex child won't shrink below its own
-     content size otherwise, which would silently defeat the scroll
-     entirely instead of clipping/scrolling as intended). */
+  /* The table shrinks to fit tablewrap's actual available height
+     (--tscale-table, a min(1, cqh / natural-content-height) factor) --
+     NOT a scrollbar -- for the local-only view: with at most ~6 rows,
+     it always fits at *some* legible-to-tiny scale, so a scrollbar
+     should never appear there. min(1, ...) has no floor, deliberately:
+     the whole point is to guarantee a fit, however small, rather than
+     ever leave a gap that forces a scrollbar. `--natural-h` (set as an
+     inline style from the component, computed from the actual row
+     count/types currently displayed) stands in for "how tall would this
+     render at scale 1" -- container queries can't measure a sibling's
+     content size directly. With global events added (`.crowded`, up to
+     ~17 rows of two different heights), full shrink-to-fit would make
+     text illegibly small on anything but a tall panel, so that variant
+     re-adds the old 0.4 floor and accepts a scrollbar (tablewrap's
+     `overflow-y: auto`) below it instead -- this is the case a plain
+     magic-number threshold used to get wrong (see git history): it
+     started shrinking rows before tablewrap's own leftover slack had
+     actually run out, because the threshold was sized for the whole
+     pane, not for how cramped the table itself was. Keying off the
+     table's own natural content height instead fixes that at the root,
+     for both the floored and unfloored cases. */
   .tablewrap {
+    --tscale-table: min(1, calc(100cqh / var(--natural-h, 220px)));
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    container-type: size;
+  }
+  .tablewrap.crowded {
+    --tscale-table: max(0.4, min(1, calc(100cqh / var(--natural-h, 220px))));
   }
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 14px;
+    font-size: calc(14px * var(--tscale-table));
   }
   td,
   th {
-    padding: 6px 10px;
+    padding: calc(6px * var(--tscale-table)) 10px;
     text-align: left;
     border-bottom: 1px solid var(--line);
   }
@@ -251,7 +288,7 @@
     background: var(--screen);
     color: var(--muted);
     font-weight: 500;
-    font-size: 11px;
+    font-size: calc(11px * var(--tscale-table));
     text-transform: uppercase;
     letter-spacing: 0.4px;
   }
@@ -286,11 +323,11 @@
     color: var(--muted);
   }
   tr.global td.num {
-    font-size: 12px;
+    font-size: calc(12px * var(--tscale-table));
   }
   .pos {
     display: block;
-    font-size: 10px;
+    font-size: calc(10px * var(--tscale-table));
     color: var(--muted);
   }
   .globaltoggle {
@@ -313,6 +350,19 @@
     color: var(--muted);
     cursor: help;
     text-decoration: underline dotted;
+  }
+  /* Pinned to the ribbon's right edge via margin-left: auto -- the only
+     item in .circ that isn't a Duration/Obsc./Sun-alt-az stat, so it
+     reads as a separate control rather than another value in the row.
+     Selector is `.circ .globalgroup`, not just `.globalgroup`, to
+     out-specificity `.circ div` below (which would otherwise force this
+     into the stats' column layout instead of a horizontal button+badge
+     pair). */
+  .circ .globalgroup {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .circ {
     flex-shrink: 0;
