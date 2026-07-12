@@ -8,6 +8,7 @@
     "basemap": "node basemap.mjs",
     "basemap-global": "node basemap-global.mjs",
     "stars": "node stars.mjs",
+    "constellations": "node constellations.mjs",
     "cities": "node cities.mjs",
     "roads": "node roads.mjs"
   },

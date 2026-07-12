@@ -65,6 +65,31 @@
       .map((p) => ({ ...p, xy: domePos(p.altitude, p.azimuth), r: brightRadius(p.mag) })),
   );
 
+  // Traditional constellation lines (direct request), All-sky only --
+  // split into contiguous above-horizon runs rather than one path per
+  // constellation, so a line dipping below the horizon breaks cleanly
+  // instead of jumping straight across the gap. Deliberately very dim
+  // (see .constline below): a fair number of these points are fainter
+  // than the mag<3 cutoff above and have no star dot of their own, so a
+  // bold line would look like it's connecting to nothing.
+  function aboveHorizonRuns(points: AltAz[]): [number, number][][] {
+    const runs: [number, number][][] = [];
+    let current: [number, number][] = [];
+    for (const p of points) {
+      if (p.altitude > 0) {
+        current.push(domePos(p.altitude, p.azimuth));
+      } else if (current.length > 0) {
+        runs.push(current);
+        current = [];
+      }
+    }
+    if (current.length > 0) runs.push(current);
+    return runs;
+  }
+  const allConstellationRuns = $derived(
+    $skyView.constellationLines.flatMap((line) => aboveHorizonRuns(line.points)).filter((r) => r.length >= 2),
+  );
+
   // ---------- Wide (camera framing) ----------
 
   // Real ASI294MC (Four Thirds, 4144x2822 active px, 4.63um pixels) +
@@ -279,6 +304,9 @@
       style:display={tab === 'allsky' ? 'block' : 'none'}
     >
       <circle class="domecircle" cx={allCx} cy={allCy} r={allR} />
+      {#each allConstellationRuns as run, i (i)}
+        <polyline class="constline" points={run.map((p) => p.join(',')).join(' ')} />
+      {/each}
       {#each allStars as star (star.proper ?? star.xy.join(','))}
         <circle class="skystar" cx={star.xy[0]} cy={star.xy[1]} r={star.r} />
       {/each}
@@ -410,6 +438,16 @@
     font-size: 7px;
     font-weight: 600;
     text-anchor: middle;
+  }
+  /* Very dim on purpose (direct request) -- a fair number of these
+     lines connect through points fainter than the star catalog's mag<3
+     cutoff, so they don't have their own visible dot; a bold line would
+     read as pointing at nothing. */
+  .constline {
+    fill: none;
+    stroke: #dce4f2;
+    stroke-width: 0.4;
+    stroke-opacity: 0.18;
   }
   .domecircle {
     fill: none;

@@ -22,6 +22,7 @@ import '../eclipse/astronomyEngineDeltaT';
 import { observer } from './observer';
 import { effectiveTime } from './clock';
 import starsData from '../data/stars.json';
+import constellationLinesData from '../data/constellation-lines.json';
 
 const SUN_RADIUS_KM = 696000;
 const MOON_RADIUS_KM = 1737.4;
@@ -72,12 +73,18 @@ export interface PlanetPosition extends AltAz {
   mag: number;
 }
 
+export interface ConstellationLine {
+  con: string;
+  points: AltAz[];
+}
+
 export interface SkyView {
   sun: BodyPosition;
   moon: BodyPosition;
   moonSunSeparationDeg: number;
   stars: StarPosition[];
   planets: PlanetPosition[];
+  constellationLines: ConstellationLine[];
   /** How far below the true geometric horizon (in degrees) a point needs
    * to be for standard refraction to bring it back up to the visible
    * horizon -- i.e. the Sun's true altitude at official sunset/sunrise is
@@ -154,12 +161,27 @@ export const skyView = derived([observer, effectiveTime], ([$observer, $now]): S
     return { altitude: hor.altitude, azimuth: hor.azimuth, name, mag: Illumination(body, $now).mag };
   });
 
+  // Traditional IAU constellation stick-figures (All-sky view, direct
+  // request), baked at build time from Stellarium's line topology
+  // cross-referenced against HYG for ra/dec (tools/build-data/
+  // constellations.mjs) -- most of these points are fainter than the
+  // mag<3 star catalog above and won't have their own star dot, which is
+  // fine: this only needs each point's real position, not its brightness.
+  const constellationLines: ConstellationLine[] = constellationLinesData.lines.map((line) => ({
+    con: line.con,
+    points: line.points.map(([ra, dec]): AltAz => {
+      const hor = Horizon($now, astroObserver, ra, dec, 'normal');
+      return { altitude: hor.altitude, azimuth: hor.azimuth };
+    }),
+  }));
+
   return {
     sun,
     moon,
     moonSunSeparationDeg: angularSeparationDeg(sun, moon),
     stars,
     planets,
+    constellationLines,
     horizonDepressionDeg: REFRACTION_NEAR_HORIZON_DEG * Atmosphere($observer.elevationM).density,
   };
 });
