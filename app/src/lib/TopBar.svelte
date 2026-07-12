@@ -1,10 +1,16 @@
 <script lang="ts">
-  import { observer, setObserver } from '../stores/observer';
+  import { observer, setObserver, setObserverElevation } from '../stores/observer';
   import { clock, effectiveTime } from '../stores/clock';
 
-  // Dev-only convenience: jumps the lat/lon fields to a preset site. Muted/
-  // small on purpose -- the real input is lat/lon + map (PLAN.md §5).
+  // Location-mode toggle group (direct request): GPS / Browser / Manual
+  // (map) / a named preset, one active at a time -- observer.source IS
+  // this mode (stores/observer.ts). GPS/Browser aren't wired up to any
+  // real data source yet, so they're rendered disabled rather than
+  // clickable-but-inert; Calamocha (this project's fixed default site)
+  // is included as a preset alongside the others, and is the actual
+  // default source since gps/browser aren't available.
   const SITES: Record<string, { lat: number; lon: number; label: string }> = {
+    calamocha: { lat: 40.92, lon: -1.3, label: 'Calamocha' },
     acoruna: { lat: 43.36, lon: -8.41, label: 'A Coruña' },
     oviedo: { lat: 43.36, lon: -5.85, label: 'Oviedo / Gijón' },
     leon: { lat: 42.6, lon: -5.57, label: 'León' },
@@ -17,17 +23,63 @@
     palma: { lat: 39.57, lon: 2.65, label: 'Palma de Mallorca' },
   };
 
-  function onSiteChange(e: Event) {
-    const site = SITES[(e.currentTarget as HTMLSelectElement).value];
-    if (site) setObserver(site.lat, site.lon, 'manual');
+  // Remembers the last-picked preset even while a *different* mode
+  // (Manual) is active, so the dropdown's own label stays put at rest
+  // and clicking back into it returns to the same place rather than
+  // some reset default.
+  let selectedPresetKey = $state('calamocha');
+
+  // Opening the dropdown re-activates its remembered preset immediately,
+  // before any option is even picked -- otherwise, since a native
+  // <select> only fires `change` on an actual value transition, there'd
+  // be no way to switch back to Preset mode with the SAME preset you'd
+  // left (reselecting an option that's already the select's current
+  // value fires nothing). Bound to both mousedown (fires reliably right
+  // as a mouse click starts, before the OS dropdown opens) and focus
+  // (keyboard/tab navigation) so either interaction path reactivates it.
+  // `change` still separately handles genuinely picking a *different*
+  // preset.
+  function onPresetFocus() {
+    const site = SITES[selectedPresetKey];
+    if (site) setObserver(site.lat, site.lon, 'preset');
   }
+  function onPresetChange(e: Event) {
+    const key = (e.currentTarget as HTMLSelectElement).value;
+    const site = SITES[key];
+    if (!site) return;
+    selectedPresetKey = key;
+    setObserver(site.lat, site.lon, 'preset');
+  }
+
+  // Switching TO Manual doesn't change lat/lon/elevation at all -- just
+  // flips into editable/map-draggable mode, showing whatever was
+  // already active (direct request).
+  function selectManual() {
+    setObserver($observer.lat, $observer.lon, 'manual');
+  }
+  const isManual = $derived($observer.source === 'manual');
 
   // Local editable strings, not bound directly to the store's formatted
   // value -- typing a decimal point (e.g. "40.") would otherwise get
   // clobbered by toFixed(2) reformatting on every keystroke. Only
-  // externally-driven changes (presets, map click/drag) resync the field.
-  let latStr = $state($observer.lat.toFixed(2));
-  let lonStr = $state($observer.lon.toFixed(2));
+  // externally-driven changes (presets, map click/drag) resync the
+  // fields. One shared flag across all three is fine (not per-field):
+  // each setter only ever touches its own value (lat/lon or elevation),
+  // so skipping a resync of the untouched fields in the same tick is a
+  // no-op anyway.
+  // 4 decimals always (direct request -- "enough precision to encourage
+  // manual coordinate entry"), and always a '.' regardless of OS/browser
+  // locale: toFixed()/parseFloat() are both locale-independent already
+  // (unlike a plain <input type="number">, which some browsers render
+  // and parse using the OS locale's own decimal separator -- a comma-
+  // locale user could see/need a comma there instead). Using
+  // type="text" + inputmode="decimal" below rather than type="number"
+  // sidesteps that entirely: the displayed/expected format is always
+  // this component's own toFixed(4)/parseFloat, never the browser's.
+  const COORD_DECIMALS = 4;
+  let latStr = $state($observer.lat.toFixed(COORD_DECIMALS));
+  let lonStr = $state($observer.lon.toFixed(COORD_DECIMALS));
+  let elevStr = $state(Math.round($observer.elevationM).toString());
   let selfEdit = false;
 
   function onLatInput() {
@@ -42,20 +94,31 @@
     selfEdit = true;
     setObserver($observer.lat, lon, 'manual');
   }
+  // Direct elevation override -- setObserverElevation() bypasses the DEM
+  // lookup without touching lat/lon (see its own comment in
+  // stores/observer.ts); any subsequent lat/lon change resets it back to
+  // the real DEM value, same as every other setObserver() caller.
+  function onElevInput() {
+    const m = parseFloat(elevStr);
+    if (Number.isNaN(m)) return;
+    selfEdit = true;
+    setObserverElevation(m);
+  }
   $effect(() => {
     const o = $observer;
     if (selfEdit) {
       selfEdit = false;
       return;
     }
-    latStr = o.lat.toFixed(2);
-    lonStr = o.lon.toFixed(2);
+    latStr = o.lat.toFixed(COORD_DECIMALS);
+    lonStr = o.lon.toFixed(COORD_DECIMALS);
+    elevStr = Math.round(o.elevationM).toString();
   });
 
   // UT and CEST always shown together (PLAN.md §6), tracking whatever
   // instant is actually driving the rest of the app -- effectiveTime,
   // not the real wall clock unconditionally. In sim mode this must show
-  // the simulated instant (and a SIM badge), otherwise the topbar clock
+  // the simulated instant (and a Sim badge), otherwise the topbar clock
   // visibly disagrees with every other panel while dragging/playing the
   // time bar.
   const utFmt = new Intl.DateTimeFormat('en-GB', {
@@ -75,36 +138,56 @@
 </script>
 
 <div class="topbar">
-  <select class="siteselect" onchange={onSiteChange}>
-    <option value="" selected disabled>Presets</option>
-    {#each Object.entries(SITES) as [key, site] (key)}
-      <option value={key}>{site.label}</option>
-    {/each}
-  </select>
+  <div class="modegroup">
+    <button class="modebtn" disabled title="Not yet available">GPS</button>
+    <button class="modebtn" disabled title="Not yet available">Browser</button>
+    <button class="modebtn" class:on={isManual} onclick={selectManual}>Manual (map)</button>
+    <select
+      class="modebtn presetbtn"
+      class:on={$observer.source === 'preset'}
+      value={selectedPresetKey}
+      onmousedown={onPresetFocus}
+      onfocus={onPresetFocus}
+      onchange={onPresetChange}
+    >
+      {#each Object.entries(SITES) as [key, site] (key)}
+        <option value={key}>{site.label}</option>
+      {/each}
+    </select>
+  </div>
   <input
-    type="number"
+    type="text"
+    inputmode="decimal"
     class="coordinput"
-    step="0.01"
     bind:value={latStr}
     oninput={onLatInput}
+    disabled={!isManual}
   />
   <input
-    type="number"
+    type="text"
+    inputmode="decimal"
     class="coordinput"
-    step="0.01"
     bind:value={lonStr}
     oninput={onLonInput}
+    disabled={!isManual}
   />
-  <span class="elevdisplay" title="Ground elevation above sea level (offline DEM lookup)">
-    {Math.round($observer.elevationM)} m
-  </span>
-  <button class="geobtn" title="Use device location">⌖</button>
+  <div class="elevwrap" title="Ground elevation above sea level (offline DEM lookup)">
+    <input
+      type="number"
+      class="coordinput elevinput"
+      step="1"
+      bind:value={elevStr}
+      oninput={onElevInput}
+      disabled={!isManual}
+    />
+    <span class="unit">m</span>
+  </div>
   <span class="fill"></span>
   {#if $clock.mode === 'sim'}
-    <span class="simbadge">SIM</span>
+    <span class="simbadge">Sim</span>
   {/if}
-  <span>{cestFmt.format($effectiveTime)} CEST</span>
-  <span>{utFmt.format($effectiveTime)} UT</span>
+  <span class="clocktext">{cestFmt.format($effectiveTime)} CEST</span>
+  <span class="clocktext">{utFmt.format($effectiveTime)} UT</span>
 </div>
 
 <style>
@@ -112,7 +195,7 @@
     flex: 0 0 34px;
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 12px;
     padding: 0 14px;
     font-size: 13px;
     color: var(--muted);
@@ -121,63 +204,74 @@
   .topbar .fill {
     flex: 1;
   }
-  .siteselect {
+  .modegroup {
+    display: flex;
+    gap: 4px;
+  }
+  /* Shared toggle-group visual language (same convention as MapPanel's
+     .zoomtoggle / ContactsPanel's .globaltoggle) -- <button> and
+     <select> both styled identically so the row reads as one group. */
+  .modebtn {
     font: inherit;
-    font-size: 12px;
-    color: var(--muted);
     background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
     cursor: pointer;
   }
-  .siteselect:hover {
-    color: var(--ink);
+  .modebtn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .modebtn.on {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+    color: var(--accent-ink);
+  }
+  .presetbtn {
+    max-width: 120px;
   }
   .coordinput {
     font: inherit;
     font-variant-numeric: tabular-nums;
     color: var(--ink);
-    background: none;
-    border: none;
-    border-bottom: 1px solid var(--line);
-    padding: 1px 2px;
-    width: 52px;
+    background: var(--screen);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px 6px;
+    /* Wide enough for the worst case at 4 decimals, e.g. "-180.0000"
+       (longitude) -- was 56px, sized for the old 2-decimal format. */
+    width: 76px;
     text-align: right;
     appearance: textfield;
     -moz-appearance: textfield;
   }
   .coordinput:focus {
     outline: none;
-    border-bottom-color: var(--accent);
+    border-color: var(--accent);
+  }
+  .coordinput:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .coordinput::-webkit-inner-spin-button,
   .coordinput::-webkit-outer-spin-button {
     -webkit-appearance: none;
     margin: 0;
   }
-  .elevdisplay {
-    font-variant-numeric: tabular-nums;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-  .geobtn {
-    flex: 0 0 auto;
-    width: 22px;
-    height: 22px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: none;
-    color: var(--ink);
-    font-size: 13px;
-    cursor: pointer;
+  .elevwrap {
     display: flex;
     align-items: center;
-    justify-content: center;
-    padding: 0;
+    gap: 4px;
   }
-  .geobtn:hover {
-    border-color: var(--muted);
+  .elevinput {
+    width: 50px;
+  }
+  .unit {
+    color: var(--muted);
   }
   .simbadge {
     font-size: 11px;
@@ -187,5 +281,12 @@
     border: 1px solid var(--accent);
     border-radius: 4px;
     padding: 1px 5px;
+  }
+  /* "A bit bigger and bold" (direct request) -- was the same 13px/
+     regular-weight as everything else in the bar. */
+  .clocktext {
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
   }
 </style>

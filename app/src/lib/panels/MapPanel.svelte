@@ -269,13 +269,18 @@
     const inv = spainProjection.invert?.([p.x, p.y]);
     return inv ? [inv[1], inv[0]] : null;
   }
+  // Draggable/clickable only in Manual (map) mode (direct request,
+  // TopBar's location-mode toggle group) -- GPS/browser/preset modes are
+  // driven by their own source, not the map.
+  const mapInteractive = $derived($observer.source === 'manual');
   function onMapPointerDown(e: PointerEvent) {
+    if (!mapInteractive) return;
     mapSvg.setPointerCapture(e.pointerId);
     const start = mapClientToLatLon(e.clientX, e.clientY);
-    if (start) setObserver(start[0], start[1], 'map');
+    if (start) setObserver(start[0], start[1], 'manual');
     function move(e: PointerEvent) {
       const p = mapClientToLatLon(e.clientX, e.clientY);
-      if (p) setObserver(p[0], p[1], 'map');
+      if (p) setObserver(p[0], p[1], 'manual');
     }
     function up() {
       document.removeEventListener('pointermove', move);
@@ -420,8 +425,11 @@
       preserveAspectRatio="xMaxYMid meet"
       style:display={tab === 'spain' ? 'block' : 'none'}
       onpointerdown={onMapPointerDown}
+      class:interactive={mapInteractive}
       role="application"
-      aria-label="Eclipse path map -- click or drag to set the observer location"
+      aria-label={mapInteractive
+        ? 'Eclipse path map -- click or drag to set the observer location'
+        : 'Eclipse path map -- switch to Manual (map) mode to set the observer location'}
     >
       <path class="coast" d={landPathD} />
       <path class="roads-minor" d={roadsMinorPathD} />
@@ -538,8 +546,14 @@
     display: block;
     width: 100%;
     height: 100%;
-    cursor: crosshair;
     touch-action: none;
+  }
+  /* Only the Spain map's own svg ever gets this class, and only in
+     Manual (map) mode (direct request) -- the Global tab was never
+     click-to-set in the first place, and Spain itself isn't either
+     outside Manual mode now. */
+  .mapzone svg.interactive {
+    cursor: crosshair;
   }
   .coast {
     fill: var(--screen);
