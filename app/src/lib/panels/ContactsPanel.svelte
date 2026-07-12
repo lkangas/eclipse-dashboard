@@ -155,31 +155,33 @@
       <span class="omitted" title={omittedNote}>5 omitted</span>
     {/if}
   </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Event</th>
-        <th class="num">T</th>
-        <th class="num">Time</th>
-        <th class="num">Alt</th>
-        <th class="num">Az</th>
-      </tr>
-    </thead>
-    <tbody>
-      {#each displayRows as row (row.key)}
-        <tr class:next={row.key === nextKey} class:global={!row.isLocal}>
-          <td>
-            <span title={row.fullLabel}>{row.label}</span>
-            {#if row.posText}<span class="pos">{row.posText}</span>{/if}
-          </td>
-          <td class="num">{row.offset}</td>
-          <td class="num">{row.time}</td>
-          <td class="num">{row.isLocal ? row.alt : '—'}</td>
-          <td class="num">{row.isLocal ? row.az : '—'}</td>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Event</th>
+          <th class="num">T</th>
+          <th class="num">Time</th>
+          <th class="num">Alt</th>
+          <th class="num">Az</th>
         </tr>
-      {/each}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {#each displayRows as row (row.key)}
+          <tr class:next={row.key === nextKey} class:global={!row.isLocal}>
+            <td>
+              <span title={row.fullLabel}>{row.label}</span>
+              {#if row.posText}<span class="pos">{row.posText}</span>{/if}
+            </td>
+            <td class="num">{row.offset}</td>
+            <td class="num">{row.time}</td>
+            <td class="num">{row.isLocal ? row.alt : '—'}</td>
+            <td class="num">{row.isLocal ? row.az : '—'}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
   <div class="circ">
     <div><span>Duration</span><b>{durationText}</b></div>
     <div><span>Obsc. (linear)</span><b>{linearObscurationText}</b></div>
@@ -202,7 +204,21 @@
      nearest ancestor (App.svelte's .pane) to set container-type: size. */
   .contacts {
     --tscale: max(0.4, min(1, calc(100cqw / 300px), calc(100cqh / 340px)));
+    height: 100%;
     padding: calc(14px * var(--tscale)) 14px calc(8px * var(--tscale));
+    display: flex;
+    flex-direction: column;
+  }
+  /* The table itself scrolls -- with global events interleaved this can
+     run to ~17 rows, more than the panel has room for -- while the
+     toggle above and the circumstances strip below stay put. `min-height:
+     0` overrides flexbox's default (a flex child won't shrink below its
+     own content size otherwise, which would silently defeat the scroll
+     entirely instead of clipping/scrolling as intended). */
+  .tablewrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
   }
   table {
     width: 100%;
@@ -216,6 +232,9 @@
     border-bottom: 1px solid var(--line);
   }
   th {
+    position: sticky;
+    top: 0;
+    background: var(--screen);
     color: var(--muted);
     font-weight: 500;
     font-size: calc(11px * var(--tscale));
@@ -255,6 +274,7 @@
     color: var(--muted);
   }
   .tablehead {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -282,6 +302,7 @@
     text-decoration: underline dotted;
   }
   .circ {
+    flex-shrink: 0;
     display: flex;
     gap: 22px;
     flex-wrap: wrap;

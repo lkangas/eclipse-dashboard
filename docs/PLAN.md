@@ -1027,6 +1027,23 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        for the real file the moment it landed -- schemas matched
        exactly, zero rework needed. `npm run check`: 0 errors/warnings;
        `npm run test`: 63/63.
+     - ✅ **Scrollable table.** The panel was previously deliberately
+       scroll-free (local-only view tops out at 6 rows, fits any
+       reasonable pane size) -- with global events interleaved it can
+       run to ~17 rows, more than the panel has room for, and
+       `.pane`'s own `overflow: hidden` (App.svelte) was silently
+       clipping the overflow instead of showing it. Wrapped just the
+       `<table>` in a scrolling `.tablewrap` (`.contacts` restructured
+       into a flex column: toggle header / scrollable table / circ
+       strip, header and strip both `flex-shrink: 0` so they stay put)
+       -- the table-only scroll needed `min-height: 0` on `.tablewrap`
+       to actually take effect (a flex child won't shrink below its own
+       content size otherwise, silently defeating the scroll). Column
+       headers `position: sticky` within the scroll area. Verified:
+       local-only view still needs no scroll (content fits exactly);
+       with global events on, `scrollHeight` (585px) exceeds
+       `clientHeight` (200px) and the header stays pinned at
+       `scrollTop: 300`.
    - 🟡 Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`:
      - ✅ New `stores/skyView.ts` derived store: real Sun/Moon alt-az
