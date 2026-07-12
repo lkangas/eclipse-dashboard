@@ -67,14 +67,6 @@
         };
       });
   });
-  // "Next" always tracks the next LOCAL row, even with global events
-  // interleaved below -- it answers "what's coming up for me", a
-  // local-only question, so a global row (which can easily land
-  // chronologically between two local ones) never steals the highlight.
-  const nextKey = $derived(
-    rows.find((r) => r.date.getTime() >= $effectiveTime.getTime())?.key ?? null,
-  );
-
   // Global circumstances (PLAN.md §9 "global circumstances toggle") --
   // the eclipse's whole-Earth timeline (first/last penumbral & umbral
   // contact, central line begin/end, extreme N/S limits, greatest
@@ -111,6 +103,14 @@
     if (!showGlobal) return localRows;
     return [...localRows, ...globalEvents].sort((a, b) => a.date.getTime() - b.date.getTime());
   });
+  // "Next" tracks whichever row is chronologically next among whatever's
+  // actually displayed -- local-only when the toggle is off, the full
+  // merged local+global timeline when it's on, so a global row can be
+  // "next" too rather than only ever passively sitting there with no
+  // sense of past/next/future.
+  const nextKey = $derived(
+    displayRows.find((r) => r.date.getTime() >= $effectiveTime.getTime())?.key ?? null,
+  );
   // Of the standard 16-row table, 5 are missing on purpose (a near-polar
   // tangent-search convergence gap, not a bug) -- see eclipse-times.json's
   // own "omitted" array (with the specific numbers/reasons per event) and
@@ -168,7 +168,11 @@
       </thead>
       <tbody>
         {#each displayRows as row (row.key)}
-          <tr class:next={row.key === nextKey} class:global={!row.isLocal}>
+          <tr
+            class:next={row.key === nextKey}
+            class:past={row.key !== nextKey && row.date.getTime() < $effectiveTime.getTime()}
+            class:global={!row.isLocal}
+          >
             <td>
               <span title={row.fullLabel}>{row.label}</span>
               {#if row.posText}<span class="pos">{row.posText}</span>{/if}
@@ -249,6 +253,12 @@
     background: var(--accent-bg);
     color: var(--accent-ink);
     font-weight: 500;
+  }
+  /* Already happened, relative to effectiveTime -- applies across local
+     and global rows alike (past/next/future is a property of the row's
+     own timestamp, not of which kind of row it is). */
+  tr.past td {
+    opacity: 0.5;
   }
   /* Local rows (this observer's own C1-C4/Max/Sunset) get a colored left
      edge so they anchor the eye against interleaved global rows --

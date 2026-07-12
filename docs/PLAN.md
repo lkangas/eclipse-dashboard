@@ -1044,6 +1044,28 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        with global events on, `scrollHeight` (585px) exceeds
        `clientHeight` (200px) and the header stays pinned at
        `scrollTop: 300`.
+     - ✅ **Past/next reacted to local rows only.** `nextKey` was
+       computed from `rows` (local-only) even with global events
+       interleaved, per an explicit original design choice ("next"
+       answers "what's coming up for *me*") -- reported back as wrong:
+       global rows should react to the same past/next/future state as
+       local ones instead of just sitting there inert. Moved `nextKey`
+       to derive from `displayRows` (whatever's actually shown) instead
+       of always `rows`, and added a `.past` class (any row, local or
+       global, whose own timestamp is already behind `effectiveTime`,
+       opacity 0.5) which didn't exist at all before -- there had been
+       no visual distinction between an already-happened row and a
+       future one, local or global. Verified in-browser: with global
+       events on, `next` now correctly lands on P1 (a global row, and
+       chronologically the very first event of the whole eclipse) --
+       previously it would have incorrectly stayed on local C1 even
+       though P1 is both earlier and still in the future. `.past`
+       itself wasn't re-verified live (needs sim mode at an in-event
+       instant, and this session's well-documented synthetic-pointer
+       sim-mode flakiness blocked that specific check) -- the class
+       binding is simple/type-checked and low-risk, but flagged here as
+       not independently confirmed the way the `next`-crosses-types fix
+       was.
    - 🟡 Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`:
      - ✅ New `stores/skyView.ts` derived store: real Sun/Moon alt-az
