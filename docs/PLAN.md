@@ -1178,6 +1178,40 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        outline renders outside the umbral/penumbral window, and
        `effectiveTime` wasn't inside it during this check). `npm run
        check`: 0 errors/warnings; `npm run test`: 63/63.
+     - ✅ **Temporary slider panel used to pick final margins; umbra/
+       penumbra "darker" fixed to actually be visible on the Global
+       tab.** The margin-tuning-by-screenshot loop was reported too
+       slow, so added a throwaway floating panel (Global tab only) with
+       four live range sliders -- zoom-in top/bottom, zoom-out
+       top/bottom -- each immediately reflected in the map, no edit-
+       rebuild-screenshot cycle needed. Also gave the zoom-out view its
+       own independent margins for the first time (it previously just
+       halved the zoomed-in scale). Final numbers picked interactively
+       and reported back: `ZOOM_IN_TOP_MARGIN`/`ZOOM_IN_BOTTOM_MARGIN` =
+       18/84, `ZOOM_OUT_TOP_MARGIN`/`ZOOM_OUT_BOTTOM_MARGIN` = 40/114 --
+       hardcoded as constants and the slider panel deleted again.
+       Separately: the previous entry's `.umbraOutline`/
+       `.penumbraOutline` stroke-opacity bump turned out to be
+       *invisible on the Global tab specifically* -- reported back
+       ("did you do them in the Spain view? umbra cannot have a stroke
+       in the global view"). Root cause: `.globalFill { stroke: none; }`
+       (declared last, wins by source order at equal specificity)
+       already force-disables stroke on the Global-tab instances by
+       design, so a stroke-opacity change there is a no-op no matter the
+       value -- it only ever showed up on the Spain tab's umbra outline
+       (the only place that actually renders a stroke), and never at all
+       for penumbra (which *only* ever renders on the Global tab, so the
+       earlier penumbra stroke change was invisible everywhere, always).
+       Fixed by adding `.globalFill.umbraOutline`/
+       `.globalFill.penumbraOutline` fill-opacity overrides (0.22 -> 0.45,
+       0.06 -> 0.15) -- two-class selectors that only match the Global-
+       tab instances, leaving the Spain tab's plain `.umbraOutline`
+       (stroke-based) untouched. Verified by computed-style-checking a
+       synthetic element carrying the real Svelte scoping class (plain
+       DOM elements without it don't match the scoped rules at all, a
+       dead end hit and caught before trusting the result) rather than
+       waiting for the live umbral/penumbral window. `npm run check`: 0
+       errors/warnings; `npm run test`: 63/63.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,

@@ -319,24 +319,20 @@
   // dramatic overview this tab is for, leaving the Spain-specific detail
   // (already redundant with it) to the Spain tab.
   //
-  // TEMPORARY TUNING STATE -- per direct request, the zoomed-in and
-  // zoomed-out views each get their own independent top/bottom margin
-  // (previously zoom-out was just a flat 2x-smaller scale on the
-  // zoomed-in fit, with no margins of its own), and all four are
-  // $state + live slider-editable (see the .tuning panel in the
-  // template) instead of hardcoded constants -- the back-and-forth of
-  // editing a value, rebuilding, and screenshotting to find the right
-  // number was reported too slow. Once final numbers are picked, these
-  // should go back to being plain constants and the slider panel
-  // deleted -- everything in this block is meant to be temporary.
-  let zoomInTopMargin = $state(80);
-  let zoomInBottomMargin = $state(55);
-  let zoomOutTopMargin = $state(20);
-  let zoomOutBottomMargin = $state(90);
+  // Zoomed-in and zoomed-out each get their own independent top/bottom
+  // margin (zoom-out used to just be a flat 2x-smaller scale on the
+  // zoomed-in fit, with no margins of its own). Final numbers picked
+  // interactively via a temporary slider panel (git history) rather
+  // than by repeated edit/rebuild/screenshot cycles.
+  const ZOOM_IN_TOP_MARGIN = 18,
+    ZOOM_IN_BOTTOM_MARGIN = 84;
+  const ZOOM_OUT_TOP_MARGIN = 40,
+    ZOOM_OUT_BOTTOM_MARGIN = 114;
   let globalZoomedOut = $state(false);
-  const globalTopMargin = $derived(globalZoomedOut ? zoomOutTopMargin : zoomInTopMargin);
-  const globalBottomMargin = $derived(globalZoomedOut ? zoomOutBottomMargin : zoomInBottomMargin);
-  // END TEMPORARY TUNING STATE
+  const globalTopMargin = $derived(globalZoomedOut ? ZOOM_OUT_TOP_MARGIN : ZOOM_IN_TOP_MARGIN);
+  const globalBottomMargin = $derived(
+    globalZoomedOut ? ZOOM_OUT_BOTTOM_MARGIN : ZOOM_IN_BOTTOM_MARGIN,
+  );
   const globalMeasure = geoProjection(stereographicRaw)
     .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
     .angle(GLOBAL_ROTATION_DEG)
@@ -356,11 +352,8 @@
       shadowFramesGlobal.southLimitTerminatorStart.lon,
     )[1],
   );
-  // Math.max(10, ...) floor: purely a safety net while dragging sliders
-  // (top+bottom can otherwise briefly exceed GLOBAL_VH mid-drag and
-  // send scale negative/infinite) -- not a real design constraint.
   const globalScale = $derived(
-    Math.max(10, GLOBAL_VH - globalTopMargin - globalBottomMargin) / (geRawXY[1] - topRawY),
+    (GLOBAL_VH - globalTopMargin - globalBottomMargin) / (geRawXY[1] - topRawY),
   );
   const globalProjection: GeoProjection = $derived(
     geoProjection(stereographicRaw)
@@ -465,28 +458,6 @@
       {/if}
       <circle class="gemarker" cx={gePos[0]} cy={gePos[1]} r="2.5" />
     </svg>
-    <!-- TEMPORARY TUNING PANEL -- delete along with the $state margin
-         vars above once final numbers are picked. -->
-    {#if tab === 'global'}
-      <div class="tuning">
-        <label>
-          <span>Zoom-in top <b>{zoomInTopMargin}</b></span>
-          <input type="range" min="0" max="180" bind:value={zoomInTopMargin} />
-        </label>
-        <label>
-          <span>Zoom-in bottom <b>{zoomInBottomMargin}</b></span>
-          <input type="range" min="0" max="180" bind:value={zoomInBottomMargin} />
-        </label>
-        <label>
-          <span>Zoom-out top <b>{zoomOutTopMargin}</b></span>
-          <input type="range" min="0" max="180" bind:value={zoomOutTopMargin} />
-        </label>
-        <label>
-          <span>Zoom-out bottom <b>{zoomOutBottomMargin}</b></span>
-          <input type="range" min="0" max="180" bind:value={zoomOutBottomMargin} />
-        </label>
-      </div>
-    {/if}
   </div>
 </div>
 
@@ -664,39 +635,20 @@
   .globalFill {
     stroke: none;
   }
-  /* TEMPORARY TUNING PANEL -- delete this rule along with the .tuning
-     markup and the $state margin vars once final numbers are picked. */
-  .tuning {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    background: rgba(255, 255, 255, 0.92);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 8px 10px;
-    font-size: 11px;
-    color: var(--ink);
-    pointer-events: auto;
+  /* Umbra/penumbra "darker" (direct request) has to mean fill-opacity
+     here, not stroke-opacity: .globalFill above already forces
+     stroke: none on this tab (by design, per direct request -- a
+     1px edge reads as noise at this scale), so a stroke-opacity bump
+     is invisible on the Global tab no matter its value. The plain
+     .umbraOutline stroke-opacity above still applies on the Spain tab,
+     which has no .globalFill and does show its stroke. Two class
+     selectors (0,2,0) beat the single-class base rules (0,1,0) above,
+     so these apply only where both classes are present -- i.e. only
+     the Global-tab instances. */
+  .globalFill.umbraOutline {
+    fill-opacity: 0.45;
   }
-  .tuning label {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .tuning span {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    color: var(--muted);
-  }
-  .tuning b {
-    color: var(--ink);
-    font-variant-numeric: tabular-nums;
-  }
-  .tuning input[type='range'] {
-    width: 160px;
+  .globalFill.penumbraOutline {
+    fill-opacity: 0.15;
   }
 </style>
