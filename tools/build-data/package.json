@@ -7,7 +7,9 @@
   "scripts": {
     "basemap": "node basemap.mjs",
     "basemap-global": "node basemap-global.mjs",
-    "stars": "node stars.mjs"
+    "stars": "node stars.mjs",
+    "cities": "node cities.mjs",
+    "roads": "node roads.mjs"
   },
   "devDependencies": {
     "mapshaper": "^0.7.44",

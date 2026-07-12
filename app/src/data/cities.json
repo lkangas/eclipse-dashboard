@@ -1,0 +1,384 @@
+{
+  "cities": [
+    {
+      "name": "Algiers",
+      "lat": 36.765,
+      "lon": 3.0486
+    },
+    {
+      "name": "Alicante",
+      "lat": 38.3512,
+      "lon": -0.4836
+    },
+    {
+      "name": "Annaba",
+      "lat": 36.92,
+      "lon": 7.76
+    },
+    {
+      "name": "Antwerpen",
+      "lat": 51.2223,
+      "lon": 4.4131
+    },
+    {
+      "name": "Barcelona",
+      "lat": 41.3852,
+      "lon": 2.1814
+    },
+    {
+      "name": "Basel",
+      "lat": 47.5804,
+      "lon": 7.59
+    },
+    {
+      "name": "Béjaïa",
+      "lat": 36.7604,
+      "lon": 5.07
+    },
+    {
+      "name": "Bilbao",
+      "lat": 43.25,
+      "lon": -2.93
+    },
+    {
+      "name": "Blida",
+      "lat": 36.4203,
+      "lon": 2.83
+    },
+    {
+      "name": "Bonn",
+      "lat": 50.7205,
+      "lon": 7.08
+    },
+    {
+      "name": "Bordeaux",
+      "lat": 44.852,
+      "lon": -0.597
+    },
+    {
+      "name": "Bournemouth",
+      "lat": 50.73,
+      "lon": -1.9
+    },
+    {
+      "name": "Braga",
+      "lat": 41.555,
+      "lon": -8.4213
+    },
+    {
+      "name": "Brighton",
+      "lat": 50.8303,
+      "lon": -0.17
+    },
+    {
+      "name": "Bristol",
+      "lat": 51.45,
+      "lon": -2.5833
+    },
+    {
+      "name": "Brussels",
+      "lat": 50.8353,
+      "lon": 4.3314
+    },
+    {
+      "name": "Cardiff",
+      "lat": 51.4826,
+      "lon": -3.1676
+    },
+    {
+      "name": "Charleroi",
+      "lat": 50.4204,
+      "lon": 4.45
+    },
+    {
+      "name": "Chlef",
+      "lat": 36.1704,
+      "lon": 1.32
+    },
+    {
+      "name": "Cologne",
+      "lat": 50.932,
+      "lon": 6.9481
+    },
+    {
+      "name": "Constantine",
+      "lat": 36.36,
+      "lon": 6.5999
+    },
+    {
+      "name": "Córdoba",
+      "lat": 37.88,
+      "lon": -4.77
+    },
+    {
+      "name": "Duisburg",
+      "lat": 51.43,
+      "lon": 6.75
+    },
+    {
+      "name": "Düsseldorf",
+      "lat": 51.2204,
+      "lon": 6.78
+    },
+    {
+      "name": "Eindhoven",
+      "lat": 51.43,
+      "lon": 5.5
+    },
+    {
+      "name": "Essen",
+      "lat": 51.45,
+      "lon": 7.0166
+    },
+    {
+      "name": "Frankfurt",
+      "lat": 50.1,
+      "lon": 8.675
+    },
+    {
+      "name": "Geneva",
+      "lat": 46.21,
+      "lon": 6.14
+    },
+    {
+      "name": "Genoa",
+      "lat": 44.41,
+      "lon": 8.93
+    },
+    {
+      "name": "Gent",
+      "lat": 51.03,
+      "lon": 3.7
+    },
+    {
+      "name": "Gijón",
+      "lat": 43.53,
+      "lon": -5.67
+    },
+    {
+      "name": "Granada‎",
+      "lat": 37.165,
+      "lon": -3.585
+    },
+    {
+      "name": "Grenoble",
+      "lat": 45.1804,
+      "lon": 5.72
+    },
+    {
+      "name": "Heidelberg",
+      "lat": 49.42,
+      "lon": 8.7
+    },
+    {
+      "name": "Karlsruhe",
+      "lat": 49,
+      "lon": 8.4
+    },
+    {
+      "name": "Koblenz",
+      "lat": 50.3505,
+      "lon": 7.6
+    },
+    {
+      "name": "Ksar El Kebir",
+      "lat": 35.0204,
+      "lon": -5.91
+    },
+    {
+      "name": "La Coruña",
+      "lat": 43.33,
+      "lon": -8.42
+    },
+    {
+      "name": "Liège",
+      "lat": 50.63,
+      "lon": 5.58
+    },
+    {
+      "name": "Lille",
+      "lat": 50.6519,
+      "lon": 3.0781
+    },
+    {
+      "name": "Lisbon",
+      "lat": 38.7247,
+      "lon": -9.1468
+    },
+    {
+      "name": "Lyon",
+      "lat": 45.772,
+      "lon": 4.8281
+    },
+    {
+      "name": "Madrid",
+      "lat": 40.402,
+      "lon": -3.6853
+    },
+    {
+      "name": "Málaga",
+      "lat": 36.7204,
+      "lon": -4.42
+    },
+    {
+      "name": "Mannheim",
+      "lat": 49.5004,
+      "lon": 8.47
+    },
+    {
+      "name": "Marseille",
+      "lat": 43.2919,
+      "lon": 5.3731
+    },
+    {
+      "name": "Metz",
+      "lat": 49.1203,
+      "lon": 6.18
+    },
+    {
+      "name": "Milan",
+      "lat": 45.4719,
+      "lon": 9.2031
+    },
+    {
+      "name": "Montpellier",
+      "lat": 43.6104,
+      "lon": 3.87
+    },
+    {
+      "name": "Murcia",
+      "lat": 37.98,
+      "lon": -1.13
+    },
+    {
+      "name": "Nantes",
+      "lat": 47.2104,
+      "lon": -1.59
+    },
+    {
+      "name": "Nice",
+      "lat": 43.717,
+      "lon": 7.2631
+    },
+    {
+      "name": "Oran",
+      "lat": 35.7119,
+      "lon": -0.6219
+    },
+    {
+      "name": "Palma",
+      "lat": 39.5743,
+      "lon": 2.6542
+    },
+    {
+      "name": "Paris",
+      "lat": 48.8581,
+      "lon": 2.353
+    },
+    {
+      "name": "Porto",
+      "lat": 41.152,
+      "lon": -8.6219
+    },
+    {
+      "name": "Portsmouth",
+      "lat": 50.8003,
+      "lon": -1.08
+    },
+    {
+      "name": "Reading",
+      "lat": 51.47,
+      "lon": -0.98
+    },
+    {
+      "name": "Rouen",
+      "lat": 49.4304,
+      "lon": 1.08
+    },
+    {
+      "name": "Saarbrücken",
+      "lat": 49.2504,
+      "lon": 6.97
+    },
+    {
+      "name": "San Sebastián",
+      "lat": 43.3204,
+      "lon": -1.98
+    },
+    {
+      "name": "Seville",
+      "lat": 37.405,
+      "lon": -5.98
+    },
+    {
+      "name": "Southampton",
+      "lat": 50.9,
+      "lon": -1.4
+    },
+    {
+      "name": "Strasbourg",
+      "lat": 48.58,
+      "lon": 7.75
+    },
+    {
+      "name": "Stuttgart",
+      "lat": 48.78,
+      "lon": 9.2
+    },
+    {
+      "name": "Tangier",
+      "lat": 35.7759,
+      "lon": -5.8062
+    },
+    {
+      "name": "Toulon",
+      "lat": 43.1342,
+      "lon": 5.9188
+    },
+    {
+      "name": "Toulouse",
+      "lat": 43.6219,
+      "lon": 1.448
+    },
+    {
+      "name": "Turin",
+      "lat": 45.0723,
+      "lon": 7.668
+    },
+    {
+      "name": "Valencia",
+      "lat": 39.487,
+      "lon": -0.402
+    },
+    {
+      "name": "Valladolid",
+      "lat": 41.65,
+      "lon": -4.75
+    },
+    {
+      "name": "Vigo",
+      "lat": 42.22,
+      "lon": -8.73
+    },
+    {
+      "name": "Wiesbaden",
+      "lat": 50.0804,
+      "lon": 8.25
+    },
+    {
+      "name": "Wuppertal",
+      "lat": 51.25,
+      "lon": 7.17
+    },
+    {
+      "name": "Zaragoza",
+      "lat": 41.65,
+      "lon": -0.89
+    },
+    {
+      "name": "Zürich",
+      "lat": 47.3819,
+      "lon": 8.5481
+    }
+  ]
+}

@@ -39,11 +39,42 @@ accuracy work. Regenerate with
 Countries + land, from [`world-atlas`](https://github.com/topojson/world-atlas)'s
 bundled Natural Earth 1:50m data (ISC license — permissive, attribution
 appreciated but not required; see `tools/build-data/node_modules/
-world-atlas/LICENSE` after `npm install`). Clipped to the Iberia +
-western Mediterranean + Balearics bbox and simplified with `mapshaper`.
-Admin-1 province detail (a separate Natural Earth source) not yet
-added. Regenerate with `tools/build-data/basemap.mjs`
+world-atlas/LICENSE` after `npm install`). Clipped to Iberia + all of
+mainland France + the western Mediterranean/Balearics bbox (widened from
+an Iberia-only extent that cut off right at the Pyrenees) and simplified
+with `mapshaper`. Admin-1 province detail (a separate Natural Earth
+source) not yet added. Regenerate with `tools/build-data/basemap.mjs`
 (`npm run basemap` in `tools/build-data/`).
+
+## cities.json
+
+Major cities (pop_max >= 300,000) within the same bbox as
+`basemap.topojson`, from Natural Earth's "populated places" 1:10m
+cultural vector layer — **public domain** (naturalearthdata.com/about/
+terms-of-use/), no attribution required. Not bundled in the `world-atlas`
+npm package (that package only ships land/countries), so fetched
+directly from the community-maintained mirror
+[nvkelso/natural-earth-vector](https://github.com/nvkelso/natural-earth-vector)
+on GitHub, which republishes Natural Earth's shapefiles pre-converted to
+GeoJSON. Name + lat/lon only, no labels rendered yet (a direct,
+explicitly near-term follow-up). Regenerate with
+`tools/build-data/cities.mjs` (`npm run cities` in `tools/build-data/`;
+needs the raw GeoJSON downloaded first, see that script's header
+comment).
+
+## roads.topojson
+
+Major highways only (Natural Earth's "Major Highway" `type`, not
+"Secondary Highway"/"Road"/"Ferry Route") within the same bbox as
+`basemap.topojson`, from Natural Earth's 1:10m "roads" cultural vector
+layer — **public domain**, same terms as `cities.json` above. Also not
+in the `world-atlas` npm package; fetched directly from Natural Earth's
+own CDN as a shapefile (naturalearthdata.com's actual distribution
+format, unlike the GeoJSON mirror used for cities). No attribute data
+kept (`drop-table`) and no labels rendered yet, same reasoning as
+`cities.json`. Regenerate with `tools/build-data/roads.mjs`
+(`npm run roads` in `tools/build-data/`; needs the raw shapefile
+downloaded and unzipped first, see that script's header comment).
 
 ## basemap-global.topojson
 

@@ -1,6 +1,7 @@
 // Generates app/src/data/basemap.topojson (PLAN.md Sec3 item 1): Natural
-// Earth countries + land, clipped to the Iberia + western Mediterranean +
-// Balearics extent (PLAN.md Sec14 #3) and lightly simplified. Run manually:
+// Earth countries + land, clipped to the Iberia + France + western
+// Mediterranean + Balearics extent (PLAN.md Sec14 #3) and lightly
+// simplified. Run manually:
 //
 //     cd tools/build-data && npm install && npm run basemap
 //
@@ -17,9 +18,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE = path.join(HERE, 'node_modules', 'world-atlas', 'countries-50m.json');
 const OUTPUT_DIR = path.join(HERE, '..', '..', 'app', 'src', 'data');
 
-// lonMin,latMin,lonMax,latMax -- Iberia (incl. Portugal) + W-Mediterranean +
-// Balearics, with a little margin. Same decision as the mock's map tab.
-const BBOX = '-10.5,35,6.5,44.5';
+// lonMin,latMin,lonMax,latMax -- Iberia (incl. Portugal) + all of mainland
+// France + western Mediterranean + Balearics, with margin. Widened from
+// the original Iberia-only extent (which cut off right at the Pyrenees)
+// per direct request.
+const BBOX = '-10.5,35,9.5,51.5';
 
 const commands = [
   `-i "${SOURCE}"`,

@@ -878,6 +878,40 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
          own fill-opacity) had no opacity set at all -- a fully opaque
          wash hiding the coastline underneath it, on both tabs. Added
          `fill-opacity: 0.35` to both.
+     - ✅ **Spain tab: cities, major roads, and a widened map area**, per
+       direct request. The bbox (`basemap.mjs`'s `BBOX`) was Iberia-only
+       and cut off right at the Pyrenees; widened to
+       `-10.5,35,9.5,51.5` -- all of mainland France plus neighbor
+       context, not just a sliver of it. New `cities.json` (76 cities,
+       `pop_max >= 300,000` within that bbox -- every major Spanish/
+       French/Portuguese city plus reasonable context, not a solid mass
+       of dots on a 280x200 panel) and `roads.topojson` ("Major Highway"
+       only, not the much denser secondary/local road classes) are both
+       from Natural Earth's 1:10m cultural vectors -- neither is in the
+       already-installed `world-atlas` npm package (confirmed by
+       listing its actual contents rather than assuming), so both are
+       fetched directly: cities via a community GeoJSON mirror
+       (`github.com/nvkelso/natural-earth-vector`), roads via Natural
+       Earth's own shapefile CDN, following the exact same
+       download-once-into-`.cache`/clip/simplify/bundle pattern as
+       `basemap.mjs` and `stars.mjs` already use. Both public domain, no
+       attribution required (confirmed directly against Natural Earth's
+       own terms-of-use, not assumed from the `world-atlas` ISC
+       precedent). No labels on either yet -- explicitly a near-term
+       follow-up, not this pass; `name` is kept in `cities.json` now so
+       adding labels later doesn't need a re-fetch. Rendered as a thin
+       muted line layer (roads) and small muted dots (cities) between
+       the coastline and the eclipse-specific overlays (umbra band/path/
+       outline), so the reference detail reads as context, not
+       competing with the actual point of the map. Data source research
+       (confirming what's actually in `world-atlas`, finding working
+       current download URLs, confirming licenses) done via a parallel
+       research workflow rather than guessed at; the widened-bbox
+       regeneration surfaced one legitimate test update needed
+       (`basemap.test.ts`'s exact expected country list -- widening the
+       bbox correctly pulls in Belgium/Germany/UK/etc. too, not a
+       regression). `npm run test`: 63/63; `npm run check`: 0
+       errors/warnings.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,

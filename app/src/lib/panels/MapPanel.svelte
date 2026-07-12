@@ -17,6 +17,8 @@
   import type { GeoProjection } from 'd3-geo';
   import basemapData from '../../data/basemap.topojson';
   import basemapGlobalData from '../../data/basemap-global.topojson';
+  import roadsData from '../../data/roads.topojson';
+  import citiesData from '../../data/cities.json';
   import shadowFrames from '../../data/shadow-frames.json';
   import shadowFramesGlobal from '../../data/shadow-frames-global.json';
   import { coefficients, dateToTtHours } from '../../data/besselian-2026';
@@ -45,6 +47,21 @@
       landFeature,
     );
   const landPathD = geoPathGenerator(spainProjection)(landFeature) ?? '';
+
+  // Major highways + cities (PLAN.md §8, "map detail" follow-up), same
+  // fixed projection as the coastline above -- both are static reference
+  // detail, not observer- or clock-dependent, so computed once rather
+  // than as $derived. No labels yet (direct request, "at least not
+  // yet") -- cities are plain dots for now.
+  const roadsTopology = roadsData as unknown as Topology;
+  const roadsFeature = feature(
+    roadsTopology,
+    roadsTopology.objects.ne_10m_roads as GeometryCollection,
+  );
+  const roadsPathD = geoPathGenerator(spainProjection)(roadsFeature) ?? '';
+  const cityPoints = citiesData.cities
+    .map((c) => ({ name: c.name, xy: spainProjection([c.lon, c.lat]) }))
+    .filter((c): c is { name: string; xy: [number, number] } => c.xy !== null);
 
   function project(lat: number, lon: number): [number, number] | null {
     return spainProjection([lon, lat]);
@@ -265,6 +282,10 @@
       aria-label="Eclipse path map -- click or drag to set the observer location"
     >
       <path class="coast" d={landPathD} />
+      <path class="roads" d={roadsPathD} />
+      {#each cityPoints as c (c.name)}
+        <circle class="citydot" cx={c.xy[0]} cy={c.xy[1]} r="0.9" />
+      {/each}
       <polygon class="pathband" points={projectPts(band)} />
       <polyline class="limitline" points={projectPts(PATH_NORTH)} />
       <polyline class="limitline" points={projectPts(PATH_SOUTH)} />
@@ -357,6 +378,19 @@
     fill: var(--screen);
     stroke: #000;
     stroke-width: 0.5;
+  }
+  /* Reference detail (PLAN.md §8) -- deliberately understated relative
+     to the coastline/eclipse-path layers above and below it, since
+     they're context, not the point of this map. No labels yet. */
+  .roads {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 0.3;
+    stroke-opacity: 0.8;
+  }
+  .citydot {
+    fill: var(--muted);
+    stroke: none;
   }
   .pathband {
     fill: var(--accent-bg);
