@@ -24,11 +24,6 @@
   function formatAz(azimuth: number): string {
     return `${Math.round(azimuth)}°`;
   }
-  function formatLatLon(lat: number, lon: number): string {
-    const ns = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'}`;
-    const ew = `${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'W'}`;
-    return `${ns} ${ew}`;
-  }
 
   // Each row gets the Sun's own alt/az at ITS timestamp (not live "now"),
   // via sunAltAzAt -- the same Equator/Horizon math skyView's live value
@@ -80,7 +75,10 @@
   // contact-time events only (P1/P4, U1-U4, GE) -- the central-line
   // begin/end and extreme N/S-limit points that eclipse-times.json also
   // carries are left out of this table by direct request (not deleted
-  // from the data, just not shown here).
+  // from the data, just not shown here). Each row's own lat/lon (also in
+  // eclipse-times.json) is deliberately not displayed either (direct
+  // request, unnecessary here) -- the table is about *when*, not where
+  // on Earth each global event occurs.
   let showGlobal = $state(false);
   const GLOBAL_KEYS = new Set(['p1', 'u1', 'u2', 'u3', 'u4', 'ge', 'p4']);
   const globalEvents = $derived.by(() => {
@@ -94,14 +92,13 @@
           fullLabel: e.label,
           date,
           time: formatCest(date),
-          posText: formatLatLon(e.lat, e.lon),
           offset: formatCountdown((date.getTime() - $effectiveTime.getTime()) / 1000),
           isLocal: false as const,
         };
       });
   });
   const displayRows = $derived.by(() => {
-    const localRows = rows.map((r) => ({ ...r, fullLabel: r.label, posText: null, isLocal: true as const }));
+    const localRows = rows.map((r) => ({ ...r, fullLabel: r.label, isLocal: true as const }));
     if (!showGlobal) return localRows;
     return [...localRows, ...globalEvents].sort((a, b) => a.date.getTime() - b.date.getTime());
   });
@@ -186,7 +183,6 @@
           >
             <td>
               <span title={row.fullLabel}>{row.label}</span>
-              {#if row.posText}<span class="pos">{row.posText}</span>{/if}
             </td>
             <td class="num">{row.offset}</td>
             <td class="num">{row.time}</td>
@@ -309,11 +305,6 @@
   }
   tr.global td.num {
     font-size: calc(12px * var(--tscale-table));
-  }
-  .pos {
-    display: block;
-    font-size: calc(10px * var(--tscale-table));
-    color: var(--muted);
   }
   /* Pinned to the ribbon's right edge via margin-left: auto -- the only
      item in .circ that isn't a Duration/Obsc./Sun-alt-az stat, so it

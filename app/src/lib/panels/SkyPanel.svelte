@@ -25,6 +25,7 @@
   import { skyView, sunAltAzAt, type AltAz } from '../../stores/skyView';
   import { localCircumstances } from '../../stores/localCircumstances';
   import { observer } from '../../stores/observer';
+  import { effectiveTime } from '../../stores/clock';
 
   let tab: 'wide' | 'allsky' = $state('wide');
 
@@ -33,6 +34,20 @@
   function brightRadius(mag: number): number {
     return Math.max(0.4, 1.8 - mag * 0.5);
   }
+
+  // Mock corona (direct request, both sky views): just a flat gray
+  // circle, 5x the Sun's own diameter (i.e. 5x its radius too, since
+  // both scale the same way), shown only between C2 and C3. Drawn
+  // first/behind the Sun/Moon in both views, so it reads as a ring
+  // peeking out around the (correctly Moon-occluded) Sun rather than a
+  // solid disc covering them.
+  const CORONA_DIAMETER_FACTOR = 5;
+  const inTotality = $derived.by(() => {
+    const { c2, c3 } = $localCircumstances;
+    if (!c2 || !c3) return false;
+    const t = $effectiveTime.getTime();
+    return t >= c2.getTime() && t <= c3.getTime();
+  });
 
   // ---------- All-sky (dome) ----------
   const allCx = 100,
@@ -54,6 +69,19 @@
   const allMoon = $derived($skyView.moon);
   const allSunXY = $derived(domePos(allSun.altitude, allSun.azimuth));
   const allMoonXY = $derived(domePos(allMoon.altitude, allMoon.azimuth));
+
+  // The dome is far too small to show Sun/Moon at true angular scale
+  // (90deg of altitude only spans allR=88 viewBox units, so the Sun's
+  // real ~0.26deg radius would be a well-under-1px dot) -- so, same
+  // convention as CountdownPanel's own schematic: pin the Sun at a
+  // legible fixed radius, then derive the Moon's from the REAL angular-
+  // radius ratio between them, rather than two independent guessed
+  // numbers (that was the actual bug -- the old fixed 5/5.5 pair had no
+  // relationship to their true relative sizes at all).
+  const ALL_SUN_R = 5;
+  const allPxPerDeg = $derived(ALL_SUN_R / allSun.angularRadiusDeg);
+  const allMoonR = $derived(allMoon.angularRadiusDeg * allPxPerDeg);
+  const ALL_CORONA_R = ALL_SUN_R * CORONA_DIAMETER_FACTOR;
   const allStars = $derived(
     $skyView.stars
       .filter((s) => s.altitude > 0)
@@ -107,16 +135,17 @@
   const CAMERA_FOV_V_DEG =
     2 * Math.atan(ASI294MC_LONG_MM / 2 / LENS_FOCAL_LENGTH_MM) * (180 / Math.PI);
 
-  // TEMPORARY TUNING STATE (direct request) -- extra margin beyond the
-  // camera's own real FOV box, in degrees, on each side. "How much
-  // horizon is visible" is mainly the BOTTOM margin (extra ground/sky
-  // context below the real crop); side/top are mostly breathing room
-  // around the dashed FOV-box overlay. Once final numbers are picked
-  // these go back to plain constants and the slider panel comes out
-  // (same pattern as the Global map's margin tuning, see git history).
-  let wideSideMarginDeg = $state(3);
-  let wideTopMarginDeg = $state(3);
-  let wideBottomMarginDeg = $state(6);
+  // TEMPORARY TUNING STATE -- extra margin beyond the camera's own real
+  // FOV box, in degrees, on each side. Locked to 10/1/1 (direct request)
+  // and the slider panel hidden (SHOW_TUNING_PANEL below) -- still
+  // $state rather than plain constants, and the panel markup/CSS still
+  // in place, since these are only *temporarily* hidden, not finalized
+  // yet (same pattern as the Global map's margin tuning, see git
+  // history, but not fully torn down this time).
+  const SHOW_TUNING_PANEL = false;
+  let wideSideMarginDeg = $state(10);
+  let wideTopMarginDeg = $state(1);
+  let wideBottomMarginDeg = $state(1);
 
   const WIDE_PX_PER_DEG = 10;
   const viewWDeg = $derived(CAMERA_FOV_H_DEG + 2 * wideSideMarginDeg);
@@ -221,15 +250,33 @@
   // instead of the dome's polar one. Real angular size (via the same
   // deg-per-pixel scale as everything else), with a small readability
   // floor -- true size alone would be only 2-3px here, easy to miss.
+  //
+  // The floor is a single SHARED boost applied to both, not two
+  // independent per-body clamps -- that was the actual bug: clamping
+  // each one on its own can silently distort the real Sun/Moon size
+  // ratio (e.g. one at its true 2.4px getting boosted to the 2.5px
+  // floor while the other's true 2.7px sails past it untouched, when in
+  // reality the second should still end up bigger than the first by the
+  // same proportion). Scaling both by whichever factor the SMALLER of
+  // the two needs to clear the floor preserves their true ratio exactly
+  // while still guaranteeing visibility.
   const wideSun = $derived($skyView.sun);
   const wideMoon = $derived($skyView.moon);
   const wideSunXY = $derived(widePos(wideSun.altitude, wideSun.azimuth));
   const wideMoonXY = $derived(widePos(wideMoon.altitude, wideMoon.azimuth));
   const SUN_MOON_MIN_R_PX = 2.5;
-  const wideSunR = $derived(Math.max(SUN_MOON_MIN_R_PX, wideSun.angularRadiusDeg * WIDE_PX_PER_DEG));
-  const wideMoonR = $derived(
-    Math.max(SUN_MOON_MIN_R_PX, wideMoon.angularRadiusDeg * WIDE_PX_PER_DEG),
-  );
+  const wideSunMoonBoost = $derived.by(() => {
+    const minRealR =
+      Math.min(wideSun.angularRadiusDeg, wideMoon.angularRadiusDeg) * WIDE_PX_PER_DEG;
+    return minRealR < SUN_MOON_MIN_R_PX ? SUN_MOON_MIN_R_PX / minRealR : 1;
+  });
+  const wideSunR = $derived(wideSun.angularRadiusDeg * WIDE_PX_PER_DEG * wideSunMoonBoost);
+  const wideMoonR = $derived(wideMoon.angularRadiusDeg * WIDE_PX_PER_DEG * wideSunMoonBoost);
+  // "5x diameter" off the Sun's actual DISPLAYED radius above (already
+  // ratio-accurate, boost included), so the corona is literally 5x the
+  // Sun disc that's really on screen, not some independent theoretical
+  // value.
+  const wideCoronaR = $derived(wideSunR * CORONA_DIAMETER_FACTOR);
 
   // Bright objects (stars + planets) anywhere within the (slightly-
   // wider-than-camera) view -- not just within the dashed FOV box itself
@@ -277,8 +324,11 @@
         <circle class="planetmark" cx={p.xy[0]} cy={p.xy[1]} r={p.r} />
         <text class="planetlabel" x={p.xy[0]} y={p.xy[1] - p.r - 3}>{p.name.slice(0, 2)}</text>
       {/each}
-      <circle class="moonfill" cx={wideMoonXY[0]} cy={wideMoonXY[1]} r={wideMoonR} />
+      {#if inTotality}
+        <circle class="corona" cx={wideSunXY[0]} cy={wideSunXY[1]} r={wideCoronaR} />
+      {/if}
       <circle class="sunfill" cx={wideSunXY[0]} cy={wideSunXY[1]} r={wideSunR} />
+      <circle class="moonfill" cx={wideMoonXY[0]} cy={wideMoonXY[1]} r={wideMoonR} />
       <rect class="fovbox" x={fovBoxX} y={fovBoxY} width={fovBoxW} height={fovBoxH} />
       <!-- Ground painted over everything above (not behind it) -- same
            convention as CountdownPanel's ground rect, so anything below
@@ -314,20 +364,24 @@
         <circle class="planetmark" cx={p.xy[0]} cy={p.xy[1]} r={p.r} />
         <text class="planetlabel" x={p.xy[0]} y={p.xy[1] - p.r - 3}>{p.name.slice(0, 2)}</text>
       {/each}
-      {#if allMoon.altitude > 0}
-        <circle class="moonfill" cx={allMoonXY[0]} cy={allMoonXY[1]} r="5.5" />
+      {#if inTotality && allSun.altitude > 0}
+        <circle class="corona" cx={allSunXY[0]} cy={allSunXY[1]} r={ALL_CORONA_R} />
       {/if}
       {#if allSun.altitude > 0}
-        <circle class="sunfill" cx={allSunXY[0]} cy={allSunXY[1]} r="5" />
+        <circle class="sunfill" cx={allSunXY[0]} cy={allSunXY[1]} r={ALL_SUN_R} />
+      {/if}
+      {#if allMoon.altitude > 0}
+        <circle class="moonfill" cx={allMoonXY[0]} cy={allMoonXY[1]} r={allMoonR} />
       {/if}
       <text class="cardinal" x={allCx} y={allCy - allR - 8}>N</text>
       <text class="cardinal" x={allCx - allR - 8} y={allCy}>E</text>
       <text class="cardinal" x={allCx} y={allCy + allR + 8}>S</text>
       <text class="cardinal" x={allCx + allR + 8} y={allCy}>W</text>
     </svg>
-    {#if tab === 'wide'}
-      <!-- TEMPORARY TUNING PANEL -- delete along with the $state margin
-           vars above once final numbers are picked (see comment there). -->
+    {#if tab === 'wide' && SHOW_TUNING_PANEL}
+      <!-- TEMPORARY TUNING PANEL -- hidden via SHOW_TUNING_PANEL above
+           (direct request); delete along with the $state margin vars
+           once final numbers are picked (see comment there). -->
       <div class="tuning">
         <label>
           <span>Side margin <b>{wideSideMarginDeg}°</b></span>
@@ -417,6 +471,13 @@
     stroke: #dce4f2;
     stroke-width: 1;
     stroke-dasharray: 4 3;
+  }
+  /* Mock corona (direct request) -- just a flat gray circle, no
+     gradient/glow. Drawn behind the Sun/Moon (see template order), so
+     it only shows as a ring around whichever of them is on top. */
+  .corona {
+    fill: #c8c8c8;
+    stroke: none;
   }
   .sunfill {
     fill: #f6c445;
