@@ -113,16 +113,6 @@
   const nextKey = $derived(
     displayRows.find((r) => r.date.getTime() >= $effectiveTime.getTime())?.key ?? null,
   );
-  // Of the standard 16-row table, 5 are missing on purpose (a near-polar
-  // tangent-search convergence gap, not a bug) -- see eclipse-times.json's
-  // own "omitted" array (with the specific numbers/reasons per event) and
-  // NOTICE.md. Surfaced as a plain count with the detail in a title
-  // tooltip rather than another table, matching this panel's existing
-  // ".provisional"-style honesty-about-gaps convention.
-  const omittedNote = eclipseTimesData.omitted
-    .map((o: { label: string; reason: string }) => `${o.label}: ${o.reason}`)
-    .join('\n\n');
-
   // Natural (scale-1) height of whatever's currently in the table, used
   // by the CSS below to shrink rows to fit tablewrap's actual available
   // space instead of scrolling -- see .tablewrap's --tscale-table
@@ -213,14 +203,9 @@
     <div><span>Obsc. (area)</span><b>{areaObscurationText}</b></div>
     <div><span>Sun alt</span><b>{sunAltText}</b></div>
     <div><span>Sun az</span><b>{sunAzText}</b></div>
-    <div class="globalgroup">
-      {#if showGlobal}
-        <span class="omitted" title={omittedNote}>5 omitted</span>
-      {/if}
-      <button class="globaltoggle" class:on={showGlobal} onclick={() => (showGlobal = !showGlobal)}>
-        Global
-      </button>
-    </div>
+    <button class="globaltoggle" class:on={showGlobal} onclick={() => (showGlobal = !showGlobal)}>
+      Global
+    </button>
   </div>
 </div>
 
@@ -330,7 +315,14 @@
     font-size: calc(10px * var(--tscale-table));
     color: var(--muted);
   }
+  /* Pinned to the ribbon's right edge via margin-left: auto -- the only
+     item in .circ that isn't a Duration/Obsc./Sun-alt-az stat, so it
+     reads as a separate control rather than another value in the row.
+     No specificity fight with .circ div below despite both applying
+     margin/layout here: that selector only matches <div> children, and
+     this is a <button>. */
   .globaltoggle {
+    margin-left: auto;
     background: none;
     border: 1px solid var(--line);
     border-radius: 6px;
@@ -344,25 +336,6 @@
     border-color: var(--accent);
     background: var(--accent-bg);
     color: var(--accent-ink);
-  }
-  .omitted {
-    font-size: calc(10px * var(--tscale));
-    color: var(--muted);
-    cursor: help;
-    text-decoration: underline dotted;
-  }
-  /* Pinned to the ribbon's right edge via margin-left: auto -- the only
-     item in .circ that isn't a Duration/Obsc./Sun-alt-az stat, so it
-     reads as a separate control rather than another value in the row.
-     Selector is `.circ .globalgroup`, not just `.globalgroup`, to
-     out-specificity `.circ div` below (which would otherwise force this
-     into the stats' column layout instead of a horizontal button+badge
-     pair). */
-  .circ .globalgroup {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 8px;
   }
   .circ {
     flex-shrink: 0;

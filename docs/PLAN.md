@@ -1111,6 +1111,17 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        off) while `tablewrap.scrollHeight > clientHeight` correctly
        flips to `true` once content overflows. `npm run check`: 0
        errors/warnings; `npm run test`: 63/63.
+     - ✅ **"5 omitted" note deleted**, per direct request -- the
+       badge/tooltip next to the Global toggle summarizing
+       `eclipse-times.json`'s 5 genuinely-unconvergent rows (SP1/SU1/
+       NU1/SP2/CM). `omittedNote` (script), the `.globalgroup` wrapper
+       (no longer needed once it held only the toggle button, not a
+       button+badge pair -- `margin-left: auto` moved directly onto
+       `.globaltoggle`), and `.omitted` (CSS) all removed. The
+       underlying data/reasons are untouched (`eclipse-times.json`'s own
+       `omitted` array, NOTICE.md) -- this only removes the in-app
+       surfacing of it. `npm run check`: 0 errors/warnings; `npm run
+       test`: 63/63.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,
