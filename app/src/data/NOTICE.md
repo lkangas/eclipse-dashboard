@@ -34,6 +34,27 @@ window grid, appropriate for a small thumbnail rather than path-
 accuracy work. Regenerate with
 `tools/build-data/generate_shadow_frames_global.py`.
 
+## eclipse-times.json
+
+Computed directly by [`eclipse-calc`](https://github.com/lkangas/eclipse-calc)
+(MIT license), a first-party tool — the whole-event "global
+circumstances" table (the standard "Eclipse Times" table published by
+every eclipse calculator: ytliu.epizy.com, NASA GSFC/EclipseWise,
+etc.), not tied to any one observer. Not derived from or redistributing
+any third-party dataset — no additional attribution required. Verified
+against ytliu.epizy.com's published table for this exact eclipse (JPL
+DE441, ΔT=69.2s vs. this app's locked 69.1s): every included event
+matches to within ~0.06 degrees and ~3 seconds. Of the standard
+16-row table, 5 rows are deliberately omitted rather than reported
+wrong — CM (a polar-eclipse-specific event, out of scope) and SP1/SU1/
+NU1/SP2 (the *early* extreme north/south umbral-limit points and both
+penumbral-limit points), where `eclipse_calc.shadow.shadow_limits`'s
+tangent-point search is confirmed numerically unreliable this close to
+this event's extreme near-polar (~75-77N), terminator-limited start —
+see `generate_eclipse_times.py`'s header comment for the full
+investigation and specific numbers. Regenerate with
+`tools/build-data/generate_eclipse_times.py`.
+
 ## basemap.topojson
 
 Countries + land, from [`world-atlas`](https://github.com/topojson/world-atlas)'s

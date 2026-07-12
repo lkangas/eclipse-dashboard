@@ -16,12 +16,18 @@
   import { observer } from '../../stores/observer';
   import { skyView, sunAltAzAt } from '../../stores/skyView';
   import { formatCountdown, formatDurationSeconds, formatCest } from '../format';
+  import eclipseTimesData from '../../data/eclipse-times.json';
 
   function formatAlt(altitude: number): string {
     return `${altitude.toFixed(1)}°`;
   }
   function formatAz(azimuth: number): string {
     return `${Math.round(azimuth)}°`;
+  }
+  function formatLatLon(lat: number, lon: number): string {
+    const ns = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'}`;
+    const ew = `${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'W'}`;
+    return `${ns} ${ew}`;
   }
 
   // Each row gets the Sun's own alt/az at ITS timestamp (not live "now"),
@@ -61,9 +67,59 @@
         };
       });
   });
+  // "Next" always tracks the next LOCAL row, even with global events
+  // interleaved below -- it answers "what's coming up for me", a
+  // local-only question, so a global row (which can easily land
+  // chronologically between two local ones) never steals the highlight.
   const nextKey = $derived(
     rows.find((r) => r.date.getTime() >= $effectiveTime.getTime())?.key ?? null,
   );
+
+  // Global circumstances (PLAN.md §9 "global circumstances toggle") --
+  // the eclipse's whole-Earth timeline (first/last penumbral & umbral
+  // contact, central line begin/end, extreme N/S limits, greatest
+  // eclipse), independent of this observer, from the ytliu-style
+  // "Eclipse Times" table (precomputed via eclipse-calc, not client-
+  // side -- these are fixed whole-event facts, not this-observer- or
+  // clock-dependent). Off by default -- opt-in via the toggle below,
+  // never filtered by local sunset (unlike the local rows above: these
+  // aren't about what's visible from here). `c1`/`c2` in the source data
+  // mean the GLOBAL central line's begin/end (a real naming collision
+  // with the LOCAL c1/c2 keys above -- this observer's 2nd/3rd contact),
+  // so relabeled CL1/CL2 for display only; every other key already
+  // matches its own short display code (ytliu/NASA/EclipseWise's own
+  // convention, e.g. "u1", "su1", "ge").
+  let showGlobal = $state(false);
+  const GLOBAL_LABEL_OVERRIDE: Record<string, string> = { c1: 'CL1', c2: 'CL2' };
+  const globalEvents = $derived.by(() => {
+    return eclipseTimesData.events.map((e) => {
+      const date = new Date(e.utMs);
+      return {
+        key: 'g-' + e.key,
+        label: GLOBAL_LABEL_OVERRIDE[e.key] ?? e.key.toUpperCase(),
+        fullLabel: e.label,
+        date,
+        time: formatCest(date),
+        posText: formatLatLon(e.lat, e.lon),
+        offset: formatCountdown((date.getTime() - $effectiveTime.getTime()) / 1000),
+        isLocal: false as const,
+      };
+    });
+  });
+  const displayRows = $derived.by(() => {
+    const localRows = rows.map((r) => ({ ...r, fullLabel: r.label, posText: null, isLocal: true as const }));
+    if (!showGlobal) return localRows;
+    return [...localRows, ...globalEvents].sort((a, b) => a.date.getTime() - b.date.getTime());
+  });
+  // Of the standard 16-row table, 5 are missing on purpose (a near-polar
+  // tangent-search convergence gap, not a bug) -- see eclipse-times.json's
+  // own "omitted" array (with the specific numbers/reasons per event) and
+  // NOTICE.md. Surfaced as a plain count with the detail in a title
+  // tooltip rather than another table, matching this panel's existing
+  // ".provisional"-style honesty-about-gaps convention.
+  const omittedNote = eclipseTimesData.omitted
+    .map((o: { label: string; reason: string }) => `${o.label}: ${o.reason}`)
+    .join('\n\n');
 
   const durationText = $derived(
     $localCircumstances.durationS !== null
@@ -91,6 +147,14 @@
 </script>
 
 <div class="contacts">
+  <div class="tablehead">
+    <button class="globaltoggle" class:on={showGlobal} onclick={() => (showGlobal = !showGlobal)}>
+      {showGlobal ? 'Hide global events' : 'Show global events'}
+    </button>
+    {#if showGlobal}
+      <span class="omitted" title={omittedNote}>5 omitted</span>
+    {/if}
+  </div>
   <table>
     <thead>
       <tr>
@@ -102,13 +166,16 @@
       </tr>
     </thead>
     <tbody>
-      {#each rows as row (row.key)}
-        <tr class:next={row.key === nextKey}>
-          <td>{row.label}</td>
+      {#each displayRows as row (row.key)}
+        <tr class:next={row.key === nextKey} class:global={!row.isLocal}>
+          <td>
+            <span title={row.fullLabel}>{row.label}</span>
+            {#if row.posText}<span class="pos">{row.posText}</span>{/if}
+          </td>
           <td class="num">{row.offset}</td>
           <td class="num">{row.time}</td>
-          <td class="num">{row.alt}</td>
-          <td class="num">{row.az}</td>
+          <td class="num">{row.isLocal ? row.alt : '—'}</td>
+          <td class="num">{row.isLocal ? row.az : '—'}</td>
         </tr>
       {/each}
     </tbody>
@@ -163,6 +230,56 @@
     background: var(--accent-bg);
     color: var(--accent-ink);
     font-weight: 500;
+  }
+  /* Local rows (this observer's own C1-C4/Max/Sunset) get a colored left
+     edge so they anchor the eye against interleaved global rows --
+     deliberately a different color/mechanism from .next's accent-bg
+     "what's coming up next" highlight above, so the two indicators (this
+     row is local vs. this row is next) don't visually collide when both
+     apply to the same row. */
+  td:first-child {
+    border-left: 3px solid transparent;
+  }
+  tr:not(.global) td:first-child {
+    border-left-color: var(--cline);
+  }
+  tr.global td {
+    color: var(--muted);
+  }
+  tr.global td.num {
+    font-size: calc(12px * var(--tscale));
+  }
+  .pos {
+    display: block;
+    font-size: calc(10px * var(--tscale));
+    color: var(--muted);
+  }
+  .tablehead {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: calc(6px * var(--tscale));
+  }
+  .globaltoggle {
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: calc(4px * var(--tscale)) calc(9px * var(--tscale));
+    font-size: calc(11px * var(--tscale));
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .globaltoggle.on {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+    color: var(--accent-ink);
+  }
+  .omitted {
+    font-size: calc(10px * var(--tscale));
+    color: var(--muted);
+    cursor: help;
+    text-decoration: underline dotted;
   }
   .circ {
     display: flex;

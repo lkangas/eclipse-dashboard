@@ -314,19 +314,16 @@ d3-geo + bundled TopoJSON (§3), rendered to Canvas with d3-zoom pan/zoom and
   oracle yet (§4) — show as assumed/placeholder values, visually flagged as
   provisional, until implemented. This default view (local circumstances
   only) is intentionally scroll-free and must stay that way.
-- **Future: global circumstances toggle** — an optional expanded view of the
-  contacts table/panel showing the eclipse's *global* circumstances (not just
-  this observer's local C1–C4), modeled on the "Eclipse Times" section of
-  ytliu.epizy.com's calculator (already used as a cross-check reference,
-  §15) — e.g.
+- **Global circumstances toggle** — ✅ done (see §13 for the full build
+  history), simpler than sketched here: a plain show/hide button, the 11
+  available global rows interleaved directly into the same table (not a
+  separate fullscreen lightbox -- 11 extra rows didn't need one; revisit
+  if a future expansion make the table genuinely too long). Modeled on
+  the "Eclipse Times" section of ytliu.epizy.com's calculator (already
+  used as a cross-check reference, §15) --
   https://ytliu.epizy.com/eclipse/one_solar_eclipse_general.html?ybeg=2001&ind=55&DE=441.
-  The locally-computed circumstances (§4) would be interleaved within that
-  longer table rather than shown separately. Eventually extend the sound-
-  warnings toggle below to cover entries in this table too, not just local
-  contacts. Being long, it needs the fullscreen lightbox pattern noted in
-  §10 rather than an in-panel scrollbar — only this expanded view
-  scrolls/goes fullscreen, the default local-only view (above) does not.
-  Not started.
+  Eventually extend the sound-warnings toggle below to cover entries in
+  this table too, not just local contacts -- not started.
 - **Big countdown display** — large text, no separate label line: `EVENT±ttt`
   (e.g. `C2−00:41.6`), paired with the flat monochrome Sun/Moon schematic (§10).
   **Display logic**: normally show only the *one* next upcoming event
@@ -965,6 +962,71 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      in-browser: table shows e.g. C1 16.1°/276°, Sunset -0.2°/290°; live
      row shows Sun alt/az tracking the clock. `npm run check`: 0
      errors/warnings; `npm run test`: 62/62.
+   - ✅ **Global circumstances toggle** (§9's "Eclipse Times" feature) --
+     per direct request, built as data (Python/eclipse-calc) + UI in
+     parallel background/foreground tracks rather than sequentially.
+     - ✅ **Data**: `tools/build-data/generate_eclipse_times.py` ->
+       `app/src/data/eclipse-times.json`, the standard 16-row global
+       "Eclipse Times" table (P1/U1/C1/U2/GE/U3/C2/U4/P4 plus the
+       extreme N/S umbral/penumbral limit points) every eclipse
+       calculator publishes -- whole-event facts, not tied to any one
+       observer, so precomputed like the central line/N-S limits, not
+       computed client-side. Investigated a real shortcut first (caught
+       by direct question -- "isn't the N/S extrema just the terminator
+       points you already done?"): confirmed by fetching ytliu.epizy.com's
+       own published table for this exact eclipse and comparing
+       coordinates directly that C1/C2/NU2/SU2 (4 of 16 rows) are
+       exactly `shadow-frames-global.json`'s existing
+       `centralLineTerminatorStart/End`/`northLimitTerminatorEnd`/
+       `southLimitTerminatorEnd` -- re-exported, not recomputed. The
+       *early* pair (SU1/NU1) looked like the same shortcut but wasn't:
+       verified directly against ytliu and found 0.68-0.69&deg;
+       (~75-77km) off in latitude despite agreeing in time/longitude --
+       traced to a genuine `eclipse_calc.shadow.shadow_limits` tangent-
+       search instability in the first 30-40s after it starts
+       converging this close to this event's extreme near-polar
+       (75-77&deg;N), terminator-limited start (confirmed via a fine
+       time-grid probe plus a third independent cross-check method, not
+       just distrusted on suspicion). Penumbral limits (SP1/SP2) confirmed
+       genuinely non-convergent too (a risk PLAN.md already flagged).
+       P1/U1/U2/U3/U4/P4 turned out to already exist accurately in
+       eclipse-calc's `terminator.terminator_events()` (~0.005&deg;/~1s
+       off ytliu) -- no new eclipse-calc code needed, better than the
+       nested-optimizer contact search sketched in the brief. GE is a
+       plain 1D minimization of shadow-axis distance from Earth's
+       center. Net: 11 of 16 rows shipped (P1,U1,C1,U2,GE,U3,NU2,C2,
+       SU2,U4,P4), 5 omitted with specific documented reasons (CM
+       deferred by direct request; SP1/SU1/NU1/SP2 genuine convergence
+       gaps) in the JSON's own `omitted` array and `NOTICE.md`, not
+       silently dropped or forced to a wrong number. Every shipped row
+       verified against ytliu to within ~3s / ~0.06&deg;.
+     - ✅ **UI**: `ContactsPanel.svelte` gained a "Show/hide global
+       events" toggle (off by default) that interleaves the 15 (11
+       real + none faked) events chronologically into the *same* table
+       as the local C1-C4/Max/Sunset rows, not a separate fullscreen
+       view as originally sketched in §9 -- 11 extra rows didn't
+       warrant one. Local rows stand out against interleaved global
+       ones via a colored left edge (`--cline` blue) plus full-contrast
+       text, deliberately a different mechanism from the existing
+       `.next` accent-bg "what's about to happen" highlight so the two
+       indicators don't visually collide on the same row; "next"
+       itself still only ever tracks the next *local* row even with
+       globals interleaved, since that's what it's always meant.
+       Global rows show a lat/lon subtext under the event name instead
+       of Alt/Az (not meaningful for a point elsewhere on Earth) and a
+       muted/smaller treatment. `c1`/`c2` in the data mean the *global*
+       central line's begin/end, a real naming collision with this
+       table's own *local* C1/C2 (this observer's contacts) --
+       relabeled CL1/CL2 for display only, every other key already
+       matches its own standard short code (U1, GE, etc.). The 5
+       omitted rows are surfaced as a small "5 omitted" badge (not
+       silently missing) with the JSON's own per-event reasons in a
+       title tooltip. Built against a placeholder file (transcribed
+       from the same ytliu numbers used to verify the real data) while
+       the Python side was still running in the background, swapped
+       for the real file the moment it landed -- schemas matched
+       exactly, zero rework needed. `npm run check`: 0 errors/warnings;
+       `npm run test`: 63/63.
    - 🟡 Wire SkyPanel to astronomy-engine (Sun/Moon/planets/stars from
      `stars.json`) against `clock` + `observer`:
      - ✅ New `stores/skyView.ts` derived store: real Sun/Moon alt-az

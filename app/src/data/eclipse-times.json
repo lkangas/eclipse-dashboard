@@ -1,0 +1,110 @@
+{
+  "event": "2026-08-12 total solar eclipse -- global circumstances (Eclipse Times table)",
+  "generated_by": "eclipse-calc 0.1.0, tools/build-data/generate_eclipse_times.py",
+  "events": [
+    {
+      "key": "p1",
+      "label": "First external contact of penumbra with Earth",
+      "utMs": 1786548854597,
+      "lat": 56.68653,
+      "lon": -166.05189
+    },
+    {
+      "key": "u1",
+      "label": "First external contact of umbra with Earth",
+      "utMs": 1786553888964,
+      "lat": 74.93347,
+      "lon": 117.57232
+    },
+    {
+      "key": "c1",
+      "label": "Beginning of central line (shadow axis first touches Earth)",
+      "utMs": 1786554007289,
+      "lat": 75.09104,
+      "lon": 113.44767
+    },
+    {
+      "key": "u2",
+      "label": "First internal contact of umbra (umbra fully on Earth)",
+      "utMs": 1786554129753,
+      "lat": 75.16797,
+      "lon": 109.0444
+    },
+    {
+      "key": "ge",
+      "label": "Greatest eclipse (shadow axis closest to Earth's center)",
+      "utMs": 1786556756543,
+      "lat": 65.2237,
+      "lon": -25.24278
+    },
+    {
+      "key": "u3",
+      "label": "Last internal contact of umbra (umbra about to leave Earth)",
+      "utMs": 1786559412469,
+      "lat": 39.6094,
+      "lon": 6.31854
+    },
+    {
+      "key": "nu2",
+      "label": "Extreme northern limit of umbra, late (north limit line's end)",
+      "utMs": 1786559420935,
+      "lat": 39.77077,
+      "lon": 6.32744
+    },
+    {
+      "key": "c2",
+      "label": "End of central line (shadow axis last touches Earth)",
+      "utMs": 1786559532454,
+      "lat": 38.68013,
+      "lon": 5.3973
+    },
+    {
+      "key": "su2",
+      "label": "Extreme southern limit of umbra, late (south limit line's end)",
+      "utMs": 1786559640935,
+      "lat": 37.74917,
+      "lon": 4.51726
+    },
+    {
+      "key": "u4",
+      "label": "Last external contact of umbra with Earth",
+      "utMs": 1786559648407,
+      "lat": 37.79399,
+      "lon": 4.52914
+    },
+    {
+      "key": "p4",
+      "label": "Last external contact of penumbra with Earth",
+      "utMs": 1786564679957,
+      "lat": 11.44216,
+      "lon": -25.19511
+    }
+  ],
+  "omitted": [
+    {
+      "key": "cm",
+      "label": "Central eclipse at local apparent midnight",
+      "reason": "Polar-eclipse-specific event, deferred out of scope for this script by direct request -- not attempted."
+    },
+    {
+      "key": "sp1",
+      "label": "Extreme southern limit of penumbra, early",
+      "reason": "shadow_limits(umbra=False)'s tangent search doesn't converge anywhere near SP1's actual time/place -- its 'south' branch only starts converging at 16:23 UT (49.35N 125.15W), tens of minutes and ~40 degrees of longitude away from ytliu's SP1 (~16:01:34 UT, 43.49N 163.67W); its 'north' branch never converges anywhere in the event. A genuine non-convergence gap, not a precision issue -- see shadow.py's own docstring caveat about umbra=False."
+    },
+    {
+      "key": "su1",
+      "label": "Extreme southern limit of umbra, early",
+      "reason": "shadow-frames-global.json's southLimitTerminatorStart lands close to ytliu's SU1 in time (9s) and longitude (0.12deg) but 0.68deg (~75km) off in latitude. Confirmed via a fine time-grid probe of eclipse_calc.shadow.shadow_limits directly: its tangent-point fixed-point iteration is unstable for roughly the first 30-40s after it starts converging at all this close to this event's extreme near-polar (~75-77N), terminator-limited start, and a third independent check (extreme point of a dense shadow_outlines sweep at ytliu's exact SU1 instant) disagrees with both. Not reliable enough to report."
+    },
+    {
+      "key": "nu1",
+      "label": "Extreme northern limit of umbra, early",
+      "reason": "Same failure mode as su1 above (see that entry) -- northLimitTerminatorStart matches ytliu's NU1 in time (exact, to the second) and longitude (0.0014deg) but is 0.69deg (~77km) off in latitude, for the same near-polar shadow_limits instability. Note the *late* pair (nu2/su2, included above) is unaffected -- that end of the path is at ordinary mid-latitude, far from this failure mode."
+    },
+    {
+      "key": "sp2",
+      "label": "Extreme southern limit of penumbra, late",
+      "reason": "Mirror of sp1 above -- shadow_limits(umbra=False)'s 'south' branch stops converging at 19:15 UT (11.68N 51.82W), well before ytliu's SP2 (~19:30:34 UT, 2.60S 22.08W); its 'north' branch never converges. Same genuine non-convergence gap."
+    }
+  ]
+}
