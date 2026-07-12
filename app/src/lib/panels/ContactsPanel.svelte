@@ -114,17 +114,17 @@
   // by the CSS below to shrink rows to fit tablewrap's actual available
   // space instead of scrolling -- see .tablewrap's --tscale-table
   // comment for why this has to be measured per row-type rather than a
-  // single constant. Header/local-row/global-row heights (28/32/46px)
-  // are measured from the rendered table at scale 1, not derived from
-  // the padding/font-size literals below (duplicated, but simpler than
+  // single constant. No header row anymore (direct request -- deleted
+  // entirely for the extra space, column meanings are self-evident from
+  // the values themselves). Local/global-row heights (32/46px) are
+  // measured from the rendered table at scale 1, not derived from the
+  // padding/font-size literals below (duplicated, but simpler than
   // keeping two representations of the same box-model in sync).
-  const HEADER_H = 28;
   const LOCAL_ROW_H = 32;
   const GLOBAL_ROW_H = 46;
   const naturalTableH = $derived.by(() => {
-    const rowBorders = 1 + rows.length + (showGlobal ? globalEvents.length : 0);
-    const base =
-      HEADER_H + rows.length * LOCAL_ROW_H + (showGlobal ? globalEvents.length * GLOBAL_ROW_H : 0);
+    const rowBorders = rows.length + (showGlobal ? globalEvents.length : 0);
+    const base = rows.length * LOCAL_ROW_H + (showGlobal ? globalEvents.length * GLOBAL_ROW_H : 0);
     // Each row's 1px border-bottom doesn't shrink with --tscale-table
     // (fractional CSS borders round inconsistently across browsers), so
     // the real rendered height at scale<1 comes out a little taller
@@ -165,15 +165,6 @@
 <div class="contacts">
   <div class="tablewrap" class:crowded={showGlobal} style="--natural-h: {naturalTableH}px">
     <table>
-      <thead>
-        <tr>
-          <th>Event</th>
-          <th class="num">T</th>
-          <th class="num">Time</th>
-          <th class="num">Alt</th>
-          <th class="num">Az</th>
-        </tr>
-      </thead>
       <tbody>
         {#each displayRows as row (row.key)}
           <tr
@@ -257,21 +248,10 @@
     border-collapse: collapse;
     font-size: calc(14px * var(--tscale-table));
   }
-  td,
-  th {
+  td {
     padding: calc(6px * var(--tscale-table)) 10px;
     text-align: left;
     border-bottom: 1px solid var(--line);
-  }
-  th {
-    position: sticky;
-    top: 0;
-    background: var(--screen);
-    color: var(--muted);
-    font-weight: 500;
-    font-size: calc(11px * var(--tscale-table));
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
   }
   td.num {
     text-align: right;
