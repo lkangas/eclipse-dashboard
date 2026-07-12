@@ -909,6 +909,101 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        bbox correctly pulls in Belgium/Germany/UK/etc. too, not a
        regression). `npm run test`: 63/63; `npm run check`: 0
        errors/warnings.
+     - ✅ **Spain zoom/framing rework, a second roads tier, and ocean
+       color on both tabs**, per direct request:
+       - **Zoom.** Previously fit the whole basemap bbox (Iberia+France);
+         now fit to the umbra band itself, scaled so the viewport height
+         is ~`SPAIN_BAND_TO_HEIGHT` (4) times the band's own rotated
+         north-south width -- d3's `fitHeight()` gives the scale that
+         makes the band fill the *entire* viewport height, dividing by 4
+         scales that back down in one step (a plain `fitExtent` on both
+         dimensions would've been width-limited instead, since the
+         band's east-west length dwarfs its width). Verified by reading
+         the rendered `.pathband`'s actual `getBBox()`: height exactly
+         50 (=200/4), vertically centered (y=75, panel height 200).
+       - **Right-justified, not centered.** Translate is chosen (not
+         fit) so the band's rightmost point -- the Balearics end, closer
+         to the sunset cusp -- sits `SPAIN_RIGHT_MARGIN` (8) inside the
+         right edge; confirmed via the same `getBBox()` read (x+w=272,
+         panel width 280). Combined with changing the Spain `<svg>`'s
+         `preserveAspectRatio` from `xMidYMid` to `xMaxYMid meet`, a
+         vertically-shrunk panel now only grows the empty margin on the
+         *left* -- verified by reading `getScreenCTM()`-mapped screen
+         positions of the viewBox's left/right edges at two different
+         panel heights: the right edge stayed pinned to the container's
+         right edge in both cases, while the left-side gap grew from
+         266px to 487px as the panel was shortened from 265px to 107px
+         tall.
+       - **Second roads tier.** `tools/build-data/roads.mjs` now also
+         writes `roads-minor.topojson` (Natural Earth's "Secondary
+         Highway" `type`, one tier below the existing "Major Highway"
+         layer), rendered with the same stroke-width but much lower
+         stroke-opacity (`.roads-minor`) so it reads as dimmer background
+         context under the crisper major-road layer, not competing with
+         it.
+       - **Ocean color, both tabs.** `.mapzone`'s background (which
+         shows through everywhere `.coast`'s land fill doesn't cover --
+         there's no separate ocean layer) changed from the neutral
+         `--zone` gray to a new light-blue `--ocean` token. Deliberately
+         just a background-color swap, not a real ocean polygon layer --
+         per direct request, cheap now, revisit later; it also has the
+         side benefit of not looking "broken" if the tighter Spain zoom
+         ever shows area outside `basemap.topojson`'s own loaded bbox,
+         since a uniform blue background reads as plausible open ocean
+         either way.
+     - ✅ **Global tab re-rotated and re-framed around greatest eclipse**,
+       per direct request ("rotated so the umbra line is horizontal at
+       greatest eclipse... maybe 70 degrees counter clockwise", "penumbra
+       upper edge (the terminator line) at the top... umbra line's
+       lowermost part being roughly greatest eclipse at the bottom with a
+       large margin"):
+       - **Rotation.** The user's ~70° estimate was a starting point, not
+         computed precisely -- did the real computation instead of
+         guessing further: took two real `shadow-frames-global.json`
+         central-line samples bracketing greatest eclipse (GE) and
+         projected them (rotate-only, angle=0) to get the local screen
+         bearing there, cross-checked independently against the
+         standard great-circle initial-bearing formula on the same two
+         points (169.5° vs 169.7° clockwise-from-north -- agree to
+         0.2°, confirming the projection preserves bearing correctly, as
+         an azimuthal projection centered on GE should). Required
+         rotation to level that bearing: ~79.7°, not 70° -- applied via
+         the same generic `.angle()` post-projection rotation Spain's
+         `SPAIN_ROTATION_DEG` already uses (confirmed d3-geo's `.angle()`
+         is independent of `.rotate()`'s own gamma and works identically
+         on a custom `geoProjection()`, not just the built-in ones), then
+         rounded to a clean `GLOBAL_ROTATION_DEG = 80` rather than kept
+         at full precision (same "single fixed value" convention as
+         Spain's). Verified in-browser (not just in the offline
+         calculation) by replicating the exact same rotate+angle math
+         against the two bracketing points: residual tilt from
+         horizontal, 0.29° -- visually indistinguishable from level.
+       - **Framing.** Discovered (by projecting the *entire* central
+         line with the new rotation and reading off the min/max screen-y)
+         that GE ends up almost exactly the lowest on-screen point of
+         the *whole* event -- both the Arctic start and the Spain end
+         curve back up above it. That makes GE a natural bottom anchor
+         and `northLimitTerminatorStart`/`southLimitTerminatorStart`
+         (where the umbra first grazes the day/night terminator, already
+         in `shadow-frames-global.json`) a natural top anchor -- "the
+         terminator line" from the request. Replaced the old
+         fit-the-whole-band `fitExtent` with an explicit scale/translate
+         solve: `GLOBAL_TOP_MARGIN` (16, modest, "some margin") above
+         the terminator points, `GLOBAL_BOTTOM_MARGIN` (56, "quite
+         large") below GE. One direct consequence, not a bug: the far
+         (Spain/Balearics) end of the swept band now renders *above* the
+         visible top edge, off-frame -- this tab now shows "Arctic
+         terminator down to greatest eclipse" specifically, leaving the
+         already-redundant Spain-specific detail to the Spain tab.
+         Verified by reading the rendered `.gemarker`'s actual `cx`/`cy`
+         (100, 144 -- horizontally centered, exactly `200 - 56`) and by
+         re-deriving the terminator points' screen position with the
+         same formula (one landed at exactly y=16, the other safely
+         inside at y≈30.6, both within the horizontal frame). Also
+         confirmed no coastline/data regression: `.coast`'s path data
+         still non-empty and covers the expected huge (whole-world)
+         bounding box, same as before.
+       `npm run check`: 0 errors/warnings; `npm run test`: 63/63.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,

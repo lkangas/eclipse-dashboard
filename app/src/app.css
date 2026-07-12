@@ -15,6 +15,13 @@
   --live-bg: #e6f4ea;
   --live-ink: #1f6b34;
   --cline: #3467c8;
+  /* Map ocean fill -- MapPanel.svelte's .mapzone background, showing
+     through everywhere .coast's land fill doesn't cover. A background
+     color rather than an actual ocean layer, so it also covers any area
+     outside basemap.topojson's own loaded bbox (still reads as "ocean",
+     not a broken gap) -- fine for now, revisit if a real ocean layer is
+     ever worth the bundle size. */
+  --ocean: #dceefb;
 }
 
 * {

@@ -18,6 +18,7 @@
   import basemapData from '../../data/basemap.topojson';
   import basemapGlobalData from '../../data/basemap-global.topojson';
   import roadsData from '../../data/roads.topojson';
+  import roadsMinorData from '../../data/roads-minor.topojson';
   import citiesData from '../../data/cities.json';
   import shadowFrames from '../../data/shadow-frames.json';
   import shadowFramesGlobal from '../../data/shadow-frames-global.json';
@@ -26,53 +27,21 @@
 
   let tab: 'spain' | 'global' = $state('spain');
 
-  const SPAIN_VW = 280,
-    SPAIN_VH = 200,
-    SPAIN_PAD = 6;
+  // Turns an array of [lat, lon] points into a closed GeoJSON Polygon
+  // ([lon, lat] order, ring auto-closed) -- shared by the Spain band fit
+  // below and the Global band fit further down, both of which need a
+  // real geometry object to hand to d3-geo's bounds()/fitHeight()/
+  // fitExtent(), not just a bag of points.
+  function llPolygon(pts: [number, number][]) {
+    const ring = pts.map(([lat, lon]): [number, number] => [lon, lat]);
+    const first = ring[0],
+      last = ring[ring.length - 1];
+    if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
+    return { type: 'Polygon' as const, coordinates: [ring] };
+  }
+
   const topology = basemapData as unknown as Topology;
   const landFeature = feature(topology, topology.objects.land as GeometryCollection);
-  // Locked counterclockwise tilt so the central line runs more toward
-  // horizontal, letting more of the umbra band fit the panel's
-  // horizontal-rectangle aspect ratio -- a single fixed value (not
-  // fully leveled, not live-recomputed) is enough. Set via .angle()
-  // *before* fitExtent so the fit itself accounts for the tilted content.
-  const SPAIN_ROTATION_DEG = 30;
-  const spainProjection: GeoProjection = geoMercator()
-    .angle(SPAIN_ROTATION_DEG)
-    .fitExtent(
-      [
-        [SPAIN_PAD, SPAIN_PAD],
-        [SPAIN_VW - SPAIN_PAD, SPAIN_VH - SPAIN_PAD],
-      ],
-      landFeature,
-    );
-  const landPathD = geoPathGenerator(spainProjection)(landFeature) ?? '';
-
-  // Major highways + cities (PLAN.md §8, "map detail" follow-up), same
-  // fixed projection as the coastline above -- both are static reference
-  // detail, not observer- or clock-dependent, so computed once rather
-  // than as $derived. No labels yet (direct request, "at least not
-  // yet") -- cities are plain dots for now.
-  const roadsTopology = roadsData as unknown as Topology;
-  const roadsFeature = feature(
-    roadsTopology,
-    roadsTopology.objects.ne_10m_roads as GeometryCollection,
-  );
-  const roadsPathD = geoPathGenerator(spainProjection)(roadsFeature) ?? '';
-  const cityPoints = citiesData.cities
-    .map((c) => ({ name: c.name, xy: spainProjection([c.lon, c.lat]) }))
-    .filter((c): c is { name: string; xy: [number, number] } => c.xy !== null);
-
-  function project(lat: number, lon: number): [number, number] | null {
-    return spainProjection([lon, lat]);
-  }
-  function projectPts(pairs: [number, number][]): string {
-    return pairs
-      .map(([lat, lon]) => project(lat, lon))
-      .filter((p): p is [number, number] => p !== null)
-      .map((p) => p[0] + ',' + p[1])
-      .join(' ');
-  }
 
   // Points where shadow_limits didn't converge when this was generated
   // (very near the sunset cusp) are simply absent from the regular grid
@@ -97,6 +66,84 @@
   const PATH_NORTH = withTerminator(shadowFrames.northLimit, shadowFrames.northLimitTerminator);
   const PATH_SOUTH = withTerminator(shadowFrames.southLimit, shadowFrames.southLimitTerminator);
   const band = PATH_NORTH.concat(PATH_SOUTH.slice().reverse());
+
+  const SPAIN_VW = 280,
+    SPAIN_VH = 200,
+    SPAIN_RIGHT_MARGIN = 8;
+  // Locked counterclockwise tilt so the central line runs more toward
+  // horizontal, letting more of the umbra band fit the panel's
+  // horizontal-rectangle aspect ratio -- a single fixed value (not
+  // fully leveled, not live-recomputed) is enough. Set via .angle()
+  // *before* measuring anything below so the fit accounts for the
+  // tilted content.
+  const SPAIN_ROTATION_DEG = 30;
+  // Zoomed to the umbra band itself, not the whole basemap bbox: the
+  // viewport height should be about SPAIN_BAND_TO_HEIGHT times the
+  // band's own (rotated) north-south width, leaving generous margin
+  // above/below for context while keeping the band a substantial,
+  // legible fraction of the panel rather than a thin sliver in a huge
+  // regional map. d3's fitHeight() gives the scale that makes the band
+  // fill the FULL viewport height; dividing by SPAIN_BAND_TO_HEIGHT
+  // scales that back down to "fills 1/4 of it" directly, in one step,
+  // without an intermediate fitExtent that could be width- rather than
+  // height-limited (the band's east-west length is much greater than
+  // its width, so fitting *both* dimensions would pick the wrong one).
+  const SPAIN_BAND_TO_HEIGHT = 4;
+  const bandFeature = { type: 'Feature' as const, properties: {}, geometry: llPolygon(band) };
+  const spainFitToHeight = geoMercator().angle(SPAIN_ROTATION_DEG).fitHeight(SPAIN_VH, bandFeature);
+  const spainScale = spainFitToHeight.scale() / SPAIN_BAND_TO_HEIGHT;
+  // Translate is chosen (not fit) so the band's rightmost point -- the
+  // Balearics end, later/lower-sun and closer to the sunset cusp -- sits
+  // just inside the right edge, band centered vertically. Combined with
+  // the Spain <svg>'s xMaxYMid preserveAspectRatio below, this means a
+  // shorter (vertically-resized) panel only ever grows/shrinks the empty
+  // margin on the LEFT -- the right-anchored content, and therefore
+  // Spain itself, stays fully in view at any panel height.
+  const spainMeasure = geoMercator().angle(SPAIN_ROTATION_DEG).scale(spainScale).translate([0, 0]);
+  const spainBandBounds = geoPathGenerator(spainMeasure).bounds(bandFeature);
+  const spainProjection: GeoProjection = geoMercator()
+    .angle(SPAIN_ROTATION_DEG)
+    .scale(spainScale)
+    .translate([
+      SPAIN_VW - SPAIN_RIGHT_MARGIN - spainBandBounds[1][0],
+      SPAIN_VH / 2 - (spainBandBounds[0][1] + spainBandBounds[1][1]) / 2,
+    ]);
+  const landPathD = geoPathGenerator(spainProjection)(landFeature) ?? '';
+
+  // Major + secondary highways, and cities (PLAN.md §8, "map detail"
+  // follow-up), same fixed projection as the coastline above -- all
+  // static reference detail, not observer- or clock-dependent, so
+  // computed once rather than as $derived. No labels yet (direct
+  // request, "at least not yet") -- cities are plain dots for now.
+  const roadsTopology = roadsData as unknown as Topology;
+  const roadsFeature = feature(
+    roadsTopology,
+    roadsTopology.objects.ne_10m_roads as GeometryCollection,
+  );
+  const roadsPathD = geoPathGenerator(spainProjection)(roadsFeature) ?? '';
+  // One tier down ("Secondary Highway") -- same stroke-width as the
+  // major layer, just dimmer (.roads-minor's lower stroke-opacity) so it
+  // reads as background context rather than competing with it.
+  const roadsMinorTopology = roadsMinorData as unknown as Topology;
+  const roadsMinorFeature = feature(
+    roadsMinorTopology,
+    roadsMinorTopology.objects.ne_10m_roads as GeometryCollection,
+  );
+  const roadsMinorPathD = geoPathGenerator(spainProjection)(roadsMinorFeature) ?? '';
+  const cityPoints = citiesData.cities
+    .map((c) => ({ name: c.name, xy: spainProjection([c.lon, c.lat]) }))
+    .filter((c): c is { name: string; xy: [number, number] } => c.xy !== null);
+
+  function project(lat: number, lon: number): [number, number] | null {
+    return spainProjection([lon, lat]);
+  }
+  function projectPts(pairs: [number, number][]): string {
+    return pairs
+      .map(([lat, lon]) => project(lat, lon))
+      .filter((p): p is [number, number] => p !== null)
+      .map((p) => p[0] + ',' + p[1])
+      .join(' ');
+  }
 
   // Global tab's own whole-event N/S umbral limits (shadow-frames-
   // global.json -- coarser, but spans the entire path from Arctic Russia
@@ -216,9 +263,17 @@
   // does, instead of hand-computing screen coordinates per point.
   const GLOBAL_LAT0 = 65.22,
     GLOBAL_LON0 = -25.24;
+  const GREATEST_ECLIPSE: [number, number] = [65.2233, -25.24];
   const GLOBAL_VW = 200,
-    GLOBAL_VH = 200,
-    GLOBAL_PAD = 10;
+    GLOBAL_VH = 200;
+  // Levels the central line at greatest eclipse (a local condition --
+  // the path curves everywhere else, so no single angle levels all of
+  // it). Computed once from the real central-line samples bracketing GE
+  // (the true local bearing there is ~169.5 deg clockwise from north,
+  // which an azimuthal projection centered on GE preserves exactly as a
+  // screen angle -- see PLAN.md), then rounded to a clean value rather
+  // than kept at full precision, same convention as SPAIN_ROTATION_DEG.
+  const GLOBAL_ROTATION_DEG = 80;
   function stereographicRaw(x: number, y: number): [number, number] {
     const cosy = Math.cos(y),
       k = 1 + Math.cos(x) * cosy;
@@ -229,27 +284,50 @@
   // coastline rings that pass near/beyond the antipodal point, producing
   // broken/self-intersecting-looking paths. 89.9, not a full 90, keeps
   // the exact antipodal edge case away from the clip boundary.
-  function llPolygon(pts: [number, number][]) {
-    const ring = pts.map(([lat, lon]): [number, number] => [lon, lat]);
-    const first = ring[0],
-      last = ring[ring.length - 1];
-    if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
-    return { type: 'Polygon' as const, coordinates: [ring] };
+  //
+  // Framing is deliberately NOT "fit the whole swept band" anymore: with
+  // GLOBAL_ROTATION_DEG applied, greatest eclipse (GE) turns out to be
+  // very close to the LOWEST on-screen point of the entire central line
+  // -- both the Arctic start and the Spain end curve back up above it
+  // (verified directly against the real centralLine samples, not
+  // assumed). That makes GE a natural bottom anchor and the event's
+  // start (northLimitTerminatorStart/southLimitTerminatorStart -- where
+  // the umbra first grazes the day/night terminator) a natural top
+  // anchor, framing "Arctic terminator down to greatest eclipse" -- the
+  // dramatic overview this tab is for, leaving the Spain-specific detail
+  // (already redundant with it) to the Spain tab. GLOBAL_TOP_MARGIN is
+  // modest (the terminator points sit close to the top edge);
+  // GLOBAL_BOTTOM_MARGIN is large (GE gets real breathing room below the
+  // umbra line, not just a margin equal to the top one).
+  const GLOBAL_TOP_MARGIN = 16,
+    GLOBAL_BOTTOM_MARGIN = 56;
+  const globalMeasure = geoProjection(stereographicRaw)
+    .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
+    .angle(GLOBAL_ROTATION_DEG)
+    .scale(1)
+    .translate([0, 0]);
+  function measureXY(lat: number, lon: number): [number, number] {
+    return globalMeasure([lon, lat]) ?? [0, 0];
   }
-  // Fit to the swept umbral band (the whole event's N/S limits), not the
-  // coastline -- the coastline's own bbox (Arctic Russia to Spain) is
-  // much wider than the band itself, which would otherwise leave the
-  // actual content of interest small in a corner of the viewport.
+  const geRawXY = measureXY(GREATEST_ECLIPSE[0], GREATEST_ECLIPSE[1]);
+  const topRawY = Math.min(
+    measureXY(
+      shadowFramesGlobal.northLimitTerminatorStart.lat,
+      shadowFramesGlobal.northLimitTerminatorStart.lon,
+    )[1],
+    measureXY(
+      shadowFramesGlobal.southLimitTerminatorStart.lat,
+      shadowFramesGlobal.southLimitTerminatorStart.lon,
+    )[1],
+  );
+  const globalScale =
+    (GLOBAL_VH - GLOBAL_TOP_MARGIN - GLOBAL_BOTTOM_MARGIN) / (geRawXY[1] - topRawY);
   const globalProjection: GeoProjection = geoProjection(stereographicRaw)
     .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
+    .angle(GLOBAL_ROTATION_DEG)
     .clipAngle(89.9)
-    .fitExtent(
-      [
-        [GLOBAL_PAD, GLOBAL_PAD],
-        [GLOBAL_VW - GLOBAL_PAD, GLOBAL_VH - GLOBAL_PAD],
-      ],
-      { type: 'Feature' as const, properties: {}, geometry: llPolygon(GLOBAL_BAND) },
-    );
+    .scale(globalScale)
+    .translate([GLOBAL_VW / 2 - globalScale * geRawXY[0], GLOBAL_TOP_MARGIN - globalScale * topRawY]);
   function stereo(lat: number, lon: number): [number, number] {
     return globalProjection([lon, lat]) ?? [GLOBAL_VW / 2, GLOBAL_VH / 2];
   }
@@ -262,7 +340,6 @@
     globalTopology.objects.land as GeometryCollection,
   );
   const globalLandPathD = geoPathGenerator(globalProjection)(globalLandFeature) ?? '';
-  const GREATEST_ECLIPSE: [number, number] = [65.2233, -25.24];
   const gePos = stereo(GREATEST_ECLIPSE[0], GREATEST_ECLIPSE[1]);
 </script>
 
@@ -275,13 +352,14 @@
     <svg
       bind:this={mapSvg}
       viewBox="0 0 280 200"
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="xMaxYMid meet"
       style:display={tab === 'spain' ? 'block' : 'none'}
       onpointerdown={onMapPointerDown}
       role="application"
       aria-label="Eclipse path map -- click or drag to set the observer location"
     >
       <path class="coast" d={landPathD} />
+      <path class="roads-minor" d={roadsMinorPathD} />
       <path class="roads" d={roadsPathD} />
       {#each cityPoints as c (c.name)}
         <circle class="citydot" cx={c.xy[0]} cy={c.xy[1]} r="0.9" />
@@ -363,7 +441,7 @@
   }
   .mapzone {
     flex: 1;
-    background: var(--zone);
+    background: var(--ocean);
     position: relative;
     overflow: hidden;
   }
@@ -387,6 +465,16 @@
     stroke: var(--muted);
     stroke-width: 0.3;
     stroke-opacity: 0.8;
+  }
+  /* One tier down ("Secondary Highway") -- same stroke-width as .roads,
+     just dimmer, so it reads as background context under the major
+     roads rather than competing with them. Drawn before .roads in the
+     template so the major layer stays crisp on top of any overlap. */
+  .roads-minor {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 0.3;
+    stroke-opacity: 0.35;
   }
   .citydot {
     fill: var(--muted);

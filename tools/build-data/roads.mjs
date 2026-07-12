@@ -39,3 +39,19 @@ const commands = [
 
 await mapshaper.runCommands(commands);
 console.log(`Wrote ${path.join(OUTPUT_DIR, 'roads.topojson')}`);
+
+// One tier down ("Secondary Highway"), rendered dimmer/more transparent
+// than the major layer above (same stroke-width, lower stroke-opacity --
+// MapPanel.svelte's .roads-minor) so it reads as background context
+// rather than competing with it. Plain "Road" (the next tier after this)
+// is left out -- at this map's scale it'd just be visual noise.
+const minorCommands = [
+  `-i "${SOURCE}"`,
+  `-clip bbox=${BBOX}`,
+  "-filter \"type=='Secondary Highway'\"",
+  '-simplify 30% keep-shapes',
+  `-o format=topojson quantization=1e5 drop-table "${path.join(OUTPUT_DIR, 'roads-minor.topojson')}"`,
+].join(' ');
+
+await mapshaper.runCommands(minorCommands);
+console.log(`Wrote ${path.join(OUTPUT_DIR, 'roads-minor.topojson')}`);
