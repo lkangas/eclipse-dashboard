@@ -29,20 +29,14 @@
   // some reset default.
   let selectedPresetKey = $state('calamocha');
 
-  // Opening the dropdown re-activates its remembered preset immediately,
-  // before any option is even picked -- otherwise, since a native
-  // <select> only fires `change` on an actual value transition, there'd
-  // be no way to switch back to Preset mode with the SAME preset you'd
-  // left (reselecting an option that's already the select's current
-  // value fires nothing). Bound to both mousedown (fires reliably right
-  // as a mouse click starts, before the OS dropdown opens) and focus
-  // (keyboard/tab navigation) so either interaction path reactivates it.
-  // `change` still separately handles genuinely picking a *different*
-  // preset.
-  function onPresetFocus() {
-    const site = SITES[selectedPresetKey];
-    if (site) setObserver(site.lat, site.lon, 'preset');
-  }
+  // Only an actual selection in the list changes the location (direct
+  // request/bug report) -- merely opening/clicking the dropdown while
+  // Manual is active must NOT switch away from Manual by itself. An
+  // earlier version also reacted on mousedown/focus (to make returning
+  // to the SAME already-remembered preset possible, since a native
+  // <select> doesn't fire `change` on a no-op reselect) -- reverted:
+  // that made every click on the closed dropdown prematurely change the
+  // active location, which is worse than the edge case it was solving.
   function onPresetChange(e: Event) {
     const key = (e.currentTarget as HTMLSelectElement).value;
     const site = SITES[key];
@@ -146,8 +140,6 @@
       class="modebtn presetbtn"
       class:on={$observer.source === 'preset'}
       value={selectedPresetKey}
-      onmousedown={onPresetFocus}
-      onfocus={onPresetFocus}
       onchange={onPresetChange}
     >
       {#each Object.entries(SITES) as [key, site] (key)}
