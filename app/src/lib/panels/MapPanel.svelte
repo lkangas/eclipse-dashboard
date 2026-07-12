@@ -317,22 +317,26 @@
   // the umbra first grazes the day/night terminator) a natural top
   // anchor, framing "Arctic terminator down to greatest eclipse" -- the
   // dramatic overview this tab is for, leaving the Spain-specific detail
-  // (already redundant with it) to the Spain tab. GLOBAL_TOP_MARGIN and
-  // GLOBAL_BOTTOM_MARGIN have both moved a few times since the first
-  // pass (16/56): top up three times (16 -> 20 -> 28 -> 50 -> 80, each
-  // "needs more room above the terminator/Finland" follow-up), bottom
-  // up once then back down (56 -> 68 -> 55, "give GE more room" then
-  // later "the bottom edge can come up a bit" once the top had already
-  // grown a lot). Current values sized against real reference points,
-  // not guessed: top against Finland's own extent (checked Nuorgam/
-  // Rovaniemi/Helsinki's actual projected Y at a few candidate margins --
-  // Helsinki, not the northern tip, turned out to be the tightest
-  // constraint here, since the rotation means "closer to the top edge"
-  // isn't simply "further north"); bottom against GE staying comfortably
-  // clear of the panel's actual bottom edge while tightening from its
-  // previous oversized gap.
-  const GLOBAL_TOP_MARGIN = 80,
-    GLOBAL_BOTTOM_MARGIN = 55;
+  // (already redundant with it) to the Spain tab.
+  //
+  // TEMPORARY TUNING STATE -- per direct request, the zoomed-in and
+  // zoomed-out views each get their own independent top/bottom margin
+  // (previously zoom-out was just a flat 2x-smaller scale on the
+  // zoomed-in fit, with no margins of its own), and all four are
+  // $state + live slider-editable (see the .tuning panel in the
+  // template) instead of hardcoded constants -- the back-and-forth of
+  // editing a value, rebuilding, and screenshotting to find the right
+  // number was reported too slow. Once final numbers are picked, these
+  // should go back to being plain constants and the slider panel
+  // deleted -- everything in this block is meant to be temporary.
+  let zoomInTopMargin = $state(80);
+  let zoomInBottomMargin = $state(55);
+  let zoomOutTopMargin = $state(20);
+  let zoomOutBottomMargin = $state(90);
+  let globalZoomedOut = $state(false);
+  const globalTopMargin = $derived(globalZoomedOut ? zoomOutTopMargin : zoomInTopMargin);
+  const globalBottomMargin = $derived(globalZoomedOut ? zoomOutBottomMargin : zoomInBottomMargin);
+  // END TEMPORARY TUNING STATE
   const globalMeasure = geoProjection(stereographicRaw)
     .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
     .angle(GLOBAL_ROTATION_DEG)
@@ -352,21 +356,12 @@
       shadowFramesGlobal.southLimitTerminatorStart.lon,
     )[1],
   );
-  const globalFitScale =
-    (GLOBAL_VH - GLOBAL_TOP_MARGIN - GLOBAL_BOTTOM_MARGIN) / (geRawXY[1] - topRawY);
-  // Zoom-out toggle: a plain 2x-smaller scale on top of the fitted one
-  // above, per direct request ("just implement the button starting with
-  // a 2x scale, I will then give further instructions" -- explicitly
-  // not asking for the anchors/margins to be recomputed for the zoomed-
-  // out case, so this deliberately doesn't try to re-fit/re-anchor
-  // anything, just halves the scale and lets the existing translate
-  // formula (itself a function of scale) carry GE and the terminator
-  // anchors wherever that puts them). Reactive ($derived, not a plain
-  // const) since it depends on this toggle -- everything downstream
-  // (globalProjection/globalLandPathD/gePos) has to become reactive too.
-  let globalZoomedOut = $state(false);
-  const GLOBAL_ZOOM_OUT_FACTOR = 2;
-  const globalScale = $derived(globalZoomedOut ? globalFitScale / GLOBAL_ZOOM_OUT_FACTOR : globalFitScale);
+  // Math.max(10, ...) floor: purely a safety net while dragging sliders
+  // (top+bottom can otherwise briefly exceed GLOBAL_VH mid-drag and
+  // send scale negative/infinite) -- not a real design constraint.
+  const globalScale = $derived(
+    Math.max(10, GLOBAL_VH - globalTopMargin - globalBottomMargin) / (geRawXY[1] - topRawY),
+  );
   const globalProjection: GeoProjection = $derived(
     geoProjection(stereographicRaw)
       .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
@@ -375,7 +370,7 @@
       .scale(globalScale)
       .translate([
         GLOBAL_VW / 2 - globalScale * geRawXY[0],
-        GLOBAL_TOP_MARGIN - globalScale * topRawY,
+        globalTopMargin - globalScale * topRawY,
       ]),
   );
   function stereo(lat: number, lon: number): [number, number] {
@@ -470,6 +465,28 @@
       {/if}
       <circle class="gemarker" cx={gePos[0]} cy={gePos[1]} r="2.5" />
     </svg>
+    <!-- TEMPORARY TUNING PANEL -- delete along with the $state margin
+         vars above once final numbers are picked. -->
+    {#if tab === 'global'}
+      <div class="tuning">
+        <label>
+          <span>Zoom-in top <b>{zoomInTopMargin}</b></span>
+          <input type="range" min="0" max="180" bind:value={zoomInTopMargin} />
+        </label>
+        <label>
+          <span>Zoom-in bottom <b>{zoomInBottomMargin}</b></span>
+          <input type="range" min="0" max="180" bind:value={zoomInBottomMargin} />
+        </label>
+        <label>
+          <span>Zoom-out top <b>{zoomOutTopMargin}</b></span>
+          <input type="range" min="0" max="180" bind:value={zoomOutTopMargin} />
+        </label>
+        <label>
+          <span>Zoom-out bottom <b>{zoomOutBottomMargin}</b></span>
+          <input type="range" min="0" max="180" bind:value={zoomOutBottomMargin} />
+        </label>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -646,5 +663,40 @@
   }
   .globalFill {
     stroke: none;
+  }
+  /* TEMPORARY TUNING PANEL -- delete this rule along with the .tuning
+     markup and the $state margin vars once final numbers are picked. */
+  .tuning {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--ink);
+    pointer-events: auto;
+  }
+  .tuning label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tuning span {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--muted);
+  }
+  .tuning b {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .tuning input[type='range'] {
+    width: 160px;
   }
 </style>
