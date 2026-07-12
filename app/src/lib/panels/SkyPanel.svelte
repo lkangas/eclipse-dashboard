@@ -13,11 +13,15 @@
   // Wide view: a real alt-az tangent-plane projection centered on the
   // camera's own boresight, sized around the actual ASI294MC + 50mm lens
   // FOV (direct request) -- see the camera constants below. Shows the
-  // Sun's real path from C1 down to sunset as a dashed line (C1/C2/C3
-  // marked along it -- C4 excluded on purpose: for the default observer
-  // it falls after sunset, i.e. already below the horizon, so it was
-  // never going to land on a visible path anyway), the real horizon, and
-  // any star/planet within the (slightly-wider-than-camera) view.
+  // Sun's real path from C1 down to sunset as a dashed line, C1-C4
+  // marked along it as perpendicular ticks (direct request) rather than
+  // dots -- each tick's own angle comes from the Sun's real local path
+  // direction there, not a fixed screen orientation. C4 is included
+  // even though it falls after sunset (already below the horizon) for
+  // the default observer -- it just won't be visually prominent there,
+  // same as everywhere else in the app, rather than being filtered out
+  // as a special case. Also shows the real horizon and any star/planet
+  // within the (slightly-wider-than-camera) view.
   // Framing margins are temporary $state + a slider panel (same pattern
   // as the Global map's earlier margin tuning, see git history) --
   // meant to be interactively picked once, then locked into plain
@@ -235,21 +239,69 @@
     return pts;
   });
 
+  // C1-C4 (direct request -- C4 included even though it falls below the
+  // horizon for the default Calamocha observer, same as everywhere else
+  // in the app: it just won't be visually prominent there, rather than
+  // being a special case to filter out here).
   const CONTACT_MARKERS = [
     { key: 'c1', label: 'C1' },
     { key: 'c2', label: 'C2' },
     { key: 'c3', label: 'C3' },
+    { key: 'c4', label: 'C4' },
   ] as const;
+  // Perpendicular tick marks (direct request), not dots -- each one's
+  // orientation comes from the Sun's real local path DIRECTION at that
+  // moment (sampled a few seconds either side and projected the same
+  // way as everything else here), not just a fixed screen-space
+  // rotation, so it actually reads as "crossing the path" at whatever
+  // angle the path happens to have there.
+  const TICK_HALF_LEN_PX = 5;
+  const TICK_DT_MS = 30_000;
   const contactMarks = $derived.by(() => {
     const lc = $localCircumstances;
     const obs = $observer;
     return CONTACT_MARKERS.map(({ key, label }) => {
       const date = lc[key];
       if (!date) return null;
+      const t = date.getTime();
       const altAz = sunAltAzAt(date, obs.lat, obs.lon, obs.elevationM);
       const [x, y] = widePos(altAz.altitude, altAz.azimuth);
-      return { key, label, x, y };
-    }).filter((m): m is { key: 'c1' | 'c2' | 'c3'; label: 'C1' | 'C2' | 'C3'; x: number; y: number } => m !== null);
+      const before = sunAltAzAt(new Date(t - TICK_DT_MS), obs.lat, obs.lon, obs.elevationM);
+      const after = sunAltAzAt(new Date(t + TICK_DT_MS), obs.lat, obs.lon, obs.elevationM);
+      const [bx, by] = widePos(before.altitude, before.azimuth);
+      const [ax, ay] = widePos(after.altitude, after.azimuth);
+      let dx = ax - bx,
+        dy = ay - by;
+      const len = Math.hypot(dx, dy) || 1;
+      dx /= len;
+      dy /= len;
+      // Perpendicular unit vector -- the tangent rotated 90deg.
+      const px = -dy,
+        py = dx;
+      return {
+        key,
+        label,
+        x,
+        y,
+        x1: x - px * TICK_HALF_LEN_PX,
+        y1: y - py * TICK_HALF_LEN_PX,
+        x2: x + px * TICK_HALF_LEN_PX,
+        y2: y + py * TICK_HALF_LEN_PX,
+      };
+    }).filter(
+      (
+        m,
+      ): m is {
+        key: 'c1' | 'c2' | 'c3' | 'c4';
+        label: 'C1' | 'C2' | 'C3' | 'C4';
+        x: number;
+        y: number;
+        x1: number;
+        y1: number;
+        x2: number;
+        y2: number;
+      } => m !== null,
+    );
   });
 
   // Sun/Moon at effectiveTime (live/sim clock) -- same skyView values
@@ -321,7 +373,7 @@
         <polyline class="sunpath" points={sunPathXY.map((p) => p.join(',')).join(' ')} />
       {/if}
       {#each contactMarks as m (m.key)}
-        <circle class="contactmark" cx={m.x} cy={m.y} r="2" />
+        <line class="contactmark" x1={m.x1} y1={m.y1} x2={m.x2} y2={m.y2} />
         <text class="contactlabel" x={m.x} y={m.y - 5}>{m.label}</text>
       {/each}
       {#each wideStars as star (star.proper ?? star.xy.join(','))}
@@ -463,9 +515,12 @@
     stroke-width: 1;
     stroke-dasharray: 3 3;
   }
+  /* Perpendicular tick, not a dot (direct request) -- crosses the Sun's
+     path at its own local direction there, computed in the script
+     above, not just a fixed screen-space orientation. */
   .contactmark {
-    fill: #dce4f2;
-    stroke: none;
+    stroke: #dce4f2;
+    stroke-width: 1.5;
   }
   .contactlabel {
     fill: #dce4f2;
