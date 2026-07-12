@@ -94,22 +94,42 @@
   const bandFeature = { type: 'Feature' as const, properties: {}, geometry: llPolygon(band) };
   const spainFitToHeight = geoMercator().angle(SPAIN_ROTATION_DEG).fitHeight(SPAIN_VH, bandFeature);
   const spainScale = spainFitToHeight.scale() / SPAIN_BAND_TO_HEIGHT;
-  // Translate is chosen (not fit) so the band's rightmost point -- the
-  // Balearics end, later/lower-sun and closer to the sunset cusp -- sits
-  // just inside the right edge, band centered vertically. Combined with
-  // the Spain <svg>'s xMaxYMid preserveAspectRatio below, this means a
+  // Horizontal translate is chosen (not fit) so the band's rightmost
+  // point -- the Balearics end, later/lower-sun and closer to the
+  // sunset cusp -- sits just inside the right edge. Combined with the
+  // Spain <svg>'s xMaxYMid preserveAspectRatio below, this means a
   // shorter (vertically-resized) panel only ever grows/shrinks the empty
   // margin on the LEFT -- the right-anchored content, and therefore
   // Spain itself, stays fully in view at any panel height.
   const spainMeasure = geoMercator().angle(SPAIN_ROTATION_DEG).scale(spainScale).translate([0, 0]);
   const spainBandBounds = geoPathGenerator(spainMeasure).bounds(bandFeature);
+  const spainTranslateX = SPAIN_VW - SPAIN_RIGHT_MARGIN - spainBandBounds[1][0];
+  // Vertical translate centers the CENTRAL LINE, not the swept band --
+  // and only the slice of it that will actually be visible in this
+  // right-anchored, zoomed-in view, not its extent over the whole
+  // event. The band's north/south limits flare out hugely (and
+  // asymmetrically) near the sunset-cusp ends of the path, well outside
+  // this crop, so centering on the *band's* full bounding box (the
+  // previous approach) balanced against those off-screen flares instead
+  // of what's on screen -- the visible slice of the central line ended
+  // up sitting well below panel-center, not "not centered" by a small
+  // margin but by a lot. Falls back to the band's own bounds if
+  // (shouldn't happen at any real scale) no central-line point lands in
+  // the visible window.
+  const spainVisibleXMin = -spainTranslateX,
+    spainVisibleXMax = SPAIN_VW - spainTranslateX;
+  const visibleCenterYs = PATH_CENTER.map(([lat, lon]) => spainMeasure([lon, lat]))
+    .filter((p): p is [number, number] => p !== null)
+    .filter(([x]) => x >= spainVisibleXMin && x <= spainVisibleXMax)
+    .map(([, y]) => y);
+  const spainCenterYMid =
+    visibleCenterYs.length > 0
+      ? (Math.min(...visibleCenterYs) + Math.max(...visibleCenterYs)) / 2
+      : (spainBandBounds[0][1] + spainBandBounds[1][1]) / 2;
   const spainProjection: GeoProjection = geoMercator()
     .angle(SPAIN_ROTATION_DEG)
     .scale(spainScale)
-    .translate([
-      SPAIN_VW - SPAIN_RIGHT_MARGIN - spainBandBounds[1][0],
-      SPAIN_VH / 2 - (spainBandBounds[0][1] + spainBandBounds[1][1]) / 2,
-    ]);
+    .translate([spainTranslateX, SPAIN_VH / 2 - spainCenterYMid]);
   const landPathD = geoPathGenerator(spainProjection)(landFeature) ?? '';
 
   // Major + secondary highways, and cities (PLAN.md §8, "map detail"

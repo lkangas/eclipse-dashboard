@@ -1020,6 +1020,26 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        Global's `.gemarker` now sits at (100, 132) = `200 - 68`, matching
        the new bottom margin exactly. `npm run check`: 0 errors/
        warnings; `npm run test`: 63/63.
+     - ✅ **Fixed Spain's central line being off-center vertically** --
+       root cause: the vertical translate centered the swept *band's*
+       full bounding box (north+south limits over the *whole* event),
+       not the central line, and not just the visible slice of it. The
+       band flares out hugely and asymmetrically near the sunset-cusp
+       ends of the path (well outside the now-3x-zoomed, right-anchored
+       crop), so that full-event bbox center didn't correspond to
+       panel-center for whatever's actually on screen -- confirmed
+       directly (not assumed) by reading the rendered `.pathline`'s
+       points within the visible x-range before the fix: y averaged
+       141.3 out of a 200-tall viewport, nowhere near the 100 mid-line.
+       Fixed by computing the vertical translate from the *central
+       line's* own points, filtered to the horizontal window that will
+       actually be visible (derivable before translateY, since it only
+       depends on the already-fixed translateX and scale) -- falls back
+       to the old band-bbox center in the (shouldn't-happen) case no
+       central-line point lands in that window. Verified the same way:
+       visible `.pathline` points now range y 92.9-107.1, midpoint
+       *exactly* 100. `npm run check`: 0 errors/warnings; `npm run
+       test`: 63/63.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,
