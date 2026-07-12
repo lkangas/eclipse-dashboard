@@ -7,7 +7,7 @@
   import MapPanel from './lib/panels/MapPanel.svelte';
   import SkyPanel from './lib/panels/SkyPanel.svelte';
   import { resizable } from './lib/actions/resizable';
-  import { fullscreenPanel } from './stores/layout';
+  import { fullscreenPanel, type PanelId } from './stores/layout';
 
   // Panel fullscreen mode (direct request, stores/layout.ts) -- each
   // pane below gets a small fsbtn that sets fullscreenPanel to its own
@@ -15,6 +15,15 @@
   // fullscreen) switches between all four the same way. Started as a
   // CountdownPanel-only MVP to prove the mechanism end-to-end before
   // copying the button onto the other three (see git history).
+  //
+  // Each button toggles its OWN panel (bug report: clicking a panel's
+  // own fsbtn while it was already the fullscreen one did nothing --
+  // set() always pointed at the same id, so there was no way back
+  // except the ribbon's separate exit button). Icon/title flip to
+  // signal "click to exit" once that panel IS the fullscreen one.
+  function toggleFullscreen(id: PanelId) {
+    fullscreenPanel.update((cur) => (cur === id ? null : id));
+  }
 </script>
 
 <div class="app">
@@ -29,8 +38,12 @@
         class:fs-active={$fullscreenPanel === 'timetable'}
         class:fs-hidden={$fullscreenPanel !== null && $fullscreenPanel !== 'timetable'}
       >
-        <button class="fsbtn" onclick={() => fullscreenPanel.set('timetable')} title="Full screen">
-          ⛶
+        <button
+          class="fsbtn"
+          onclick={() => toggleFullscreen('timetable')}
+          title={$fullscreenPanel === 'timetable' ? 'Exit full screen' : 'Full screen'}
+        >
+          {$fullscreenPanel === 'timetable' ? '✕' : '⛶'}
         </button>
         <ContactsPanel />
       </div>
@@ -42,8 +55,12 @@
         class:fs-active={$fullscreenPanel === 'countdown'}
         class:fs-hidden={$fullscreenPanel !== null && $fullscreenPanel !== 'countdown'}
       >
-        <button class="fsbtn" onclick={() => fullscreenPanel.set('countdown')} title="Full screen">
-          ⛶
+        <button
+          class="fsbtn"
+          onclick={() => toggleFullscreen('countdown')}
+          title={$fullscreenPanel === 'countdown' ? 'Exit full screen' : 'Full screen'}
+        >
+          {$fullscreenPanel === 'countdown' ? '✕' : '⛶'}
         </button>
         <CountdownPanel />
       </div>
@@ -59,7 +76,13 @@
         class:fs-active={$fullscreenPanel === 'map'}
         class:fs-hidden={$fullscreenPanel !== null && $fullscreenPanel !== 'map'}
       >
-        <button class="fsbtn" onclick={() => fullscreenPanel.set('map')} title="Full screen">⛶</button>
+        <button
+          class="fsbtn"
+          onclick={() => toggleFullscreen('map')}
+          title={$fullscreenPanel === 'map' ? 'Exit full screen' : 'Full screen'}
+        >
+          {$fullscreenPanel === 'map' ? '✕' : '⛶'}
+        </button>
         <MapPanel />
       </div>
       <div class="hsplit" class:fs-hidden={$fullscreenPanel !== null} use:resizable={{ axis: 'y' }}>
@@ -70,7 +93,13 @@
         class:fs-active={$fullscreenPanel === 'sky'}
         class:fs-hidden={$fullscreenPanel !== null && $fullscreenPanel !== 'sky'}
       >
-        <button class="fsbtn" onclick={() => fullscreenPanel.set('sky')} title="Full screen">⛶</button>
+        <button
+          class="fsbtn"
+          onclick={() => toggleFullscreen('sky')}
+          title={$fullscreenPanel === 'sky' ? 'Exit full screen' : 'Full screen'}
+        >
+          {$fullscreenPanel === 'sky' ? '✕' : '⛶'}
+        </button>
         <SkyPanel />
       </div>
     </div>
