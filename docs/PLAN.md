@@ -1220,6 +1220,33 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
      entry positioning (C2-90s, falling back to Max-90s outside
      totality), and playback all verified working. `npm run test`:
      105/105; `npm run check`: 0 errors/warnings.
+   - ✅ **Replaced the arcsinh warp curve with two fixed-domain zoom
+     levels**, per direct request ("get rid of the arsinh scaling").
+     The Real/Stretch/Stretch+ buttons and their `Math.asinh`/`Math.sinh`
+     warp-unwarp pair are gone; the track is always plain linear now.
+     `ClockState.curveLevel` (`'real'|'stretch'|'stretchplus'`) replaced
+     with `zoomLevel: 'in'|'out'` (`stores/clock.ts`), driving the
+     *domain* instead of a curve: **Zoom in** shows Max ±10min; **Zoom
+     out** shows a fixed **2026-08-12 15:30-20:00 UTC** window (a literal
+     constant, not derived from contact times -- explicitly called out
+     as a placeholder, "will be removed later"). Tick/label granularity
+     now adapts to how wide the current domain is (1min steps under
+     40min, else 10min; major ticks at 5min or the hour respectively)
+     instead of the old two-overlaid-scales-plus-collision-detection
+     scheme, which is gone along with the `$effect` that ran
+     `getBoundingClientRect` every render to hide colliding minute
+     labels. Contact markers (C1..C4/Max/Sunset) outside the currently
+     visible domain are now filtered out rather than rendered at a huge
+     off-track percentage (matters a lot zoomed in, where only C2/Max/C3
+     are normally in view); the totality band and cursor are clamped/
+     hidden the same way. Verified in-browser: Zoom out shows ticks
+     17:30-22:00 CEST (=15:30-20:00 UTC) with all five contacts visible;
+     Zoom in shows only C2/Max/C3 in a 20min window with correctly
+     non-overlapping labels (measured via `getBoundingClientRect`, no
+     collision); the cursor correctly hides (opacity 0) when the live
+     clock falls outside whichever domain is selected, which it always
+     does before the event itself. `npm run test`: 63/63; `npm run
+     check`: 0 errors/warnings.
 5. **Location inputs** (manual → map → geolocation → serial GPS) — ⬜ not
    started (mock has manual entry + map click/drag + a geolocation
    placeholder button; serial GPS not touched at all yet).

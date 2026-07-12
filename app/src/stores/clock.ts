@@ -6,20 +6,24 @@ import { derived, writable } from 'svelte/store';
 import { now } from './now';
 
 export type ClockMode = 'live' | 'sim';
-export type CurveLevel = 'real' | 'stretch' | 'stretchplus';
+/** Which fixed time window TimeBar's track currently shows -- 'in' is a
+ * close-up around Max, 'out' a wide fixed window (see TimeBar.svelte).
+ * Replaces the old arcsinh warp-curve levels: the track is always linear
+ * now, only the visible domain changes. */
+export type ZoomLevel = 'in' | 'out';
 
 export interface ClockState {
   mode: ClockMode;
   simTimeMs: number;
   playing: boolean;
-  curveLevel: CurveLevel;
+  zoomLevel: ZoomLevel;
 }
 
 export const clock = writable<ClockState>({
   mode: 'live',
   simTimeMs: Date.now(),
   playing: false,
-  curveLevel: 'real',
+  zoomLevel: 'out',
 });
 
 // The instant every time-driven view (map shadow marker, time slider

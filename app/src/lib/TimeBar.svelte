@@ -2,23 +2,22 @@
   // Ported from design/layout-v3-fullscreen.html's time-slider script,
   // now driven by real per-observer contact times (localCircumstances)
   // instead of the mock's hardcoded STUB_CONTACTS. Internally works in
-  // epoch SECONDS (not ms) so the K_STRETCH/warp constants below are
-  // unchanged from the original design; the clock store itself holds ms
-  // (standard JS Date convention).
+  // epoch SECONDS (not ms); the clock store itself holds ms (standard JS
+  // Date convention). The track is always linear -- no more arcsinh warp
+  // curve -- with the visible domain itself switched by the Zoom in/out
+  // buttons instead (see ZoomLevel in stores/clock.ts).
   import { get } from 'svelte/store';
   import { clock, effectiveTime } from '../stores/clock';
   import { localCircumstances } from '../stores/localCircumstances';
 
-  const MARGIN_S = 30 * 60; // comfortable margin shown before C1 / after C4
-
-  // "real": identity (linear, true spacing). "stretch"/"stretchplus": arcsinh,
-  // symmetric around max by construction -- near-linear within about ±K
-  // seconds of max, compressing increasingly beyond that, so C2/Max/C3 (a
-  // couple minutes apart) get comfortable click targets without the
-  // C1..C2 / C3..C4 partial phases (each most of an hour) taking over the
-  // whole track. stretchplus reuses the exact same curve with a smaller K.
-  const K_STRETCH = 60,
-    K_STRETCH_PLUS = 20;
+  // Fixed zoom-out window (UTC), per direct request -- comfortably covers
+  // the whole event (partial phase through sunset) with margin either
+  // side, as a literal clock range rather than one derived from contact
+  // times. Temporary/placeholder ("will be removed later"), so kept as a
+  // plain local constant rather than threaded through as configuration.
+  const ZOOM_OUT_START_S = Date.UTC(2026, 7, 12, 15, 30, 0) / 1000;
+  const ZOOM_OUT_END_S = Date.UTC(2026, 7, 12, 20, 0, 0) / 1000;
+  const ZOOM_IN_HALF_WIDTH_S = 10 * 60;
 
   const hmFmt = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/Madrid',
@@ -59,92 +58,55 @@
     };
   });
   const hasTotality = $derived(eventSec.c2 !== null && eventSec.c3 !== null);
-  const domainStart = $derived(eventSec.c1 - MARGIN_S);
-  // Cap at sunset, not C4, when C4 isn't observable (sunset-limited
-  // event -- PLAN.md §1) -- otherwise the track would reserve space for
-  // a contact that's hidden from clineItems below anyway.
+
+  // Zoom in: a close-up around Max. Zoom out: the fixed placeholder
+  // window declared above. Either way the track itself is plain linear.
+  const domainStart = $derived(
+    $clock.zoomLevel === 'in' ? eventSec.max - ZOOM_IN_HALF_WIDTH_S : ZOOM_OUT_START_S,
+  );
   const domainEnd = $derived(
-    (eventSec.sunset !== null ? Math.min(eventSec.c4, eventSec.sunset) : eventSec.c4) + MARGIN_S,
+    $clock.zoomLevel === 'in' ? eventSec.max + ZOOM_IN_HALF_WIDTH_S : ZOOM_OUT_END_S,
   );
 
   const timeScale = $derived.by(() => {
-    const level = $clock.curveLevel;
-    const k = level === 'stretchplus' ? K_STRETCH_PLUS : K_STRETCH;
-    const maxS = eventSec.max;
-    const warp = (t: number) => (level === 'real' ? t : Math.asinh((t - maxS) / k));
-    const unwarp = (w: number) => (level === 'real' ? w : maxS + Math.sinh(w) * k);
-    const lo = warp(domainStart),
-      hi = warp(domainEnd);
-    const pct = (t: number) => ((warp(t) - lo) / (hi - lo)) * 100;
-    return { level, k, warp, unwarp, pct };
+    const lo = domainStart,
+      hi = domainEnd;
+    const span = hi - lo;
+    const pct = (t: number) => ((t - lo) / span) * 100;
+    return { lo, hi, span, pct };
   });
 
-  const hourBefore = $derived(Math.floor(eventSec.max / 3600) * 3600);
-  const hourAfter = $derived(hourBefore + 3600);
-  const tickFirst = $derived(Math.ceil(domainStart / 600) * 600);
+  // Tick/label granularity adapts to how wide the current domain is,
+  // rather than the old dual-scale (10min main + 1min "stretch" overlay)
+  // system -- one linear domain now needs only one tick step. Major
+  // ticks (bold, full HH:MM label) fall every 5min in the narrow zoom-in
+  // domain or every hour in the wide zoom-out one; minor ticks in
+  // between get a short minutes-only label.
+  const tickStepS = $derived(domainEnd - domainStart <= 40 * 60 ? 60 : 600);
+  const majorStepS = $derived(tickStepS === 60 ? 5 * 60 : 3600);
+  const tickFirst = $derived(Math.ceil(domainStart / tickStepS) * tickStepS);
 
   const mainTicks = $derived.by(() => {
     const ts = timeScale;
-    const marks: { key: string; isHour: boolean; p: number }[] = [];
-    for (let t = tickFirst; t <= domainEnd; t += 600) {
-      marks.push({ key: 'tick' + t, isHour: t % 3600 === 0, p: ts.pct(t) });
+    const step = tickStepS,
+      major = majorStepS;
+    const marks: { key: string; isMajor: boolean; p: number }[] = [];
+    for (let t = tickFirst; t <= domainEnd; t += step) {
+      marks.push({ key: 'tick' + t, isMajor: t % major === 0, p: ts.pct(t) });
     }
     return marks;
   });
 
   const mainLabels = $derived.by(() => {
     const ts = timeScale;
+    const step = tickStepS,
+      major = majorStepS;
     const labels: { key: string; text: string; minor: boolean; p: number }[] = [];
-    for (let t = tickFirst; t <= domainEnd; t += 600) {
-      const isHour = t % 3600 === 0;
-      const showLabel = isHour || ts.level === 'real' || (t >= hourBefore && t <= hourAfter);
-      if (showLabel) labels.push({ key: 'lab' + t, text: fmtHM(t), minor: !isHour, p: ts.pct(t) });
+    for (let t = tickFirst; t <= domainEnd; t += step) {
+      const isMajor = t % major === 0;
+      labels.push({ key: 'lab' + t, text: isMajor ? fmtHM(t) : fmtM(t), minor: !isMajor, p: ts.pct(t) });
     }
     return labels;
-  });
-
-  // Stretch view only: 1-min ticks+labels within the two 10-min blocks
-  // immediately surrounding max.
-  const minuteTicks = $derived.by(() => {
-    const ts = timeScale;
-    if (ts.level === 'real') return [];
-    const maxRound10 = Math.round(eventSec.max / 600) * 600;
-    const winStart = Math.max(domainStart, maxRound10 - 600);
-    const winEnd = Math.min(domainEnd, maxRound10 + 600);
-    const marks: { key: string; t: number; p: number }[] = [];
-    for (let t = winStart; t <= winEnd; t += 60) {
-      if (t % 600 === 0) continue;
-      marks.push({ key: 'mtick' + t, t, p: ts.pct(t) });
-    }
-    return marks;
-  });
-  const minuteLabels = $derived(minuteTicks.map((m) => ({ ...m, text: fmtM(m.t) })));
-
-  // The curve is most expanded right at max and compresses further out, so
-  // even inside this ±10min window the outermost 1-min ticks can end up
-  // pixel-close to the neighboring 10-min mark's (wider) label. Drop just
-  // the TEXT for any 1-min label that collides with an already-placed
-  // hour/10-min label -- its tick mark stays, so the granularity is still
-  // visible, just not a colliding, illegible label on top of it.
-  let mainLabelEls: Record<string, HTMLDivElement> = $state({});
-  let minuteLabelEls: Record<string, HTMLDivElement> = $state({});
-  $effect(() => {
-    const mains = mainLabels;
-    const minutes = minuteLabels;
-    for (const m of minutes) {
-      const el = minuteLabelEls[m.key];
-      if (el) el.style.display = '';
-    }
-    const mainRects = mains
-      .map((it) => mainLabelEls[it.key]?.getBoundingClientRect())
-      .filter((r): r is DOMRect => !!r);
-    for (const m of minutes) {
-      const el = minuteLabelEls[m.key];
-      if (!el) continue;
-      const mr = el.getBoundingClientRect();
-      const collides = mainRects.some((ar) => mr.left < ar.right && ar.left < mr.right);
-      if (collides) el.style.display = 'none';
-    }
   });
 
   // C1..C4/Max labels: all on a single row. C1/C4 always render at their
@@ -168,15 +130,18 @@
     const ts = timeScale;
     const ev = eventSec;
     return TICK_DEFS.filter(({ key }) => {
-      if (ev[key] === null) return false;
+      const t = ev[key];
+      if (t === null) return false;
       // Non-observable (past sunset) events don't belong on the
       // timeline either -- same reasoning as ContactsPanel.
-      if (key === 'sunset' || ev.sunset === null) return true;
-      return (ev[key] as number) <= ev.sunset;
+      if (key !== 'sunset' && ev.sunset !== null && t > ev.sunset) return false;
+      // Outside the currently visible domain (e.g. C1 while zoomed in on
+      // Max) -- drawing it would just place a label off the track.
+      return t >= domainStart && t <= domainEnd;
     }).map(({ key, lab }) => ({
       key,
       lab,
-      p: ts.pct(ev[key] as number),
+      p: ts.pct(eventSec[key] as number),
     }));
   });
 
@@ -215,12 +180,24 @@
     if (clabelEls.sunset) clabelEls.sunset.style.left = pOf('sunset') + '%';
   });
 
-  const totLeft = $derived(hasTotality ? timeScale.pct(eventSec.c2 as number) : 0);
-  const totWidth = $derived(hasTotality ? timeScale.pct(eventSec.c3 as number) - totLeft : 0);
-  const cursorPct = $derived(timeScale.pct($effectiveTime.getTime() / 1000));
+  // Clamped to the visible domain -- C2/C3 are only ever this far outside
+  // it (zoomed out to a window narrower than totality) in a pathological
+  // case that can't happen with the two fixed windows above, but clamping
+  // is cheap insurance against a stray/negative-width band either way.
+  const totLeft = $derived(
+    hasTotality ? Math.max(0, Math.min(100, timeScale.pct(eventSec.c2 as number))) : 0,
+  );
+  const totRight = $derived(
+    hasTotality ? Math.max(0, Math.min(100, timeScale.pct(eventSec.c3 as number))) : 0,
+  );
+  const totWidth = $derived(Math.max(0, totRight - totLeft));
 
-  function setCurve(level: 'real' | 'stretch' | 'stretchplus') {
-    clock.update((c) => ({ ...c, curveLevel: level }));
+  const cursorSec = $derived($effectiveTime.getTime() / 1000);
+  const cursorInDomain = $derived(cursorSec >= domainStart && cursorSec <= domainEnd);
+  const cursorPct = $derived(timeScale.pct(cursorSec));
+
+  function setZoom(level: 'in' | 'out') {
+    clock.update((c) => ({ ...c, zoomLevel: level }));
   }
 
   // Drawn identically in Live and Sim -- the track only RESPONDS to
@@ -228,10 +205,7 @@
   function trackPointerToTime(clientX: number): number {
     const r = slidertrackEl.getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-    const ts = timeScale;
-    const lo = ts.warp(domainStart),
-      hi = ts.warp(domainEnd);
-    return ts.unwarp(lo + frac * (hi - lo));
+    return domainStart + frac * (domainEnd - domainStart);
   }
   function onTrackPointerDown(e: PointerEvent) {
     if (get(clock).mode !== 'sim') return;
@@ -358,12 +332,7 @@
   >
     <div class="hourlabels">
       {#each mainLabels as lab (lab.key)}
-        <div class="hour-lab" class:min10={lab.minor} style:left={lab.p + '%'} bind:this={mainLabelEls[lab.key]}>
-          {lab.text}
-        </div>
-      {/each}
-      {#each minuteLabels as lab (lab.key)}
-        <div class="hour-lab min1" style:left={lab.p + '%'} bind:this={minuteLabelEls[lab.key]}>
+        <div class="hour-lab" class:minor={lab.minor} style:left={lab.p + '%'}>
           {lab.text}
         </div>
       {/each}
@@ -371,10 +340,7 @@
     <div class="axisline"></div>
     <div class="ticks">
       {#each mainTicks as t (t.key)}
-        <div class="tick" class:hour={t.isHour} style:left={t.p + '%'}></div>
-      {/each}
-      {#each minuteTicks as t (t.key)}
-        <div class="tick min1" style:left={t.p + '%'}></div>
+        <div class="tick" class:major={t.isMajor} style:left={t.p + '%'}></div>
       {/each}
     </div>
     {#if hasTotality}
@@ -390,14 +356,11 @@
         <div class="clabel" class:sunset={it.key === 'sunset'} bind:this={clabelEls[it.key]}>{it.lab}</div>
       {/each}
     </div>
-    <div class="cursor" style:left={cursorPct + '%'}></div>
+    <div class="cursor" style:left={cursorPct + '%'} style:opacity={cursorInDomain ? 1 : 0}></div>
   </div>
   <div class="curveswitch">
-    <button class:on={$clock.curveLevel === 'real'} onclick={() => setCurve('real')}>Real</button>
-    <button class:on={$clock.curveLevel === 'stretch'} onclick={() => setCurve('stretch')}>Stretch</button>
-    <button class:on={$clock.curveLevel === 'stretchplus'} onclick={() => setCurve('stretchplus')}
-      >Stretch+</button
-    >
+    <button class:on={$clock.zoomLevel === 'in'} onclick={() => setZoom('in')}>Zoom in</button>
+    <button class:on={$clock.zoomLevel === 'out'} onclick={() => setZoom('out')}>Zoom out</button>
   </div>
 </div>
 
@@ -522,13 +485,8 @@
     color: var(--ink);
     white-space: nowrap;
   }
-  .hour-lab.min10 {
+  .hour-lab.minor {
     font-size: 9px;
-    font-weight: 400;
-    color: var(--muted);
-  }
-  .hour-lab.min1 {
-    font-size: 8px;
     font-weight: 400;
     color: var(--muted);
   }
@@ -560,14 +518,10 @@
     height: 12px;
     background: var(--ink);
   }
-  .tick.hour {
+  .tick.major {
     top: 28px;
     height: 20px;
     background: var(--ink);
-  }
-  .tick.min1 {
-    top: 35px;
-    height: 6px;
   }
 
   .totband {
