@@ -1004,6 +1004,22 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
          still non-empty and covers the expected huge (whole-world)
          bounding box, same as before.
        `npm run check`: 0 errors/warnings; `npm run test`: 63/63.
+     - ✅ **Follow-up zoom correction**: Spain "needs lots of zooming in
+       ... at least 3x", Global "needs to be zoomed out slightly" --
+       both are single-constant changes given the scale/translate solves
+       above, no structural rework needed. `SPAIN_BAND_TO_HEIGHT`: 4 →
+       4/3 (the umbra band now fills ~75% of the panel height instead of
+       25% -- exactly the requested 3x, not a rounder-but-different
+       number, since a specific multiplier was given). `GLOBAL_TOP_MARGIN`/
+       `GLOBAL_BOTTOM_MARGIN`: 16/56 → 20/68 (shrinks the fitted span
+       between the terminator-start and greatest-eclipse anchors without
+       changing what those anchors are). Verified via the same
+       `getBBox()`/rendered-attribute reads as before rather than by
+       eye: Spain's `.pathband` height is now 150 (=200 × 3/4, exactly
+       3x the previous 50) and still right-justified at the same margin;
+       Global's `.gemarker` now sits at (100, 132) = `200 - 68`, matching
+       the new bottom margin exactly. `npm run check`: 0 errors/
+       warnings; `npm run test`: 63/63.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,

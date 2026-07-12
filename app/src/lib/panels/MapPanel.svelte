@@ -79,16 +79,18 @@
   const SPAIN_ROTATION_DEG = 30;
   // Zoomed to the umbra band itself, not the whole basemap bbox: the
   // viewport height should be about SPAIN_BAND_TO_HEIGHT times the
-  // band's own (rotated) north-south width, leaving generous margin
-  // above/below for context while keeping the band a substantial,
-  // legible fraction of the panel rather than a thin sliver in a huge
-  // regional map. d3's fitHeight() gives the scale that makes the band
-  // fill the FULL viewport height; dividing by SPAIN_BAND_TO_HEIGHT
-  // scales that back down to "fills 1/4 of it" directly, in one step,
-  // without an intermediate fitExtent that could be width- rather than
-  // height-limited (the band's east-west length is much greater than
-  // its width, so fitting *both* dimensions would pick the wrong one).
-  const SPAIN_BAND_TO_HEIGHT = 4;
+  // band's own (rotated) north-south width. d3's fitHeight() gives the
+  // scale that makes the band fill the FULL viewport height; dividing
+  // by SPAIN_BAND_TO_HEIGHT scales that back down to "fills 1/N of it"
+  // directly, in one step, without an intermediate fitExtent that could
+  // be width- rather than height-limited (the band's east-west length
+  // is much greater than its width, so fitting *both* dimensions would
+  // pick the wrong one). Was 4 (25% of the height); reported back as
+  // needing "at least 3x more" zoom, i.e. the band filling a much
+  // bigger share of the panel -- 4/3 (the band now fills ~75% of the
+  // height) is exactly that 3x, not a rounder-but-different number, per
+  // the specific multiplier requested.
+  const SPAIN_BAND_TO_HEIGHT = 4 / 3;
   const bandFeature = { type: 'Feature' as const, properties: {}, geometry: llPolygon(band) };
   const spainFitToHeight = geoMercator().angle(SPAIN_ROTATION_DEG).fitHeight(SPAIN_VH, bandFeature);
   const spainScale = spainFitToHeight.scale() / SPAIN_BAND_TO_HEIGHT;
@@ -298,9 +300,13 @@
   // (already redundant with it) to the Spain tab. GLOBAL_TOP_MARGIN is
   // modest (the terminator points sit close to the top edge);
   // GLOBAL_BOTTOM_MARGIN is large (GE gets real breathing room below the
-  // umbra line, not just a margin equal to the top one).
-  const GLOBAL_TOP_MARGIN = 16,
-    GLOBAL_BOTTOM_MARGIN = 56;
+  // umbra line, not just a margin equal to the top one). Both bumped up
+  // a bit from their first-pass values (16/56) -- reported back as
+  // slightly too zoomed in -- which shrinks the fitted span between the
+  // two anchors and therefore the whole view, without changing what
+  // those anchors *are*.
+  const GLOBAL_TOP_MARGIN = 20,
+    GLOBAL_BOTTOM_MARGIN = 68;
   const globalMeasure = geoProjection(stereographicRaw)
     .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
     .angle(GLOBAL_ROTATION_DEG)
