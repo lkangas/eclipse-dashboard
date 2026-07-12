@@ -121,16 +121,26 @@ still-reasonable ~100KB). Regenerate with
 `tools/build-data/basemap-global.mjs` (`npm run basemap-global` in
 `tools/build-data/`).
 
-Requires `-clean rewind` in the mapshaper pipeline -- without it,
-mapshaper's topojson re-export of this large, unclipped source silently
+Mapshaper's topojson re-export of this large, unclipped source silently
 corrupts polygon ring winding, which makes every ocean point test as
 "land" (confirmed with `d3.geoContains()`: e.g. mid-Pacific Ocean read
-as land before this fix). `-clean rewind` fixes the vast majority of
-this but is known to still mis-wind a handful of small, isolated
-islands (confirmed: Iceland, Cuba) even after -- deeper than a
-mapshaper-flag fix, not chased further since it's cosmetic (those
-islands render as a shade of ocean-blue instead of land-white) rather
-than the "whole ocean missing" bug this actually fixes.
+as land before working around this). `-clean rewind` fixes that but was
+found to reintroduce the *other* mapshaper bug this file already works
+around (the no-bbox-clip one two paragraphs up) -- confirmed by scanning
+for the same jump-artifact signature used to diagnose that one
+originally: 0 such jumps without `-clean rewind`, 20 with it. Fixed
+instead with a small custom post-process in `basemap-global.mjs` itself
+(`fixWinding()`): finds backwards-wound rings via `d3.geoArea()` (>2π
+steradians for an exterior ring means "wound backwards, encloses the
+complement instead") and reverses just their arc-index order/sign at
+the topology level -- doesn't touch a single coordinate, so it can't
+reintroduce the jump-artifact bug no matter how mangled mapshaper's own
+winding logic is. Verified against 5 known land/ocean points as part of
+the build itself (the script throws if any mismatch). One known
+residual: Cuba still mis-winds even after this fix, for reasons not
+fully chased down -- not visible in this app (nowhere near the Global
+tab's Arctic/Iceland crop) so left as a documented gap rather than a
+blocker.
 
 ## stars.json
 

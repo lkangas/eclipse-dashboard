@@ -324,10 +324,15 @@
   // from their first-pass values (16/56) -- reported back as slightly
   // too zoomed in -- which shrinks the fitted span between the two
   // anchors and therefore the whole view, without changing what those
-  // anchors *are*. Top nudged up again slightly (20 -> 28) per a follow-
-  // up "a bit further up" -- more room above the terminator points, not
-  // less; bottom left alone ("good as is").
-  const GLOBAL_TOP_MARGIN = 28,
+  // anchors *are*. Top bumped up twice more since (20 -> 28 -> 50) --
+  // the first follow-up ("a bit further up") turned out too small a
+  // change to be visible; the second was sized against an actual
+  // reference point (Finland's northernmost tip, Nuorgam 70.09N/27.98E,
+  // reported cut off) rather than guessed at -- computed its screen-Y at
+  // a few candidate margins and picked one giving it real clearance
+  // (~46 of 200 units from the top), not just barely inside. Bottom
+  // left alone throughout ("good as is").
+  const GLOBAL_TOP_MARGIN = 50,
     GLOBAL_BOTTOM_MARGIN = 68;
   const globalMeasure = geoProjection(stereographicRaw)
     .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])

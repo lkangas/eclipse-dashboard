@@ -12,7 +12,9 @@
     "roads": "node roads.mjs"
   },
   "devDependencies": {
+    "d3-geo": "^3.1.1",
     "mapshaper": "^0.7.44",
+    "topojson-client": "^3.1.0",
     "world-atlas": "^2.0.2"
   }
 }

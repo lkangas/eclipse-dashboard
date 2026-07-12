@@ -1122,6 +1122,41 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        `omitted` array, NOTICE.md) -- this only removes the in-app
        surfacing of it. `npm run check`: 0 errors/warnings; `npm run
        test`: 63/63.
+     - ✅ **`-clean rewind` reintroduced the jump-artifact bug -- reported
+       back with a screenshot showing the same long straight lines
+       cutting across the map as the original no-bbox-clip bug, plus
+       "Finland needs to be fully visible" (the earlier +8 top-margin
+       nudge wasn't enough to notice).** Confirmed by rescanning the
+       committed file for the exact jump signature used to diagnose the
+       original bug (long longitude jump, near-constant latitude) with
+       antimeridian-crossing false positives excluded this time (a real
+       gap in the previous pass -- ~180deg/-180deg transitions are
+       legitimate, not jumps): 0 in the pre-`-clean-rewind` file, 20 in
+       the `-clean rewind` one. So `-clean`'s winding fix and its
+       geometry corruption are coupled *inside mapshaper itself* --
+       confirmed separately that `-clean rewind only-arcs` (skip the
+       deep-clean/intersection-cut step) avoids the corruption but also
+       stops fixing the winding at all, so that's not a way out either.
+       Replaced with the custom `fixWinding()` post-process described in
+       `NOTICE.md` (arc-index reversal, not a mapshaper command) --
+       requires no deep-clean pass at all, so it's structurally
+       incapable of the jump-artifact bug regardless of how backwards
+       mapshaper's own winding is. Bonus: this version also fixes
+       Iceland (which the old `-clean rewind` didn't) -- only Cuba
+       remains a known, irrelevant-to-this-app residual. `GLOBAL_TOP_MARGIN`
+       bumped again, 28 -> 50, sized this time against an actual
+       reference point (Finland's own extent, not a guess) -- checked
+       Nuorgam (north tip)/Rovaniemi/Helsinki's real projected positions
+       at a few candidate margins and picked one giving the *closest* of
+       the three (Helsinki, counterintuitively -- the 80 deg rotation
+       means "closer to the top edge" isn't simply "further north" here)
+       real clearance (~21 of 200 units from the edge), not just barely
+       inside. Verified end to end: rendered path's longest single-
+       segment jump is 19 units (was up to hundreds when the bug was
+       present); `isPointInFill` at all three Finland reference points
+       reads correctly as land; land/ocean sample sweep gives a
+       plausible 161/280 split. `npm run check`: 0 errors/warnings;
+       `npm run test`: 63/63.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,
