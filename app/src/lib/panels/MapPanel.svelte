@@ -85,12 +85,15 @@
   // directly, in one step, without an intermediate fitExtent that could
   // be width- rather than height-limited (the band's east-west length
   // is much greater than its width, so fitting *both* dimensions would
-  // pick the wrong one). Was 4 (25% of the height); reported back as
-  // needing "at least 3x more" zoom, i.e. the band filling a much
-  // bigger share of the panel -- 4/3 (the band now fills ~75% of the
-  // height) is exactly that 3x, not a rounder-but-different number, per
-  // the specific multiplier requested.
-  const SPAIN_BAND_TO_HEIGHT = 4 / 3;
+  // pick the wrong one). History: was 4 (25% of the height); "at least
+  // 3x more" zoom requested -> 4/3 (~75% of the height); then "20% more
+  // zoom, upper/lower edges closer" -> dividing by another 1.2 gives
+  // 10/9 (~90% of the height). Scaling this one constant is enough on
+  // its own: the right-edge anchor (spainTranslateX) and the
+  // central-line vertical centering (spainCenterYMid) below are both
+  // derived from spainScale, not hardcoded, so they automatically
+  // re-anchor/re-center at whatever zoom this knob picks.
+  const SPAIN_BAND_TO_HEIGHT = 4 / 3 / 1.2; // = 10/9, ~90% of height
   const bandFeature = { type: 'Feature' as const, properties: {}, geometry: llPolygon(band) };
   const spainFitToHeight = geoMercator().angle(SPAIN_ROTATION_DEG).fitHeight(SPAIN_VH, bandFeature);
   const spainScale = spainFitToHeight.scale() / SPAIN_BAND_TO_HEIGHT;
@@ -236,12 +239,21 @@
   });
 
   // Penumbral footprint -- same idea as the umbral outline above, but the
-  // much larger partial-eclipse-visibility cone (Global tab only; on the
-  // Spain tab it's bigger than the whole map for most of the event and
-  // would just be visual noise).
+  // much larger partial-eclipse-visibility cone. Shown stroke-only (no
+  // fill) on the Spain tab, since at that tab's zoom it's bigger than the
+  // whole map for most of the event and a fill would just be visual
+  // noise there.
+  //
+  // 240 points, not the umbral outline's 60: the Spain tab is zoomed in
+  // ~3x relative to Global, so only a small arc of this much-larger
+  // circle crosses the visible viewport there -- 60 points around the
+  // *whole* circle left that visible arc looking faceted/coarse (reported
+  // directly). Still cheap (shadowOutlineAt's per-point cost is a handful
+  // of trig ops), so bumping it also just makes the Global tab's copy
+  // smoother for free rather than needing two different point counts.
   const outlinePenumbraLatLon = $derived.by((): [number, number][] => {
     const tHours = dateToTtHours($effectiveTime);
-    return shadowOutlineAt(coefficients, tHours, 60, 'penumbra').map(
+    return shadowOutlineAt(coefficients, tHours, 240, 'penumbra').map(
       (p): [number, number] => [p.lat, p.lon],
     );
   });
@@ -321,11 +333,17 @@
   //
   // Zoomed-in and zoomed-out each get their own independent top/bottom
   // margin (zoom-out used to just be a flat 2x-smaller scale on the
-  // zoomed-in fit, with no margins of its own). Final numbers picked
-  // interactively via a temporary slider panel (git history) rather
-  // than by repeated edit/rebuild/screenshot cycles.
-  const ZOOM_IN_TOP_MARGIN = 18,
-    ZOOM_IN_BOTTOM_MARGIN = 84;
+  // zoomed-in fit, with no margins of its own).
+  //
+  // Zoomed-in numbers were first picked via a live slider (git history),
+  // dragging top and bottom as if independent -- they aren't: both feed
+  // the same scale formula below, so nudging one re-anchors and rescales
+  // everything else, and by-eye dragging never converged. Replaced by
+  // solving directly against a reference crop: GE should sit near the
+  // *bottom* of the frame (~81% down), with the freed space above going
+  // to Arctic context instead of a near-even top/bottom split.
+  const ZOOM_IN_TOP_MARGIN = 58,
+    ZOOM_IN_BOTTOM_MARGIN = 39;
   const ZOOM_OUT_TOP_MARGIN = 40,
     ZOOM_OUT_BOTTOM_MARGIN = 114;
   let globalZoomedOut = $state(false);
@@ -431,6 +449,9 @@
         {@const p = project(tp.lat, tp.lon)}
         {#if p}<circle class="terminatorpoint" cx={p[0]} cy={p[1]} r="1.6" />{/if}
       {/each}
+      {#if outlinePenumbraLatLon.length >= 3}
+        <polygon class="penumbraOutlineSpain" points={projectPts(outlinePenumbraLatLon)} />
+      {/if}
       {#if outlineLatLon.length >= 3}
         <polygon class="umbraOutline" points={projectPts(outlineLatLon)} />
       {/if}
@@ -608,6 +629,17 @@
     stroke-width: 0.75;
     stroke-linejoin: round;
   }
+  /* Spain tab's own penumbra outline -- same stroke as .penumbraOutline
+     above, but no fill: near totality the penumbra is far bigger than
+     the whole map, so a fill would wash the panel rather than just
+     tracing its edge. */
+  .penumbraOutlineSpain {
+    fill: none;
+    stroke: var(--ink);
+    stroke-opacity: 0.4;
+    stroke-width: 0.75;
+    stroke-linejoin: round;
+  }
   .shadowmarker {
     fill: #c22;
     fill-opacity: 0.8;
@@ -622,12 +654,13 @@
     fill: var(--accent);
     stroke: none;
   }
-  /* Global tab only: filled shapes with no stroke at all (per direct
-     request -- at this small scale a 1px edge reads as visual noise, and
-     there's no centerline/limit-line to draw here in the first place).
-     Declared last so it wins over .umbraOutline/.penumbraOutline's own
-     stroke for elements carrying both classes, regardless of source
-     order up there. */
+  /* Global tab only: filled shapes, stroke off by default (band/umbra
+     stay stroke-free by design -- at this small scale a 1px edge reads
+     as visual noise, and there's no centerline/limit-line to draw here
+     in the first place). Declared last so it wins over
+     .umbraOutline/.penumbraOutline's own stroke for elements carrying
+     both classes, regardless of source order up there; the two-class
+     override below then wins back over this for the penumbra alone. */
   .globalBand {
     fill: var(--accent-bg);
     fill-opacity: 0.5;
@@ -635,20 +668,22 @@
   .globalFill {
     stroke: none;
   }
-  /* Umbra/penumbra "darker" (direct request) has to mean fill-opacity
-     here, not stroke-opacity: .globalFill above already forces
-     stroke: none on this tab (by design, per direct request -- a
-     1px edge reads as noise at this scale), so a stroke-opacity bump
-     is invisible on the Global tab no matter its value. The plain
-     .umbraOutline stroke-opacity above still applies on the Spain tab,
-     which has no .globalFill and does show its stroke. Two class
-     selectors (0,2,0) beat the single-class base rules (0,1,0) above,
-     so these apply only where both classes are present -- i.e. only
-     the Global-tab instances. */
+  /* Umbra "darker" (direct request, twice now -- 0.22 base -> 0.45 ->
+     0.6) has to mean fill-opacity here, not stroke-opacity: .globalFill
+     above forces stroke: none for it (by design, per direct request -- a
+     1px edge reads as noise at this scale). Two class selectors (0,2,0)
+     beat the single-class base rules (0,1,0) above, so this applies only
+     where both classes are present -- i.e. only the Global-tab instance. */
   .globalFill.umbraOutline {
-    fill-opacity: 0.45;
+    fill-opacity: 0.6;
   }
+  /* Penumbra gets its stroke back on the Global tab (direct request --
+     unlike the band/umbra above, its edge was reported not visible and
+     needs one), on top of the same darkened fill-opacity bump. */
   .globalFill.penumbraOutline {
     fill-opacity: 0.15;
+    stroke: var(--ink);
+    stroke-opacity: 0.4;
+    stroke-width: 0.5;
   }
 </style>
