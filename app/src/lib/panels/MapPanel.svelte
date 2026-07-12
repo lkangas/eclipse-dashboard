@@ -317,23 +317,22 @@
   // the umbra first grazes the day/night terminator) a natural top
   // anchor, framing "Arctic terminator down to greatest eclipse" -- the
   // dramatic overview this tab is for, leaving the Spain-specific detail
-  // (already redundant with it) to the Spain tab. GLOBAL_TOP_MARGIN is
-  // modest (the terminator points sit close to the top edge);
-  // GLOBAL_BOTTOM_MARGIN is large (GE gets real breathing room below the
-  // umbra line, not just a margin equal to the top one). Both bumped up
-  // from their first-pass values (16/56) -- reported back as slightly
-  // too zoomed in -- which shrinks the fitted span between the two
-  // anchors and therefore the whole view, without changing what those
-  // anchors *are*. Top bumped up twice more since (20 -> 28 -> 50) --
-  // the first follow-up ("a bit further up") turned out too small a
-  // change to be visible; the second was sized against an actual
-  // reference point (Finland's northernmost tip, Nuorgam 70.09N/27.98E,
-  // reported cut off) rather than guessed at -- computed its screen-Y at
-  // a few candidate margins and picked one giving it real clearance
-  // (~46 of 200 units from the top), not just barely inside. Bottom
-  // left alone throughout ("good as is").
-  const GLOBAL_TOP_MARGIN = 50,
-    GLOBAL_BOTTOM_MARGIN = 68;
+  // (already redundant with it) to the Spain tab. GLOBAL_TOP_MARGIN and
+  // GLOBAL_BOTTOM_MARGIN have both moved a few times since the first
+  // pass (16/56): top up three times (16 -> 20 -> 28 -> 50 -> 80, each
+  // "needs more room above the terminator/Finland" follow-up), bottom
+  // up once then back down (56 -> 68 -> 55, "give GE more room" then
+  // later "the bottom edge can come up a bit" once the top had already
+  // grown a lot). Current values sized against real reference points,
+  // not guessed: top against Finland's own extent (checked Nuorgam/
+  // Rovaniemi/Helsinki's actual projected Y at a few candidate margins --
+  // Helsinki, not the northern tip, turned out to be the tightest
+  // constraint here, since the rotation means "closer to the top edge"
+  // isn't simply "further north"); bottom against GE staying comfortably
+  // clear of the panel's actual bottom edge while tightening from its
+  // previous oversized gap.
+  const GLOBAL_TOP_MARGIN = 80,
+    GLOBAL_BOTTOM_MARGIN = 55;
   const globalMeasure = geoProjection(stereographicRaw)
     .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
     .angle(GLOBAL_ROTATION_DEG)
@@ -606,7 +605,7 @@
     fill: var(--ink);
     fill-opacity: 0.22;
     stroke: var(--ink);
-    stroke-opacity: 0.55;
+    stroke-opacity: 0.75;
     stroke-width: 1;
     stroke-linejoin: round;
   }
@@ -617,7 +616,7 @@
     fill: var(--ink);
     fill-opacity: 0.06;
     stroke: var(--ink);
-    stroke-opacity: 0.25;
+    stroke-opacity: 0.4;
     stroke-width: 0.75;
     stroke-linejoin: round;
   }

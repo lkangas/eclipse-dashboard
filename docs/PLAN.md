@@ -1157,6 +1157,27 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        reads correctly as land; land/ocean sample sweep gives a
        plausible 161/280 split. `npm run check`: 0 errors/warnings;
        `npm run test`: 63/63.
+     - ✅ **Global default view (the "zoom in" state, as distinct from
+       the new zoom-out toggle) framing tightened further, umbra/
+       penumbra strokes darkened**, per direct request. `GLOBAL_TOP_MARGIN`:
+       50 -> 80 ("even more up"); `GLOBAL_BOTTOM_MARGIN`: 68 -> 55 ("the
+       lower edge can be raised a bit more up" -- less breathing room
+       below GE, tightening what had become an oversized gap). Verified
+       via the same real-reference-point method as the prior top-margin
+       pass (not a guess): GE's marker now sits at exactly `(100, 145)`
+       (`200 - 55`); Helsinki -- the tightest of the three Finland
+       checkpoints -- moved from y=20.9 to y=56.9, comfortably inside
+       with the extra top margin; longest single-segment jump in the
+       rendered path stayed at 15 units (no regression from the margin
+       change alone, as expected -- it only touches scale/translate, not
+       the underlying geometry). `.umbraOutline`/`.penumbraOutline`
+       stroke-opacity raised (0.55 -> 0.75, 0.25 -> 0.4 respectively) --
+       both explicitly capped below 1 per direct request ("not
+       completely/all the way black"), verified by reading the actual
+       compiled CSS rule text rather than a live element (neither
+       outline renders outside the umbral/penumbral window, and
+       `effectiveTime` wasn't inside it during this check). `npm run
+       check`: 0 errors/warnings; `npm run test`: 63/63.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,
