@@ -17,7 +17,7 @@
 // #4), so a second independent "when does the eclipse happen" source
 // isn't wanted, even from a library that happens to offer one.
 import { derived } from 'svelte/store';
-import { Atmosphere, Body, Equator, Horizon, Observer } from 'astronomy-engine';
+import { Atmosphere, Body, Equator, Horizon, Illumination, Observer } from 'astronomy-engine';
 import '../eclipse/astronomyEngineDeltaT';
 import { observer } from './observer';
 import { effectiveTime } from './clock';
@@ -26,6 +26,19 @@ import starsData from '../data/stars.json';
 const SUN_RADIUS_KM = 696000;
 const MOON_RADIUS_KM = 1737.4;
 const KM_PER_AU = 149597870.7;
+
+// Naked-eye planets (Uranus/Neptune never reach naked-eye brightness, so
+// left out entirely rather than computed-then-filtered every tick).
+// Real apparent magnitude, not a fixed per-body assumption, since it
+// varies a lot -- Mercury in particular swings from bright to well below
+// naked-eye visibility depending on its position in its orbit right now.
+const PLANETS: { body: Body; name: string }[] = [
+  { body: Body.Mercury, name: 'Mercury' },
+  { body: Body.Venus, name: 'Venus' },
+  { body: Body.Mars, name: 'Mars' },
+  { body: Body.Jupiter, name: 'Jupiter' },
+  { body: Body.Saturn, name: 'Saturn' },
+];
 
 // The constant astronomy-engine's own SearchRiseSet uses for the Sun/Moon
 // (REFRACTION_NEAR_HORIZON in its source) -- not re-exported by the
@@ -54,11 +67,17 @@ export interface StarPosition extends AltAz {
   ci: number | null;
 }
 
+export interface PlanetPosition extends AltAz {
+  name: string;
+  mag: number;
+}
+
 export interface SkyView {
   sun: BodyPosition;
   moon: BodyPosition;
   moonSunSeparationDeg: number;
   stars: StarPosition[];
+  planets: PlanetPosition[];
   /** How far below the true geometric horizon (in degrees) a point needs
    * to be for standard refraction to bring it back up to the visible
    * horizon -- i.e. the Sun's true altitude at official sunset/sunrise is
@@ -126,11 +145,21 @@ export const skyView = derived([observer, effectiveTime], ([$observer, $now]): S
   const sun = bodyPositionAt($now, astroObserver, Body.Sun, SUN_RADIUS_KM);
   const moon = bodyPositionAt($now, astroObserver, Body.Moon, MOON_RADIUS_KM);
 
+  // Real apparent magnitude per planet (Illumination(), not a fixed
+  // assumption) -- consumers filter by brightness themselves, same as
+  // they already do for the pre-filtered (mag<3) star catalog above.
+  const planets: PlanetPosition[] = PLANETS.map(({ body, name }) => {
+    const eq = Equator(body, $now, astroObserver, true, true);
+    const hor = Horizon($now, astroObserver, eq.ra, eq.dec, 'normal');
+    return { altitude: hor.altitude, azimuth: hor.azimuth, name, mag: Illumination(body, $now).mag };
+  });
+
   return {
     sun,
     moon,
     moonSunSeparationDeg: angularSeparationDeg(sun, moon),
     stars,
+    planets,
     horizonDepressionDeg: REFRACTION_NEAR_HORIZON_DEG * Atmosphere($observer.elevationM).density,
   };
 });
