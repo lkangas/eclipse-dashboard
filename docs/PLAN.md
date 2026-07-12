@@ -1040,6 +1040,77 @@ Status markers: ✅ done · 🟡 in progress / partial · ⬜ not started.
        visible `.pathline` points now range y 92.9-107.1, midpoint
        *exactly* 100. `npm run check`: 0 errors/warnings; `npm run
        test`: 63/63.
+     - ✅ **Global top margin nudged up again, and a 2x zoom-out toggle**,
+       per direct request. `GLOBAL_TOP_MARGIN`: 20 → 28 (bottom left
+       alone, "good as is"). New "Zoom out" pill button next to the tabs
+       (Global tab only), toggling `globalZoomedOut`; scale becomes
+       `globalFitScale / 2` when on -- deliberately NOT re-fit/re-
+       anchored for the zoomed-out case ("do not start calculating
+       optimal scaling... I will then give further instructions"), so
+       `globalScale`/`globalProjection`/`globalLandPathD`/`gePos` all
+       had to become `$derived` (were plain consts) since they now
+       depend on this toggle. Verified: coastline bbox width/height
+       exactly halved (ratio 2.0003) on toggle, GE moved from (100,132)
+       to (100,80) since the top anchor stays exactly at
+       `GLOBAL_TOP_MARGIN` regardless of scale (by construction of the
+       translate formula) while GE's distance from it shrinks with the
+       scale -- expected/correct given no re-anchoring was asked for.
+     - ✅ **Global tab's ocean was never actually blue -- root-caused,
+       not just re-styled.** Investigating "needs the same ocean color"
+       (`.mapzone`'s background, shared by both tabs, already read the
+       right `--ocean` color in every check) turned up a real, more
+       serious bug instead: on the Global tab, the coastline's `.coast`
+       path filled essentially the *entire* visible area, not just
+       actual land. Confirmed with the browser's own
+       `path.isPointInFill()` at GE's exact pixel (known open ocean,
+       west of Iceland): `true`. Traced past the rendering layer to the
+       *data*: `d3.geoContains()` -- pure spherical geometry, no
+       projection involved at all -- said `basemap-global.topojson`'s
+       land polygon contains the middle of the Pacific Ocean. The
+       untouched raw source (`world-atlas`'s `countries-50m.json`) does
+       not have this problem (verified directly); `basemap.topojson`
+       (Spain's own, built by a *different* script) doesn't either.
+       Bisected `basemap-global.mjs`'s pipeline command by command,
+       confirmed even a bare `-i ... -o format=topojson ...` (zero
+       transforms) reproduces it -- this is a real mapshaper bug in its
+       topojson re-export for this large, unclipped topology, not
+       anything specific to `-target`/`-filter-islands`/`-simplify`.
+       Fixed by adding `-clean rewind` (mapshaper's own "fix CW/CCW
+       polygon winding" command) to the pipeline. Residual, smaller
+       issue found *while verifying* the fix: `-clean rewind` itself
+       mis-winds a handful of small, isolated islands the opposite way
+       (confirmed: Iceland, Cuba -- not simply "all small islands",
+       e.g. Great Britain/Ireland/Sri Lanka/Svalbard all came out
+       correct) -- tried a custom post-process rewind pass
+       (`d3.geoArea() > 2π` per ring as a backwards-winding test) as a
+       belt-and-suspenders fix, but it found zero rings to fix despite
+       Iceland still reading wrong, meaning whatever's actually wrong
+       with those specific islands isn't captured by a simple per-ring
+       area-sign check either -- not chased further given it's cosmetic
+       (a couple of islands render as ocean-colored instead of
+       land-colored) rather than the actual reported bug, which is
+       fixed: real-browser `isPointInFill` sampling across the visible
+       Global-tab viewport now gives a plausible mixed 148
+       land/293 ocean split (was 441/0 -- literally every sample
+       point -- before), and GE's own pixel correctly reads as ocean.
+       `npm run check`: 0 errors/warnings; `npm run test`: 63/63.
+     - ✅ **ContactsPanel timetable "zooms" when global events are
+       toggled on -- fixed by reverting the crowded case to never
+       shrink.** Reported as a regression from the shrink-to-fit-or-
+       scroll rework two entries up: enabling global events visibly
+       shrank the table text before eventually scrolling. Root cause
+       was a design mismatch, not a bug in the mechanism itself -- the
+       two views actually want *opposite* trade-offs (local: shrink,
+       never scroll; global: never shrink, scroll instead), not the
+       same "shrink down to a floor, then scroll" formula with
+       different floors. `.tablewrap.crowded`'s `--tscale-table`
+       simplified from `max(0.4, min(1, cqh/naturalH))` to a flat `1` --
+       global-events view now never shrinks at all, purely relies on
+       the already-existing `overflow-y: auto` scrollbar. Verified: with
+       global events on, table font-size stays exactly `14px` (same as
+       off) while `tablewrap.scrollHeight > clientHeight` correctly
+       flips to `true` once content overflows. `npm run check`: 0
+       errors/warnings; `npm run test`: 63/63.
    - ✅ **Real, live obscuration replacing the Magnitude/Obscuration
      placeholders** -- per direct request, Magnitude itself is dropped
      (not interesting), replaced with two obscuration numbers instead,

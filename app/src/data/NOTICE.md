@@ -121,6 +121,17 @@ still-reasonable ~100KB). Regenerate with
 `tools/build-data/basemap-global.mjs` (`npm run basemap-global` in
 `tools/build-data/`).
 
+Requires `-clean rewind` in the mapshaper pipeline -- without it,
+mapshaper's topojson re-export of this large, unclipped source silently
+corrupts polygon ring winding, which makes every ocean point test as
+"land" (confirmed with `d3.geoContains()`: e.g. mid-Pacific Ocean read
+as land before this fix). `-clean rewind` fixes the vast majority of
+this but is known to still mis-wind a handful of small, isolated
+islands (confirmed: Iceland, Cuba) even after -- deeper than a
+mapshaper-flag fix, not chased further since it's cosmetic (those
+islands render as a shade of ocean-blue instead of land-white) rather
+than the "whole ocean missing" bug this actually fixes.
+
 ## stars.json
 
 From the [HYG star database](https://github.com/astronexus/HYG-Database)

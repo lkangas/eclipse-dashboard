@@ -250,17 +250,17 @@
      inline style from the component, computed from the actual row
      count/types currently displayed) stands in for "how tall would this
      render at scale 1" -- container queries can't measure a sibling's
-     content size directly. With global events added (`.crowded`, up to
-     ~17 rows of two different heights), full shrink-to-fit would make
-     text illegibly small on anything but a tall panel, so that variant
-     re-adds the old 0.4 floor and accepts a scrollbar (tablewrap's
-     `overflow-y: auto`) below it instead -- this is the case a plain
-     magic-number threshold used to get wrong (see git history): it
-     started shrinking rows before tablewrap's own leftover slack had
-     actually run out, because the threshold was sized for the whole
-     pane, not for how cramped the table itself was. Keying off the
-     table's own natural content height instead fixes that at the root,
-     for both the floored and unfloored cases. */
+     content size directly.
+
+     With global events added (`.crowded`, up to ~17 rows), the opposite
+     rule applies: --tscale-table is pinned to 1 -- NEVER shrink -- and
+     `overflow-y: auto` (below) shows a scrollbar instead once the rows
+     don't fit. An earlier version shrank this case too (down to a 0.4
+     floor before scrolling), which read as the table visibly "zooming"
+     every time the toggle was flipped on -- reported back as wrong: the
+     two views want opposite trade-offs (local: shrink, never scroll;
+     global: never shrink, scroll instead), not the same formula with a
+     different floor. */
   .tablewrap {
     --tscale-table: min(1, calc(100cqh / var(--natural-h, 220px)));
     flex: 1 1 auto;
@@ -269,7 +269,7 @@
     container-type: size;
   }
   .tablewrap.crowded {
-    --tscale-table: max(0.4, min(1, calc(100cqh / var(--natural-h, 220px))));
+    --tscale-table: 1;
   }
   table {
     width: 100%;

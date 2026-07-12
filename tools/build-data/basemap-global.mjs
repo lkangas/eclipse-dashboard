@@ -32,11 +32,22 @@ const OUTPUT_DIR = path.join(HERE, '..', '..', 'app', 'src', 'data');
 // simplification happens before nothing is ever clipped away wastefully.
 // `-filter-islands` drops flyspeck islands that would otherwise be
 // indistinguishable noise at this map's small on-screen scale.
+// `-clean rewind` is load-bearing, not cosmetic: without it, mapshaper's
+// topojson re-export of this (whole-world, unclipped) source silently
+// corrupts every ring's CW/CCW winding, so d3-geo's fill/contains logic
+// treats the *entire globe* as "inside" the land polygon -- confirmed
+// directly with d3.geoContains() (e.g. mid-Pacific Ocean reads as land)
+// before this fix, correct after. basemap.mjs doesn't need this because
+// clipping to a small bbox happens to sidestep whatever triggers it here
+// -- reproduced down to a single plain `-i ... -o format=topojson ...`
+// re-export with zero other transforms, so it's specific to exporting
+// this large a topology, not any one command in the pipeline.
 const commands = [
   `-i "${SOURCE}"`,
   '-target land',
   '-filter-islands min-area=200km2',
   '-simplify 15% keep-shapes',
+  '-clean rewind',
   `-o format=topojson quantization=1e5 "${path.join(OUTPUT_DIR, 'basemap-global.topojson')}"`,
 ].join(' ');
 

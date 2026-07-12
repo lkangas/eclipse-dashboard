@@ -321,11 +321,13 @@
   // modest (the terminator points sit close to the top edge);
   // GLOBAL_BOTTOM_MARGIN is large (GE gets real breathing room below the
   // umbra line, not just a margin equal to the top one). Both bumped up
-  // a bit from their first-pass values (16/56) -- reported back as
-  // slightly too zoomed in -- which shrinks the fitted span between the
-  // two anchors and therefore the whole view, without changing what
-  // those anchors *are*.
-  const GLOBAL_TOP_MARGIN = 20,
+  // from their first-pass values (16/56) -- reported back as slightly
+  // too zoomed in -- which shrinks the fitted span between the two
+  // anchors and therefore the whole view, without changing what those
+  // anchors *are*. Top nudged up again slightly (20 -> 28) per a follow-
+  // up "a bit further up" -- more room above the terminator points, not
+  // less; bottom left alone ("good as is").
+  const GLOBAL_TOP_MARGIN = 28,
     GLOBAL_BOTTOM_MARGIN = 68;
   const globalMeasure = geoProjection(stereographicRaw)
     .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
@@ -346,14 +348,32 @@
       shadowFramesGlobal.southLimitTerminatorStart.lon,
     )[1],
   );
-  const globalScale =
+  const globalFitScale =
     (GLOBAL_VH - GLOBAL_TOP_MARGIN - GLOBAL_BOTTOM_MARGIN) / (geRawXY[1] - topRawY);
-  const globalProjection: GeoProjection = geoProjection(stereographicRaw)
-    .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
-    .angle(GLOBAL_ROTATION_DEG)
-    .clipAngle(89.9)
-    .scale(globalScale)
-    .translate([GLOBAL_VW / 2 - globalScale * geRawXY[0], GLOBAL_TOP_MARGIN - globalScale * topRawY]);
+  // Zoom-out toggle: a plain 2x-smaller scale on top of the fitted one
+  // above, per direct request ("just implement the button starting with
+  // a 2x scale, I will then give further instructions" -- explicitly
+  // not asking for the anchors/margins to be recomputed for the zoomed-
+  // out case, so this deliberately doesn't try to re-fit/re-anchor
+  // anything, just halves the scale and lets the existing translate
+  // formula (itself a function of scale) carry GE and the terminator
+  // anchors wherever that puts them). Reactive ($derived, not a plain
+  // const) since it depends on this toggle -- everything downstream
+  // (globalProjection/globalLandPathD/gePos) has to become reactive too.
+  let globalZoomedOut = $state(false);
+  const GLOBAL_ZOOM_OUT_FACTOR = 2;
+  const globalScale = $derived(globalZoomedOut ? globalFitScale / GLOBAL_ZOOM_OUT_FACTOR : globalFitScale);
+  const globalProjection: GeoProjection = $derived(
+    geoProjection(stereographicRaw)
+      .rotate([-GLOBAL_LON0, -GLOBAL_LAT0])
+      .angle(GLOBAL_ROTATION_DEG)
+      .clipAngle(89.9)
+      .scale(globalScale)
+      .translate([
+        GLOBAL_VW / 2 - globalScale * geRawXY[0],
+        GLOBAL_TOP_MARGIN - globalScale * topRawY,
+      ]),
+  );
   function stereo(lat: number, lon: number): [number, number] {
     return globalProjection([lon, lat]) ?? [GLOBAL_VW / 2, GLOBAL_VH / 2];
   }
@@ -365,14 +385,23 @@
     globalTopology,
     globalTopology.objects.land as GeometryCollection,
   );
-  const globalLandPathD = geoPathGenerator(globalProjection)(globalLandFeature) ?? '';
-  const gePos = stereo(GREATEST_ECLIPSE[0], GREATEST_ECLIPSE[1]);
+  const globalLandPathD = $derived(geoPathGenerator(globalProjection)(globalLandFeature) ?? '');
+  const gePos = $derived(stereo(GREATEST_ECLIPSE[0], GREATEST_ECLIPSE[1]));
 </script>
 
 <div class="mapwrap">
   <div class="tabs">
     <button class:on={tab === 'spain'} onclick={() => (tab = 'spain')}>Spain</button>
     <button class:on={tab === 'global'} onclick={() => (tab = 'global')}>Global</button>
+    {#if tab === 'global'}
+      <button
+        class="zoomtoggle"
+        class:on={globalZoomedOut}
+        onclick={() => (globalZoomedOut = !globalZoomedOut)}
+      >
+        {globalZoomedOut ? 'Zoom in' : 'Zoom out'}
+      </button>
+    {/if}
   </div>
   <div class="mapzone">
     <svg
@@ -464,6 +493,27 @@
   .tabs button.on {
     color: var(--ink);
     border-bottom-color: var(--accent);
+  }
+  /* A toggle, not a tab -- pill-styled like ContactsPanel's .globaltoggle
+     rather than the plain underline the Spain/Global tab buttons use, so
+     it doesn't read as a third tab. Pinned to the right via
+     margin-left: auto. */
+  .zoomtoggle {
+    margin-left: auto;
+    align-self: center;
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .zoomtoggle.on {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+    color: var(--accent-ink);
   }
   .mapzone {
     flex: 1;
