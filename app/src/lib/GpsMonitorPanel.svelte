@@ -15,7 +15,7 @@
   // a PanelId-shaped hole into that union for a single non-grid panel.
   import { gpsMonitorOpen } from '../stores/layout';
   import { gpsConnection } from '../serial/connection';
-  import { describeFixQuality, describeFixType } from '../serial/monitor';
+  import { describeFixQuality, describeFixType, applyLineToRows, initialLiveRowsState } from '../serial/monitor';
   // GPS-MONITOR-PLAN.md phase 1: satellite sky-plot + SNR bar chart. Both
   // are self-contained (no props -- they subscribe to the gpsSatellites
   // store directly, same convention as this panel's own direct
@@ -80,15 +80,17 @@
   // report: it fought a manual scroll-up and snapped back to the bottom
   // on the very next line). Follows the newest line until the user
   // deliberately scrolls away, then stays put until they scroll back
-  // down themselves.
+  // down themselves. Only meaningful in 'scrolling' mode -- guarded below
+  // so it's a no-op while 'live' mode's own (non-scrolling) box is shown.
   let monitorEl: HTMLDivElement | undefined = $state();
   let stickToBottom = $state(true);
   function onMonitorScroll() {
-    if (!monitorEl) return;
+    if (rawViewMode !== 'scrolling' || !monitorEl) return;
     const distanceFromBottom = monitorEl.scrollHeight - monitorEl.scrollTop - monitorEl.clientHeight;
     stickToBottom = distanceFromBottom < 24;
   }
   $effect(() => {
+    if (rawViewMode !== 'scrolling') return;
     const lineCount = $gpsConnection.recentLines.length;
     if ($gpsMonitorOpen && monitorEl && stickToBottom) {
       void lineCount; // establishes the reactive dependency
@@ -99,7 +101,26 @@
   // destroyed/recreated by the {#if $gpsMonitorOpen} block below, so
   // scrollTop wouldn't have persisted from a previous open anyway.
   $effect(() => {
+    if (rawViewMode !== 'scrolling') return;
     if ($gpsMonitorOpen) stickToBottom = true;
+  });
+
+  // Raw-stream display mode -- PLAN.md §10's addendum: an optional
+  // "Live rows" alternative to the scrolling firehose, where each
+  // distinct sentence identity gets one row that updates in place.
+  // 'scrolling' is the default so nothing changes visually for anyone who
+  // never touches the toggle.
+  let rawViewMode: 'scrolling' | 'live' = $state('scrolling');
+
+  // Replays the existing recentLines ring buffer (already capped, no new
+  // buffer needed) through applyLineToRows every time it changes. A full
+  // recompute rather than incremental tracking -- recentLines is already
+  // small/bounded (capacity 40), so this is simpler and can't drift out
+  // of sync with what's actually in the buffer.
+  const liveRows = $derived.by(() => {
+    let s = initialLiveRowsState;
+    for (const line of $gpsConnection.recentLines) s = applyLineToRows(s, line);
+    return s;
   });
 </script>
 
@@ -152,15 +173,45 @@
       <SnrBarChart />
     </div>
 
-    <div class="streamhead">Raw NMEA stream</div>
-    <div class="monitorbox" bind:this={monitorEl} onscroll={onMonitorScroll}>
-      {#each $gpsConnection.recentLines as line, i (i)}
-        <div class="monitorline">{line}</div>
-      {/each}
-      {#if $gpsConnection.recentLines.length === 0}
-        <div class="monitorline hint">No data yet.</div>
-      {/if}
+    <div class="streamheadrow">
+      <div class="streamhead">Raw NMEA stream</div>
+      <div class="viewtoggle">
+        <button
+          type="button"
+          class="modebtn"
+          class:on={rawViewMode === 'scrolling'}
+          onclick={() => (rawViewMode = 'scrolling')}
+        >Scrolling</button>
+        <button
+          type="button"
+          class="modebtn"
+          class:on={rawViewMode === 'live'}
+          onclick={() => (rawViewMode = 'live')}
+        >Live rows</button>
+      </div>
     </div>
+    {#if rawViewMode === 'scrolling'}
+      <div class="monitorbox" bind:this={monitorEl} onscroll={onMonitorScroll}>
+        {#each $gpsConnection.recentLines as line, i (i)}
+          <div class="monitorline">{line}</div>
+        {/each}
+        {#if $gpsConnection.recentLines.length === 0}
+          <div class="monitorline hint">No data yet.</div>
+        {/if}
+      </div>
+    {:else}
+      <div class="monitorbox">
+        {#each liveRows.order as key (key)}
+          {@const row = liveRows.rows[key]}
+          <div class="monitorline liverow">
+            <span class="liverowkey">{key}</span>{#key row.line}<span class="liverowline">{row.line}</span>{/key}
+          </div>
+        {/each}
+        {#if liveRows.order.length === 0}
+          <div class="monitorline hint">No data yet.</div>
+        {/if}
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -285,6 +336,33 @@
     letter-spacing: 0.4px;
     padding: 12px 0 6px;
   }
+  .streamheadrow {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .viewtoggle {
+    display: flex;
+    gap: 4px;
+  }
+  .modebtn {
+    font: inherit;
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .modebtn.on {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+    color: var(--accent-ink);
+  }
   .satpanels {
     /* flex: 0 0 auto with an explicit height (rather than a content-based
        auto flex-basis) is deliberate: flex-basis:auto defers to the
@@ -332,5 +410,32 @@
   .hint {
     color: var(--muted);
     font-style: italic;
+  }
+  /* Live-rows mode (PLAN.md §10): one row per distinct sentence identity,
+     updating in place -- the {#each ... (key)} keyed block above reuses
+     the same DOM node per row, so only .liverowline's own {#key row.line}
+     inner span is recreated on update (giving the flash below something
+     to replay on), not the row itself. */
+  .liverow {
+    display: flex;
+    gap: 10px;
+  }
+  .liverowkey {
+    flex: 0 0 auto;
+    min-width: 84px;
+    color: var(--muted);
+  }
+  .liverowline {
+    flex: 1 1 auto;
+    min-width: 0;
+    animation: rowflash 500ms ease-out;
+  }
+  @keyframes rowflash {
+    0% {
+      background: var(--accent-bg);
+    }
+    100% {
+      background: transparent;
+    }
   }
 </style>

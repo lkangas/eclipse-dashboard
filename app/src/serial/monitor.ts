@@ -17,6 +17,62 @@ export function appendLine(buffer: readonly string[], line: string, capacity: nu
   return next;
 }
 
+/** One "live rows" display slot -- see `applyLineToRows` below. */
+export interface LiveRow {
+  key: string; // display key, e.g. "GNGGA #1" or "GNGSA #2"
+  address: string; // raw sentence address, e.g. "GNGSA" (talkerId+sentenceId, no '$')
+  line: string; // the latest raw line for this slot
+}
+
+/** Accumulated state for the "live rows" raw-stream display mode --
+ * PLAN.md §10's addendum. `epochCounts` resets on every GGA arrival (the
+ * same once-per-epoch boundary the Hz tracker above already relies on);
+ * `order` and `rows` persist across epochs so a row's position never
+ * moves once assigned. */
+export interface LiveRowsState {
+  epochCounts: Record<string, number>; // address -> occurrences seen since the last GGA (epoch boundary)
+  order: string[]; // first-seen key order, so rows don't reshuffle position across renders
+  rows: Record<string, LiveRow>;
+}
+
+export const initialLiveRowsState: LiveRowsState = { epochCounts: {}, order: [], rows: {} };
+
+/** Folds one raw line into the "live rows" state: one row per distinct
+ * sentence identity (address + per-epoch recurrence ordinal), updating
+ * in place instead of appending -- a legible alternative to the
+ * scrolling `appendLine` view above at a high fix rate (PLAN.md §10).
+ *
+ * Same "raw stream display" reasoning as `appendLine`: no checksum
+ * validation, no rejecting malformed lines -- garbled bytes from a wrong
+ * baud-rate guess are exactly what this monitor exists to surface. A
+ * line with no usable content still gets its own address (falling back
+ * to the trimmed text itself, or '?' for a genuinely empty line) so
+ * garbage always gets a row rather than being dropped or throwing. */
+export function applyLineToRows(state: LiveRowsState, rawLine: string): LiveRowsState {
+  const trimmed = rawLine.trim();
+  const withoutDollar = trimmed.startsWith('$') ? trimmed.slice(1) : trimmed;
+  const commaIdx = withoutDollar.indexOf(',');
+  const rawAddress = commaIdx >= 0 ? withoutDollar.slice(0, commaIdx) : withoutDollar;
+  const address = rawAddress.length > 0 ? rawAddress : '?';
+
+  // GGA marks the epoch boundary -- reset before processing this line so
+  // the GGA itself is the new epoch's first occurrence, not the previous
+  // epoch's last (same convention as PLAN.md §10 and nmea.ts's own
+  // last-3-letters sentence-type check).
+  const epochCounts = address.endsWith('GGA') ? {} : state.epochCounts;
+
+  const count = (epochCounts[address] ?? 0) + 1;
+  const key = `${address} #${count}`;
+
+  const order = state.order.includes(key) ? state.order : [...state.order, key];
+
+  return {
+    epochCounts: { ...epochCounts, [address]: count },
+    order,
+    rows: { ...state.rows, [key]: { key, address, line: rawLine } },
+  };
+}
+
 /** A minimal structural subset of Web Serial's SerialPort -- just enough
  * to label a port in the gear dropdown's port list. Matches the real
  * SerialPort type (web-serial.d.ts) structurally without importing it,

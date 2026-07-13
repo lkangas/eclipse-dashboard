@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { appendLine, describeConstellation, describeFixQuality, describeFixType, describePort, recordFixEvent } from './monitor';
+import {
+  appendLine,
+  applyLineToRows,
+  describeConstellation,
+  describeFixQuality,
+  describeFixType,
+  describePort,
+  initialLiveRowsState,
+  recordFixEvent,
+} from './monitor';
 
 describe('appendLine', () => {
   it('appends within capacity', () => {
@@ -132,6 +141,86 @@ describe('describeFixType', () => {
 
   it('falls back for an unrecognized code', () => {
     expect(describeFixType(9)).toBe('Unknown (9)');
+  });
+});
+
+describe('applyLineToRows', () => {
+  it('produces one row keyed "GNGGA #1" for a single GGA line', () => {
+    const state = applyLineToRows(initialLiveRowsState, '$GNGGA,1*00');
+    expect(state.order).toEqual(['GNGGA #1']);
+    expect(state.rows['GNGGA #1']).toEqual({ key: 'GNGGA #1', address: 'GNGGA', line: '$GNGGA,1*00' });
+  });
+
+  it('updates the same GGA row key in place across epochs, while an earlier epoch\'s RMC row persists', () => {
+    let state = initialLiveRowsState;
+    state = applyLineToRows(state, '$GNGGA,epoch1*00');
+    state = applyLineToRows(state, '$GNRMC,epoch1*00');
+    state = applyLineToRows(state, '$GNGGA,epoch2*00');
+
+    // Row order/position is stable: GGA first, then RMC -- unchanged by the second epoch.
+    expect(state.order).toEqual(['GNGGA #1', 'GNRMC #1']);
+    // The RMC row from the first epoch is untouched by the second GGA.
+    expect(state.rows['GNRMC #1']).toEqual({ key: 'GNRMC #1', address: 'GNRMC', line: '$GNRMC,epoch1*00' });
+    // The GGA row was updated in place -- same key, new line content.
+    expect(state.rows['GNGGA #1']).toEqual({ key: 'GNGGA #1', address: 'GNGGA', line: '$GNGGA,epoch2*00' });
+  });
+
+  it('gives three GSA lines within one epoch three distinct rows', () => {
+    let state = initialLiveRowsState;
+    state = applyLineToRows(state, '$GNGSA,a*00');
+    state = applyLineToRows(state, '$GNGSA,b*00');
+    state = applyLineToRows(state, '$GNGSA,c*00');
+
+    expect(state.order).toEqual(['GNGSA #1', 'GNGSA #2', 'GNGSA #3']);
+    expect(state.rows['GNGSA #1'].line).toBe('$GNGSA,a*00');
+    expect(state.rows['GNGSA #2'].line).toBe('$GNGSA,b*00');
+    expect(state.rows['GNGSA #3'].line).toBe('$GNGSA,c*00');
+  });
+
+  it('gives a 3-message GSV run three separate rows keyed by arrival order', () => {
+    let state = initialLiveRowsState;
+    state = applyLineToRows(state, '$GPGSV,1,3,msg1*00');
+    state = applyLineToRows(state, '$GPGSV,2,3,msg2*00');
+    state = applyLineToRows(state, '$GPGSV,3,3,msg3*00');
+
+    expect(state.order).toEqual(['GPGSV #1', 'GPGSV #2', 'GPGSV #3']);
+    expect(state.rows['GPGSV #1'].line).toBe('$GPGSV,1,3,msg1*00');
+    expect(state.rows['GPGSV #2'].line).toBe('$GPGSV,2,3,msg2*00');
+    expect(state.rows['GPGSV #3'].line).toBe('$GPGSV,3,3,msg3*00');
+  });
+
+  it('reuses (does not duplicate) the same GSA row slots after a GGA resets the epoch', () => {
+    let state = initialLiveRowsState;
+    // First epoch: three GSA lines.
+    state = applyLineToRows(state, '$GNGSA,a1*00');
+    state = applyLineToRows(state, '$GNGSA,a2*00');
+    state = applyLineToRows(state, '$GNGSA,a3*00');
+    // Epoch boundary.
+    state = applyLineToRows(state, '$GNGGA,epoch2*00');
+    // Second epoch: the same three-GSA-per-epoch pattern repeats.
+    state = applyLineToRows(state, '$GNGSA,b1*00');
+    state = applyLineToRows(state, '$GNGSA,b2*00');
+    state = applyLineToRows(state, '$GNGSA,b3*00');
+
+    // order does not grow -- same 4 keys (GGA + 3 GSA), not 7.
+    expect(state.order).toEqual(['GNGSA #1', 'GNGSA #2', 'GNGSA #3', 'GNGGA #1']);
+    expect(state.rows['GNGSA #1'].line).toBe('$GNGSA,b1*00');
+    expect(state.rows['GNGSA #2'].line).toBe('$GNGSA,b2*00');
+    expect(state.rows['GNGSA #3'].line).toBe('$GNGSA,b3*00');
+  });
+
+  it('still produces a row for a garbage line with no "$" and no comma', () => {
+    const state = applyLineToRows(initialLiveRowsState, 'xyz garbage noise bytes');
+    expect(state.order).toEqual(['xyz garbage noise bytes #1']);
+    expect(state.rows['xyz garbage noise bytes #1'].line).toBe('xyz garbage noise bytes');
+  });
+
+  it('does not mutate the previous state object', () => {
+    const state = applyLineToRows(initialLiveRowsState, '$GNGGA,1*00');
+    const before = JSON.parse(JSON.stringify(state));
+    applyLineToRows(state, '$GNGGA,2*00');
+    expect(state).toEqual(before);
+    expect(initialLiveRowsState).toEqual({ epochCounts: {}, order: [], rows: {} });
   });
 });
 
