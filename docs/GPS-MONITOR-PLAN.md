@@ -537,3 +537,100 @@ the code alone:
    phase 1 as a known gap rather than implemented. Confirm that's
    acceptable, or whether a specific receiver in use is known to need it
    (shares both talker ID and lacks System ID).
+
+---
+
+## 10. Addendum — a legible alternative to the raw scrolling stream
+
+Direct feedback: the existing raw-line scrolling monitor (§1) is hard to
+read at 10 Hz — it's a firehose of appended lines. Proposed addition: an
+optional second display mode, alongside (not replacing) the scrolling
+view, where each *distinct sentence identity* gets one row that updates in
+place, instead of appending a new line per arrival. This is independent of
+the semantic "rich" pipeline (§3–§5) — it operates purely on raw line text,
+no parsing beyond extracting the sentence's own address prefix, so it has
+no dependency on phase 2/3's work and could ship whenever convenient.
+
+### Feasibility, sentence type by sentence type
+
+- **GGA, RMC, VTG, GLL, ZDA, HDG, GNS** — each appears at most once per
+  epoch. Trivially keyed by the sentence's own address (`GNGGA`, `GNRMC`,
+  ...) — one stable row, updates in place every epoch. No caveats.
+- **GSA** — a multi-constellation receiver commonly emits one GSA sentence
+  *per constellation* per epoch, often sharing the same `GN` talker (the
+  same ambiguity §4 already flagged for the semantic parser). Keying by
+  raw address alone would collide all of them into one row, with only the
+  last arrival ever visible — the point of the feature. **Needs a
+  disambiguator, and there's a fully generic one that needs zero semantic
+  parsing**: count how many times each address has recurred *since the
+  last epoch boundary*, using GGA's own once-per-epoch arrival as that
+  boundary (the same "GGA marks the epoch" convention `monitor.ts`'s Hz
+  tracker already relies on). Each recurrence within the epoch gets its
+  own row.
+- **GSV** — turns out to be the *same mechanism in disguise*: a
+  multi-message GSV run (msgNum 1..totalMsgs) is, from this feature's
+  point of view, just "the same address recurring N times within one
+  epoch." The recurrence-ordinal scheme above naturally produces one row
+  per GSV message (ordinal 1 = msgNum 1, ordinal 2 = msgNum 2, ...) with
+  no GSV-specific logic at all. Two different constellations' GSV runs
+  already have different addresses (`GPGSV` vs `GAGSV`), so they separate
+  without needing the ordinal scheme at all.
+
+**Verdict: feasible for every sentence type via one uniform mechanism** —
+address + a per-epoch recurrence ordinal, epoch-bounded by GGA arrival —
+not sentence-specific special-casing.
+
+**One real limitation, not a blocker**: the ordinal is positional, not
+identity-based. If a message drops mid-epoch (the same class of gap §5
+already discusses for GSV reassembly), a row's *ordinal* can point at a
+different constellation/message than usual for that one epoch (e.g. if
+GSA message 2-of-3 never arrives, that epoch only produces ordinals 1 and
+2). Self-correcting the next epoch; a cosmetic hiccup, not a data
+integrity problem — worth a one-line code comment, not a design blocker.
+
+### Sketch
+
+A pure module addition, natural home alongside `appendLine` in
+`monitor.ts` (same "how to represent the raw stream for display" concern,
+a second mode rather than a new file):
+
+```ts
+export interface LiveRow {
+  key: string;        // display key, e.g. "GNGGA" or "GNGSA #2"
+  address: string;     // raw sentence address, e.g. "GNGSA"
+  line: string;        // latest raw line for this slot
+}
+
+export interface LiveRowsState {
+  epochCounts: Record<string, number>; // address -> occurrences since last GGA
+  order: string[];                      // first-seen key order, so rows don't reshuffle every render
+  rows: Record<string, LiveRow>;
+}
+
+export const initialLiveRowsState: LiveRowsState = { epochCounts: {}, order: [], rows: {} };
+
+export function applyLineToRows(state: LiveRowsState, rawLine: string): LiveRowsState
+```
+
+Logic: extract `address` the same lightweight way `nmea.ts`/`nmeaRich.ts`
+already do (no checksum validation needed — garbled lines are exactly what
+this monitor exists to surface, same reasoning as the existing scrolling
+view). If the address ends in `GGA`, reset `epochCounts` to `{}` **before**
+processing this line (so the GGA line that marks the new epoch is itself
+the new epoch's first occurrence, not the old epoch's last). Increment
+`epochCounts[address]`, compute `key` from address + that count, and
+upsert `rows[key]` — pushing `key` onto `order` only the first time it's
+seen, so a row's position in the list stays stable across epochs instead of
+reshuffling every render (important for the "each row visually flickers
+in its own place" readability goal — a jumping row would defeat the point
+just as much as a scrolling one).
+
+### UI
+
+A toggle in `GpsMonitorPanel.svelte`'s existing raw-stream section —
+"Scrolling" (current behavior, unchanged) vs. "Live rows" (new) — rather
+than a replacement. Both remain useful for different purposes: scrolling
+for full history/post-mortem review, live rows for at-a-glance readability
+at a high fix rate. Per this doc's own §2 framing: the exact visual
+treatment (monospace table, flash-on-update highlight, etc.) is a design
+call for whoever implements it, not specified here.
