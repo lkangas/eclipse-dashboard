@@ -24,7 +24,7 @@
   // connection -- same constraint TopBar's own baud select used to
   // carry, just relocated into the gear popover now.
   const BAUD_RATES = [4800, 9600, 19200, 38400, 57600, 115200];
-  let gpsBaud = $state(9600);
+  let gpsBaud = $state(115200);
 
   // Main pill button: reconnects to whatever port worked last time
   // without re-showing Chrome's native device picker, once one exists
