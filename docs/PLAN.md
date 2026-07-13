@@ -1,13 +1,15 @@
 # Implementation Plan — Eclipse Dashboard (2026-08-12, Spain)
 
-Status: **in progress**. The mock UI (§10), `eclipse-calc` Python oracle,
-eclipse-core TS port (§4), and data pipeline (§3) are all done and
-validated. Milestone 4 has started: the mock has been mechanically ported
-into real Svelte components (layout, CSS, all interactions) in `app/src/`,
-still on stub/mock data. Next: replace that stub data panel-by-panel with
-real computation (§4 eclipse-core + §3 data) and astronomy-engine. See §13
-for a full per-milestone breakdown of what's done, in progress, and not
-started.
+**§1–§12 and §14–§15 of this document are frozen as the spec** (architecture,
+data pipeline, computation approach) and are still accurate. **§13
+"Milestones" is a historical worklog, not current status** -- it was already
+12+ commits stale by 2026-07-13 (contradicting its own later entries in
+places, e.g. marking Wide-view sky rendering ⬜ after it had shipped) and
+duplicates what `git log` already records in detail. **For actual current
+status, see `docs/STATUS.md`** -- kept short and current, updated when a
+milestone's state changes rather than per-commit. This header itself is
+the one part of §1-12 corrected for accuracy: the app is well past "still on
+stub/mock data" (see STATUS.md for what's real vs. remaining).
 
 ---
 
@@ -1835,7 +1837,11 @@ Resolved:
    output JSON committed when the calc changes (matches this section's
    "run once at build time, never at runtime" framing already).
 
-Still open: none currently.
+Still open (see `docs/STATUS.md` for the current, maintained list --
+this line itself is a stale example of exactly the drift that document
+exists to avoid): the licensing status of `constellation-lines.json`
+(Stellarium/HYG-derived, no NOTICE.md entry yet) and the project
+license itself (root README still says "TBD").
 
 ---
 
