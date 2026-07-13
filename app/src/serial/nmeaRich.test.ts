@@ -63,6 +63,64 @@ describe('parseRichNmeaSentence', () => {
     ]);
   });
 
+  it('produces a satellite from a dropped trailing PRN-only group (no signal id)', () => {
+    // satellitesInView=3 matches the 3 satellites actually described: two
+    // full groups, then the run drops every trailing sub-field of the
+    // 3rd satellite's group but its own comma too -- only "05" (its PRN)
+    // remains. There's no room left for a signal ID field here at all.
+    const result = parseRichNmeaSentence(
+      withChecksum('GPGSV,1,1,03,01,10,020,30,02,20,040,35,05'),
+    );
+    expect(result).toMatchObject({
+      satellites: [
+        { prn: 1, elevationDeg: 10, azimuthDeg: 20, snrDb: 30 },
+        { prn: 2, elevationDeg: 20, azimuthDeg: 40, snrDb: 35 },
+        { prn: 5, elevationDeg: null, azimuthDeg: null, snrDb: null },
+      ],
+      signalId: null,
+    });
+  });
+
+  it('recovers a real signal id even when the last satellite group is also truncated', () => {
+    // satellitesInView (3) deliberately understates the run's own raw
+    // satellite data (4 groups are actually present) -- this is what lets
+    // the expected-allotment math notice a field beyond what 3 satellites
+    // account for and correctly attribute it to the Signal ID, rather
+    // than to the 4th satellite's (truncated, SNR-omitted) group. Total
+    // post-header field count is 16, a multiple of 4, which is exactly
+    // the case the old `rest.length % 4` heuristic got wrong.
+    const result = parseRichNmeaSentence(
+      withChecksum('GPGSV,1,1,03,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,1'),
+    );
+    expect(result).toMatchObject({
+      satellites: [
+        { prn: 1, elevationDeg: 10, azimuthDeg: 20, snrDb: 30 },
+        { prn: 2, elevationDeg: 20, azimuthDeg: 40, snrDb: 35 },
+        { prn: 3, elevationDeg: 30, azimuthDeg: 60, snrDb: 40 },
+        { prn: 4, elevationDeg: 40, azimuthDeg: 80, snrDb: null },
+      ],
+      signalId: '1',
+    });
+  });
+
+  it('produces all 4 satellites when the last group is short by more than one field', () => {
+    // satellitesInView=4 matches the 4 satellites implied here. 15
+    // post-header fields (15 % 4 === 3, no signal id): 3 full groups plus
+    // a 4th satellite's group missing its SNR sub-field.
+    const result = parseRichNmeaSentence(
+      withChecksum('GPGSV,1,1,04,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080'),
+    );
+    expect(result).toMatchObject({
+      satellites: [
+        { prn: 1, elevationDeg: 10, azimuthDeg: 20, snrDb: 30 },
+        { prn: 2, elevationDeg: 20, azimuthDeg: 40, snrDb: 35 },
+        { prn: 3, elevationDeg: 30, azimuthDeg: 60, snrDb: 40 },
+        { prn: 4, elevationDeg: 40, azimuthDeg: 80, snrDb: null },
+      ],
+      signalId: null,
+    });
+  });
+
   it('rejects a bad checksum', () => {
     expect(
       parseRichNmeaSentence('$GPGSV,3,2,11,14,25,170,00,16,57,208,39,18,67,296,40,19,40,246,00*00'),

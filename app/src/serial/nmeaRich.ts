@@ -97,20 +97,59 @@ export function parseRichNmeaSentence(line: string): RichNmeaSentence | null {
   if (totalMsgs === null || msgNum === null) return null;
   if (totalMsgs < 1 || msgNum < 1 || msgNum > totalMsgs) return null;
 
-  // rest is either 4*k fields (no trailing signal ID) or 4*k+1 (with one)
-  // for k = 0..4 satellite groups -- some receivers pad the last
-  // message's unused slots with empty fields rather than omitting them,
-  // which is why each group is checked for an empty PRN below rather
-  // than assumed present.
+  // Each message can carry up to 4 satellite groups of 4 fields each
+  // (PRN, elevation, azimuth, SNR), optionally followed by a single
+  // trailing Signal ID field (NMEA 4.10+). A receiver may either pad an
+  // unused trailing slot with empty fields (e.g. ",,,,") or drop trailing
+  // fields (and their commas) entirely -- both conventions are handled
+  // below by only ever requiring a group's PRN sub-field to be present,
+  // never all 4.
+  //
+  // The tricky part is telling a genuinely truncated last satellite group
+  // apart from a trailing Signal ID field, since both eat into the same
+  // trailing fields -- `rest.length % 4` alone can't do this reliably: a
+  // message can validly end with anywhere from 0 to 4 raw fields for its
+  // last satellite, so the remainder alone is ambiguous (e.g. a dropped
+  // SNR sub-field plus a real signal ID can leave the same remainder as a
+  // fully-populated last group with no signal ID at all). Instead, work
+  // out how many satellite slots THIS message is expected to carry from
+  // satellitesInView/msgNum/totalMsgs -- every message but the last in a
+  // run carries 4, the last carries whatever's left over -- and only
+  // ever read a field beyond that expected satellite-field allotment as
+  // the Signal ID.
   const rest = fields.slice(4);
-  const hasSignalId = rest.length % 4 === 1;
+
+  const expectedSatCount = ((): number | null => {
+    if (satellitesInView === null) return null;
+    if (msgNum < totalMsgs) return 4;
+    const remaining = satellitesInView - 4 * (msgNum - 1);
+    return Math.max(0, Math.min(4, remaining)); // defensive clamp to a sane range
+  })();
+
+  // satellitesInView is nullable in practice (rare, but some receivers
+  // omit it) -- when the expected allotment genuinely can't be computed,
+  // fall back to the old mod-4 heuristic rather than regressing to
+  // "never has a signal ID". This fallback keeps the same blind spot the
+  // old code always had (it can't tell a truncated last satellite group
+  // apart from a trailing Signal ID field), it just no longer applies
+  // when the better, count-based method is available.
+  const hasSignalId =
+    expectedSatCount !== null ? rest.length > 4 * expectedSatCount : rest.length % 4 === 1;
   const signalId = hasSignalId ? rest[rest.length - 1] || null : null;
   const satFields = hasSignalId ? rest.slice(0, -1) : rest;
 
+  // Walk satellite groups of 4 fields at a time. Only the last group can
+  // come up short -- the standard NMEA trailing-omission convention only
+  // ever truncates the end of a sentence -- so satFields[i+1..3] simply
+  // read as undefined past the end of the array on that final
+  // iteration, and toFloat/toInt already turn that into null. That means
+  // a genuinely truncated last satellite still produces an entry, as
+  // long as its PRN sub-field is present, with nulls for whichever of
+  // elevation/azimuth/snr are missing.
   const satellites: GsvSatelliteSlot[] = [];
-  for (let i = 0; i + 3 < satFields.length; i += 4) {
+  for (let i = 0; i < satFields.length; i += 4) {
     const prn = toInt(satFields[i]);
-    if (prn === null) continue; // empty/unparseable PRN -- padded unused slot, skip
+    if (prn === null) continue; // empty/omitted PRN -- padded or dropped unused slot, skip
     satellites.push({
       prn,
       elevationDeg: toFloat(satFields[i + 1]),
