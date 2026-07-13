@@ -10,6 +10,8 @@ import { parseNmeaSentence } from './nmea';
 import { applyNmeaSentence, initialNmeaFixState, type NmeaFixState } from './nmeaFix';
 import { appendLine, recordFixEvent } from './monitor';
 import { setObserver } from '../stores/observer';
+import { applyRichNmeaLine, resetGpsSatellites } from '../stores/gpsSatellites';
+import { gpsMonitorOpen } from '../stores/layout';
 
 // 'disconnecting' exists so the UI (GpsRibbon's Connect/Connected button)
 // has something to disable against for the ENTIRE duration of a
@@ -180,6 +182,22 @@ let lastPort: SerialPort | null = null;
 // while a connect was still in flight could get silently undone once
 // that connect's open() finally resolved.
 let connectionGeneration = 0;
+
+// Cheap synchronous mirror of gpsMonitorOpen (stores/layout.ts), kept in
+// sync via subscribe() rather than a get()-per-line call -- gates the
+// "rich" GSV-and-beyond parsing (nmeaRich.ts/nmeaSatellites.ts, via
+// applyRichNmeaLine below) so it's a complete no-op whenever the monitor
+// panel isn't open. See docs/GPS-MONITOR-PLAN.md §3 for the full
+// reasoning: a 10Hz multi-constellation receiver's GSV traffic scales
+// with satellite count and is otherwise wasted work nobody's looking at.
+// The core GGA/RMC/GSA-fixType pipeline below (applyNmeaSentence,
+// setObserver) is deliberately NOT gated by this -- that's the
+// safety-critical path this app's own position/clock discipline depends
+// on regardless of whether the diagnostic monitor is open.
+let monitorActive = false;
+gpsMonitorOpen.subscribe((v) => {
+  monitorActive = v;
+});
 
 /** Stops the read loop and releases whatever port is currently open (if
  * any) -- shared by disconnectGps() and by openPort() below, which now
@@ -368,6 +386,11 @@ async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
   lastFlushMs = 0;
   clockOffsetMs = null;
   ggaTimestamps = [];
+  // Same "fresh connect starts clean" convention as recentLines/fixRateHz
+  // below -- NOT called from disconnectGps(), since satellite data should
+  // freeze at its last-known state on disconnect for a post-mortem look,
+  // same philosophy as recentLines itself (see that field's own comment).
+  resetGpsSatellites();
   gpsConnection.update((s) => ({
     ...s,
     status: 'connected',
@@ -518,6 +541,11 @@ function applyLine(rawLine: string): void {
   // most useful thing the monitor can tell the user, not something to
   // filter out.
   gpsConnection.update((s) => ({ ...s, recentLines: appendLine(s.recentLines, rawLine, RAW_LINE_HISTORY) }));
+
+  // Gated on the monitor panel actually being open (see monitorActive's
+  // own comment) -- everything downstream of this (GSV reassembly into
+  // per-constellation satellite lists) is otherwise skipped entirely.
+  if (monitorActive) applyRichNmeaLine(rawLine);
 
   const sentence = parseNmeaSentence(rawLine);
   if (!sentence) return;
