@@ -5,7 +5,9 @@ eclipse from Spain.
 
 ## Status
 
-Planning / scaffolding. Implementation plan lands in `docs/PLAN.md`.
+Working app, T−30 days to the eclipse. See `docs/STATUS.md` for current
+feature-by-feature status (kept up to date) and `docs/PLAN.md` for the
+architecture/spec.
 
 ## Goals
 
@@ -29,4 +31,5 @@ stays small.
 
 ## License
 
-TBD.
+TBD — pending on `app/src/data/NOTICE.md`'s licensing question for
+`constellation-lines.json` (Stellarium/HYG-derived; see `docs/STATUS.md`).

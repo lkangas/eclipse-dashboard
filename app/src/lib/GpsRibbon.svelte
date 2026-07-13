@@ -48,8 +48,17 @@
   // to go through the picker at least once -- Web Serial has no way
   // around that (a page can't enumerate a device it isn't already
   // granted).
+  //
+  // 'connecting'/'disconnecting' are a no-op here (bug report: clicking
+  // Connect->Disconnect->Connect fast enough gave "the port is already
+  // open" -- this button's `disabled` attribute below already covers
+  // both busy states so a click shouldn't even reach here, but
+  // connection.ts's disconnectGps() is also independently guarded
+  // against a redundant call landing anyway -- see its own comment).
   function toggleConnect() {
-    if ($gpsConnection.status === 'connected' || $gpsConnection.status === 'connecting') {
+    const status = $gpsConnection.status;
+    if (status === 'connecting' || status === 'disconnecting') return;
+    if (status === 'connected') {
       disconnectGps();
     } else if ($gpsConnection.hasRememberedPort) {
       reconnectLastPort(gpsBaud);
@@ -61,6 +70,7 @@
   const connectLabel = $derived.by(() => {
     const s = $gpsConnection.status;
     if (s === 'connecting') return 'Connecting…';
+    if (s === 'disconnecting') return 'Disconnecting…';
     if (s === 'connected') return 'Connected';
     return 'Connect';
   });
@@ -68,6 +78,7 @@
     const s = $gpsConnection;
     if (s.status === 'error') return s.error;
     if (s.status === 'connecting') return 'Waiting for the port…';
+    if (s.status === 'disconnecting') return 'Closing the port…';
     if (s.status === 'connected') return 'Click to disconnect';
     return s.hasRememberedPort ? 'Reconnect to the last GPS port' : 'Connect a USB/serial NMEA GPS receiver';
   });
@@ -86,6 +97,7 @@
     const s = $gpsConnection;
     if (s.status === 'error') return s.error;
     if (s.status === 'connecting') return 'Waiting for port…';
+    if (s.status === 'disconnecting') return 'Disconnecting…';
     if (s.status !== 'connected') return '';
     if (!s.fix.hasFix) {
       const searching = s.fix.numSatellites !== null ? `No fix (${s.fix.numSatellites} sats)` : 'No fix yet';
@@ -187,7 +199,7 @@
   <button
     class="modebtn"
     class:on={$gpsConnection.status === 'connected'}
-    disabled={$gpsConnection.status === 'connecting'}
+    disabled={$gpsConnection.status === 'connecting' || $gpsConnection.status === 'disconnecting'}
     onclick={toggleConnect}
     title={connectTitle}
   >
@@ -196,7 +208,9 @@
   <select
     class="modebtn baudselect"
     bind:value={gpsBaud}
-    disabled={$gpsConnection.status === 'connecting' || $gpsConnection.status === 'connected'}
+    disabled={$gpsConnection.status === 'connecting' ||
+      $gpsConnection.status === 'connected' ||
+      $gpsConnection.status === 'disconnecting'}
     title="Baud rate -- set before connecting"
   >
     {#each BAUD_RATES as rate (rate)}
@@ -239,6 +253,15 @@
   </button>
   {#if gpsStatusText}
     <span class="sourcestatus" class:warn={gpsStatusIsWarn}>{gpsStatusText}</span>
+  {/if}
+  {#if $gpsConnection.needsReload}
+    <button
+      class="modebtn reloadbtn"
+      onclick={() => window.location.reload()}
+      title="A known Chrome/Windows limitation prevents reopening this port without a fresh page load"
+    >
+      ⟳ Reload page
+    </button>
   {/if}
   {#if $gpsConnection.status === 'connected' && $gpsConnection.clockOffsetMs !== null}
     <span
@@ -336,6 +359,11 @@
   }
   .sourcestatus.warn {
     color: #c22;
+  }
+  .reloadbtn {
+    border-color: #c22;
+    color: #c22;
+    font-weight: 600;
   }
   .gpsclockbadge {
     font-size: 11px;
