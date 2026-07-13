@@ -8,6 +8,7 @@
 import { writable } from 'svelte/store';
 import { parseNmeaSentence } from './nmea';
 import { applyNmeaSentence, initialNmeaFixState, type NmeaFixState } from './nmeaFix';
+import { appendLine } from './monitor';
 import { setObserver } from '../stores/observer';
 
 export type GpsConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
@@ -31,6 +32,21 @@ export interface GpsConnectionState {
   // discipline itself (clock.ts's effectiveTime) reads the unthrottled
   // module variable directly via getGpsClockOffsetMs, not this field.
   clockOffsetMs: number | null;
+  // Ring buffer of the most recent raw lines read from the port (oldest
+  // first), for the gear popover's NMEA stream monitor -- every line
+  // goes in here regardless of whether it parsed (see monitor.ts's
+  // appendLine), unthrottled: unlike fix/clockOffsetMs above this never
+  // touches the observer store, so there's no expensive cascade to
+  // rate-limit, only cheap text rendering. Reset on a fresh connect, but
+  // deliberately left alone on disconnect -- same "freeze the last
+  // known state" philosophy as `fix` above -- so the last few lines
+  // before a drop stay visible for a post-mortem.
+  recentLines: string[];
+  // True once a port has ever been successfully opened this session
+  // (see lastPort below) -- lets the main GPS button reconnect without
+  // re-showing Chrome's native picker. Deliberately never reset back to
+  // false (not even on disconnect), since lastPort itself isn't either.
+  hasRememberedPort: boolean;
 }
 
 export const gpsConnection = writable<GpsConnectionState>({
@@ -39,7 +55,15 @@ export const gpsConnection = writable<GpsConnectionState>({
   fix: initialNmeaFixState,
   frozen: false,
   clockOffsetMs: null,
+  recentLines: [],
+  hasRememberedPort: false,
 });
+
+// How many raw lines the gear popover's NMEA monitor keeps around --
+// generous enough to show a few seconds of a chatty 10Hz multi-
+// constellation receiver's GGA+RMC+GSA+GSV+VTG+GLL burst, small enough
+// to stay a glance-able debug panel rather than a full log.
+const RAW_LINE_HISTORY = 40;
 
 export function isWebSerialSupported(): boolean {
   return typeof navigator !== 'undefined' && 'serial' in navigator;
@@ -52,6 +76,56 @@ export function isWebSerialSupported(): boolean {
 let port: SerialPort | null = null;
 let reader: ReadableStreamDefaultReader<string> | null = null;
 let keepReading = false;
+
+// The most recently *successfully opened* port, kept even after
+// disconnectGps() closes `port` above -- lets the main GPS button
+// (toggleGps in GpsPanel.svelte) reconnect to the same device without
+// re-showing Chrome's native picker every time (direct request -- "now
+// browser wants to choose the port" every time was the complaint).
+// Never reset to null: Web Serial's own permission grant already
+// outlives this anyway (it's per-origin, persists across reloads), so
+// there's nothing to be gained by forgetting it sooner. If the physical
+// device really is gone, reconnecting to it just surfaces open()'s own
+// error -- no special invalidation needed.
+let lastPort: SerialPort | null = null;
+
+// Bumped at the start of every connect attempt (openPort) and by
+// disconnectGps()/the native 'disconnect' listener -- lets an in-flight
+// attempt notice, once its own await resolves, that it's been superseded
+// by a NEWER attempt or an explicit disconnect, and bail out instead of
+// clobbering whatever superseded it. Closes a real race (bug report):
+// picking a different already-granted port while one was already
+// connected used to leave the first port open (leaked OS lock) and its
+// still-running read loop fighting the new one over the shared `reader`
+// variable below; separately, switching to a different position source
+// while a connect was still in flight could get silently undone once
+// that connect's open() finally resolved.
+let connectionGeneration = 0;
+
+/** Stops the read loop and releases whatever port is currently open (if
+ * any) -- shared by disconnectGps() and by openPort() below, which now
+ * always tears down any existing connection before starting a new one
+ * rather than requiring every caller to remember to disconnect first.
+ * Safe to call with nothing open (all three operations are no-ops via
+ * the `?.`/empty-catch). Does NOT touch the gpsConnection store or
+ * connectionGeneration -- callers own those, since "tear down the wire"
+ * and "what the UI should show next" are different decisions (openPort
+ * wants 'connecting' throughout; disconnectGps wants 'idle' at the end). */
+async function teardownConnection(): Promise<void> {
+  keepReading = false;
+  try {
+    await reader?.cancel();
+  } catch {
+    // stream already errored/closed -- nothing left to cancel
+  }
+  try {
+    await port?.close();
+  } catch {
+    // already closed
+  }
+  port = null;
+  clockOffsetMs = null;
+}
 
 // Local, non-reactive accumulator -- updated on EVERY parsed line (a
 // 10Hz receiver means up to 10/sec), but only flushed into the Svelte
@@ -103,13 +177,96 @@ export function getGpsClockOffsetMs(): number | null {
   return clockOffsetMs;
 }
 
-export async function connectGps(baudRate: number): Promise<void> {
-  if (!window.isSecureContext) {
-    gpsConnection.update((s) => ({ ...s, status: 'error', error: 'Needs HTTPS or localhost' }));
+/** Ports the page has previously been granted access to -- Web Serial
+ * never lists ungranted devices (a privacy boundary in the spec), so
+ * this is only ever a subset of what's physically plugged in. Backs the
+ * gear popover's port list (GpsPanel.svelte); refreshed on demand
+ * (there's no live change event worth wiring up for a debug/config
+ * panel). */
+export async function listKnownPorts(): Promise<SerialPort[]> {
+  if (!isWebSerialSupported()) return [];
+  return navigator.serial!.getPorts();
+}
+
+/** Whether the given port is the one currently open -- lets the gear
+ * popover's port list mark/disable the entry that's already connected
+ * instead of offering to "connect" to it again. */
+export function isActivePort(p: SerialPort): boolean {
+  return port === p;
+}
+
+function preflight(): string | null {
+  if (!window.isSecureContext) return 'Needs HTTPS or localhost';
+  if (!isWebSerialSupported()) return 'Needs a Chromium browser (Chrome/Edge)';
+  return null;
+}
+
+async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
+  // Claims this attempt's generation FIRST (synchronously, before any
+  // await) so any older attempt still in flight -- or an explicit
+  // disconnectGps() that races with this one -- can tell it's been
+  // superseded. Then tears down whatever connection currently exists
+  // (a different port left open, or a stuck one from a prior error --
+  // see readLoop's catch and disconnectGps, both of which used to be
+  // the only places that closed a port) BEFORE opening the new one, so
+  // switching ports/retrying after an error never leaks the old handle
+  // or leaves two read loops fighting over the shared `reader` variable
+  // below.
+  const myGeneration = ++connectionGeneration;
+  await teardownConnection();
+  if (myGeneration !== connectionGeneration) return; // superseded while tearing down
+
+  try {
+    // See SERIAL_BUFFER_SIZE's own comment for why this isn't Chrome's
+    // 255-byte default.
+    await selected.open({ baudRate, bufferSize: SERIAL_BUFFER_SIZE });
+  } catch (err) {
+    if (myGeneration !== connectionGeneration) return; // superseded meanwhile -- don't clobber whatever replaced us
+    gpsConnection.update((s) => ({ ...s, status: 'error', error: describeOpenError(err) }));
     return;
   }
-  if (!isWebSerialSupported()) {
-    gpsConnection.update((s) => ({ ...s, status: 'error', error: 'Needs a Chromium browser (Chrome/Edge)' }));
+
+  if (myGeneration !== connectionGeneration) {
+    // Something else (a disconnect, or a newer connect attempt) won the
+    // race while open() was pending -- e.g. the user switched to a
+    // different position source mid-connect. Release the port we just
+    // opened instead of adopting it; don't touch any shared state, it's
+    // not ours to touch anymore.
+    try {
+      await selected.close();
+    } catch {
+      // already closed/never fully opened -- nothing left to release
+    }
+    return;
+  }
+
+  port = selected;
+  lastPort = selected;
+  latestFix = initialNmeaFixState;
+  lastFlushMs = 0;
+  clockOffsetMs = null;
+  gpsConnection.update((s) => ({
+    ...s,
+    status: 'connected',
+    error: '',
+    fix: initialNmeaFixState,
+    frozen: false,
+    clockOffsetMs: null,
+    recentLines: [],
+    hasRememberedPort: true,
+  }));
+  void readLoop(selected);
+}
+
+/** First-ever connect (or "Choose a port..." in the gear popover) --
+ * always shows Chrome's native device picker, since a page can't
+ * enumerate a device it hasn't been granted access to yet. See
+ * reconnectLastPort for the no-picker path used once a port has been
+ * granted at least once this session. */
+export async function connectGps(baudRate: number): Promise<void> {
+  const preflightError = preflight();
+  if (preflightError) {
+    gpsConnection.update((s) => ({ ...s, status: 'error', error: preflightError }));
     return;
   }
 
@@ -131,28 +288,33 @@ export async function connectGps(baudRate: number): Promise<void> {
     return;
   }
 
-  try {
-    // See SERIAL_BUFFER_SIZE's own comment for why this isn't Chrome's
-    // 255-byte default.
-    await selected.open({ baudRate, bufferSize: SERIAL_BUFFER_SIZE });
-  } catch (err) {
-    gpsConnection.update((s) => ({ ...s, status: 'error', error: describeError(err, 'Could not open port') }));
+  await openPort(selected, baudRate);
+}
+
+/** Connects to an already-granted port directly -- no native picker.
+ * Used by the gear popover's port list (any previously granted port)
+ * and by reconnectLastPort below (specifically the last one that
+ * worked). */
+export async function connectToPort(selected: SerialPort, baudRate: number): Promise<void> {
+  const preflightError = preflight();
+  if (preflightError) {
+    gpsConnection.update((s) => ({ ...s, status: 'error', error: preflightError }));
     return;
   }
+  gpsConnection.update((s) => ({ ...s, status: 'connecting', error: '' }));
+  await openPort(selected, baudRate);
+}
 
-  port = selected;
-  latestFix = initialNmeaFixState;
-  lastFlushMs = 0;
-  clockOffsetMs = null;
-  gpsConnection.update((s) => ({
-    ...s,
-    status: 'connected',
-    error: '',
-    fix: initialNmeaFixState,
-    frozen: false,
-    clockOffsetMs: null,
-  }));
-  void readLoop(selected);
+/** The main GPS pill button's connect action: reuses whatever port
+ * worked last time this session (see lastPort), falling back to the
+ * native picker (connectGps) the very first time there's nothing to
+ * reuse yet. */
+export async function reconnectLastPort(baudRate: number): Promise<void> {
+  if (!lastPort) {
+    await connectGps(baudRate);
+    return;
+  }
+  await connectToPort(lastPort, baudRate);
 }
 
 async function readLoop(activePort: SerialPort): Promise<void> {
@@ -195,7 +357,24 @@ async function readLoop(activePort: SerialPort): Promise<void> {
     if (keepReading) {
       // keepReading is still true -> this wasn't disconnectGps()'s own
       // cancel() causing the rejection, so it's a real device error
-      // (e.g. unplugged mid-read).
+      // (e.g. unplugged mid-read, a transient USB/driver hiccup). Closes
+      // and releases the port immediately rather than leaving it open
+      // with nothing left to drain it (bug report: a transient error
+      // used to leave `port` pointing at a still-"open" port forever,
+      // so the next reconnect attempt's open() on that same object threw
+      // "already open" and the button was stuck erroring until a full
+      // page reload) -- and bumps connectionGeneration so a connect
+      // attempt already in flight for some OTHER port doesn't get
+      // treated as superseded by this cleanup.
+      connectionGeneration++;
+      keepReading = false;
+      try {
+        await activePort.close();
+      } catch {
+        // already closed/gone -- nothing left to release
+      }
+      if (port === activePort) port = null;
+      clockOffsetMs = null;
       gpsConnection.update((s) => ({ ...s, status: 'error', error: describeError(err, 'Serial read error') }));
     }
   } finally {
@@ -205,6 +384,12 @@ async function readLoop(activePort: SerialPort): Promise<void> {
 }
 
 function applyLine(rawLine: string): void {
+  // Recorded unconditionally, BEFORE the parse attempt below -- a wrong
+  // baud-rate guess shows up here as garbled bytes, which is itself the
+  // most useful thing the monitor can tell the user, not something to
+  // filter out.
+  gpsConnection.update((s) => ({ ...s, recentLines: appendLine(s.recentLines, rawLine, RAW_LINE_HISTORY) }));
+
   const sentence = parseNmeaSentence(rawLine);
   if (!sentence) return;
   latestFix = applyNmeaSentence(latestFix, sentence);
@@ -246,7 +431,17 @@ function flushFix(): void {
     // above, delaying the next reader.read() by however long that
     // cascade takes. Deferring lets the read loop get back to awaiting
     // the next chunk right away instead.
-    setTimeout(() => setObserver(lat, lon, 'gps', altitudeM), 0);
+    //
+    // keepReading re-checked at fire time, not just at schedule time
+    // above (bug report: switching to a different position source
+    // didn't reliably stick) -- disconnectGps() sets it false
+    // synchronously, but a flush already scheduled a moment earlier was
+    // still in flight and would otherwise land after the switch and
+    // silently drag observer.source back to 'gps'.
+    setTimeout(() => {
+      if (!keepReading) return;
+      setObserver(lat, lon, 'gps', altitudeM);
+    }, 0);
   }
 }
 
@@ -267,24 +462,35 @@ export function unfreezeGps(): void {
 }
 
 export async function disconnectGps(): Promise<void> {
-  keepReading = false;
-  try {
-    await reader?.cancel();
-  } catch {
-    // stream already errored/closed -- nothing left to cancel
-  }
-  try {
-    await port?.close();
-  } catch {
-    // already closed
-  }
-  port = null;
-  clockOffsetMs = null;
+  // Bumped BEFORE tearing down -- an openPort() attempt already in
+  // flight (its own open() still pending) checks this after every
+  // await, so it notices it's been superseded and releases the port it
+  // just opened instead of resurrecting a connection the user explicitly
+  // just left.
+  connectionGeneration++;
+  await teardownConnection();
   gpsConnection.update((s) => ({ ...s, status: 'idle', error: '', frozen: false, clockOffsetMs: null }));
 }
 
 function describeError(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/** Same as describeError, but adds an actionable hint for the one
+ * open()-failure cause worth calling out specifically: the OS refusing
+ * to hand over a port another program already has open (NetworkError
+ * per the Web Serial spec -- distinct from InvalidStateError, which
+ * means WE already have it open, a case openPort's generation guard
+ * above now prevents from happening in the first place). Field-relevant:
+ * a laptop running both this app and a separate NMEA-monitoring tool
+ * against the same USB GPS receiver is a realistic, not hypothetical,
+ * setup. */
+function describeOpenError(err: unknown): string {
+  const message = describeError(err, 'Could not open port');
+  if (err instanceof DOMException && err.name === 'NetworkError') {
+    return `${message} (the port may be in use by another program)`;
+  }
+  return message;
 }
 
 // A device physically unplugged mid-connection usually also surfaces as
@@ -294,6 +500,7 @@ function describeError(err: unknown, fallback: string): string {
 if (isWebSerialSupported()) {
   navigator.serial!.addEventListener('disconnect', (event) => {
     if (event.target !== port) return;
+    connectionGeneration++;
     keepReading = false;
     port = null;
     clockOffsetMs = null;
