@@ -254,6 +254,15 @@
   {#if gpsStatusText}
     <span class="sourcestatus" class:warn={gpsStatusIsWarn}>{gpsStatusText}</span>
   {/if}
+  {#if $gpsConnection.needsReload}
+    <button
+      class="modebtn reloadbtn"
+      onclick={() => window.location.reload()}
+      title="A known Chrome/Windows limitation prevents reopening this port without a fresh page load"
+    >
+      ⟳ Reload page
+    </button>
+  {/if}
   {#if $gpsConnection.status === 'connected' && $gpsConnection.clockOffsetMs !== null}
     <span
       class="gpsclockbadge"
@@ -350,6 +359,11 @@
   }
   .sourcestatus.warn {
     color: #c22;
+  }
+  .reloadbtn {
+    border-color: #c22;
+    color: #c22;
+    font-weight: 600;
   }
   .gpsclockbadge {
     font-size: 11px;

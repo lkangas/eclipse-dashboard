@@ -32,10 +32,28 @@ function topojson(): Plugin {
 // yet, so main.ts's document.getElementById('app') returned null and
 // mount() had nothing to attach to. defer restores the "run after
 // parsing" timing without needing type="module" itself.
+//
+// Production build ONLY (bug report: dev server -- `npm run dev` --
+// went blank too, with no console error). transformIndexHtml runs for
+// BOTH `vite build` and `vite dev`/serve, and Vite's dev server's own
+// injected entry script genuinely needs to stay a real ES module --
+// that's how it wires up HMR and per-file on-demand transformation.
+// Stripping type="module" there breaks module resolution entirely
+// (main.ts's own `import` statements become a syntax error in a
+// classic-script context), which is a silent, uncaught parse-time
+// failure -- consistent with the reported "nothing mounts, no console
+// error" symptom. configResolved's command ('build' vs 'serve') is the
+// correct way to tell these apart; only the production build's bundle
+// is actually IIFE-format and file://-safe to rewrite this way.
 function classicScriptHtml(): Plugin {
+  let isBuild = false
   return {
     name: 'classic-script-html',
+    configResolved(config) {
+      isBuild = config.command === 'build'
+    },
     transformIndexHtml(html) {
+      if (!isBuild) return html
       return html.replace(/<script type="module"( crossorigin)?/g, '<script defer')
     },
   }

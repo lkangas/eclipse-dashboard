@@ -105,6 +105,15 @@
       {#if $gpsConnection.baudRate !== null}
         <span class="baudtag">{$gpsConnection.baudRate} baud</span>
       {/if}
+      {#if $gpsConnection.needsReload}
+        <button
+          class="reloadbtn"
+          onclick={() => window.location.reload()}
+          title="A known Chrome/Windows limitation prevents reopening this port without a fresh page load"
+        >
+          ⟳ Reload page
+        </button>
+      {/if}
       <span class="fill"></span>
       <div
         class="rate"
@@ -178,6 +187,17 @@
     border: 1px solid var(--line);
     border-radius: 4px;
     padding: 1px 6px;
+  }
+  .reloadbtn {
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    background: none;
+    border: 1px solid #c22;
+    border-radius: 4px;
+    padding: 2px 8px;
+    color: #c22;
+    cursor: pointer;
   }
   .fill {
     flex: 1;

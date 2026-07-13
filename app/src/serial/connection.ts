@@ -82,6 +82,19 @@ export interface GpsConnectionState {
   // state" philosophy as fix/recentLines above), only ever set fresh by
   // the next successful openPort().
   baudRate: number | null;
+  // True when the current 'error' is specifically "this port won't
+  // reopen after being closed" (see isPortStillClosingError's own
+  // comment) -- a real, Windows-specific Web Serial/Chromium limitation
+  // (confirmed: Firefox had the identical symptom and could only fix it
+  // by making their close() synchronous at the C++ level, using
+  // CancelIoEx instead of CancelIo -- not something reachable from page
+  // JS at all). Bug report: this reproduces even with several seconds
+  // between disconnect and reconnect, so it is NOT a brief timing race
+  // openPort's retry can wait out -- but reloading the page reliably
+  // fixes it (confirmed), so the UI (GpsRibbon) uses this flag to offer
+  // a one-click reload instead of leaving the user to discover that
+  // workaround themselves from a generic error string.
+  needsReload: boolean;
 }
 
 export const gpsConnection = writable<GpsConnectionState>({
@@ -96,6 +109,7 @@ export const gpsConnection = writable<GpsConnectionState>({
   fixPulse: 0,
   lastFixEventMs: null,
   baudRate: null,
+  needsReload: false,
 });
 
 // How many raw lines the gear popover's NMEA monitor keeps around --
@@ -298,12 +312,19 @@ async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
   await teardownConnection();
   if (myGeneration !== connectionGeneration) return; // superseded while tearing down
 
-  // Up to one retry, and ONLY for the specific failure that looks like
-  // the OS/driver hasn't fully released the port from the close() a few
-  // lines up yet (see isPortStillClosingError's own comment) -- not a
-  // general-purpose retry loop, which would just mask a genuinely absent
-  // or in-use-by-another-program device behind a longer hang.
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // A SHORT sanity-check retry, and ONLY for the specific failure that
+  // looks like the OS/driver hasn't fully released the port from the
+  // close() a few lines up yet (see isPortStillClosingError's own
+  // comment) -- deliberately NOT a long/generous retry. Bug report: this
+  // failure reproduces even several seconds after disconnecting, not
+  // just on a rushed reconnect, so waiting it out isn't actually a real
+  // fix -- confirmed via the WICG/serial and Mozilla issue trackers,
+  // this is a known Windows-specific Web Serial limitation (Firefox's
+  // own fix required making close() synchronous at the C++ level via
+  // CancelIoEx -- not reachable from page JS at all). OPEN_RETRY_DELAYS_MS
+  // exists to catch the genuinely-brief case cheaply, not to paper over
+  // the persistent one; needsReload (below) is the actual fix for that.
+  for (let attempt = 0; attempt <= OPEN_RETRY_DELAYS_MS.length; attempt++) {
     try {
       // See SERIAL_BUFFER_SIZE's own comment for why this isn't Chrome's
       // 255-byte default.
@@ -311,12 +332,18 @@ async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
       break;
     } catch (err) {
       if (myGeneration !== connectionGeneration) return; // superseded meanwhile -- don't clobber whatever replaced us
-      if (attempt === 0 && isPortStillClosingError(err)) {
-        await new Promise((resolve) => setTimeout(resolve, OPEN_RETRY_DELAY_MS));
+      const stillClosing = isPortStillClosingError(err);
+      if (attempt < OPEN_RETRY_DELAYS_MS.length && stillClosing) {
+        await new Promise((resolve) => setTimeout(resolve, OPEN_RETRY_DELAYS_MS[attempt]));
         if (myGeneration !== connectionGeneration) return; // superseded during the retry delay
         continue;
       }
-      gpsConnection.update((s) => ({ ...s, status: 'error', error: describeOpenError(err) }));
+      gpsConnection.update((s) => ({
+        ...s,
+        status: 'error',
+        error: describeOpenError(err),
+        needsReload: stillClosing,
+      }));
       return;
     }
   }
@@ -353,6 +380,7 @@ async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
     fixRateHz: null,
     lastFixEventMs: null,
     baudRate,
+    needsReload: false,
   }));
   // Tracked (not fire-and-forget) so teardownConnection can await this
   // exact loop's actual completion -- see readLoopPromise's own comment.
@@ -367,11 +395,11 @@ async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
 export async function connectGps(baudRate: number): Promise<void> {
   const preflightError = preflight();
   if (preflightError) {
-    gpsConnection.update((s) => ({ ...s, status: 'error', error: preflightError }));
+    gpsConnection.update((s) => ({ ...s, status: 'error', error: preflightError, needsReload: false }));
     return;
   }
 
-  gpsConnection.update((s) => ({ ...s, status: 'connecting', error: '' }));
+  gpsConnection.update((s) => ({ ...s, status: 'connecting', error: '', needsReload: false }));
   let selected: SerialPort;
   try {
     selected = await navigator.serial!.requestPort();
@@ -399,10 +427,10 @@ export async function connectGps(baudRate: number): Promise<void> {
 export async function connectToPort(selected: SerialPort, baudRate: number): Promise<void> {
   const preflightError = preflight();
   if (preflightError) {
-    gpsConnection.update((s) => ({ ...s, status: 'error', error: preflightError }));
+    gpsConnection.update((s) => ({ ...s, status: 'error', error: preflightError, needsReload: false }));
     return;
   }
-  gpsConnection.update((s) => ({ ...s, status: 'connecting', error: '' }));
+  gpsConnection.update((s) => ({ ...s, status: 'connecting', error: '', needsReload: false }));
   await openPort(selected, baudRate);
 }
 
@@ -420,7 +448,7 @@ export async function reconnectLastPort(baudRate: number): Promise<void> {
 
 async function readLoop(activePort: SerialPort): Promise<void> {
   if (!activePort.readable) {
-    gpsConnection.update((s) => ({ ...s, status: 'error', error: 'Port has no readable stream' }));
+    gpsConnection.update((s) => ({ ...s, status: 'error', error: 'Port has no readable stream', needsReload: false }));
     return;
   }
   keepReading = true;
@@ -476,7 +504,7 @@ async function readLoop(activePort: SerialPort): Promise<void> {
       }
       if (port === activePort) port = null;
       clockOffsetMs = null;
-      gpsConnection.update((s) => ({ ...s, status: 'error', error: describeError(err, 'Serial read error') }));
+      gpsConnection.update((s) => ({ ...s, status: 'error', error: describeError(err, 'Serial read error'), needsReload: false }));
     }
   } finally {
     reader?.releaseLock();
@@ -607,33 +635,53 @@ export async function disconnectGps(): Promise<void> {
   // just left.
   connectionGeneration++;
   await teardownConnection();
-  gpsConnection.update((s) => ({ ...s, status: 'idle', error: '', frozen: false, clockOffsetMs: null }));
+  gpsConnection.update((s) => ({
+    ...s,
+    status: 'idle',
+    error: '',
+    frozen: false,
+    clockOffsetMs: null,
+    needsReload: false,
+  }));
 }
 
 function describeError(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
-// How long openPort's one bounded retry waits before trying open() again
-// -- see isPortStillClosingError's own comment for what it's working
-// around. Short enough not to make a genuine reconnect feel sluggish,
-// long enough to be a real second attempt rather than a same-tick retry
-// that hits the exact same still-releasing driver handle.
-const OPEN_RETRY_DELAY_MS = 250;
+// How long openPort's short sanity-check retry waits between attempts --
+// see isPortStillClosingError's own comment for what it's working
+// around, and needsReload's own comment for why this is deliberately
+// short (a few quick attempts, not a long wait-it-out loop): the actual
+// bug report is that this failure persists even several seconds after
+// disconnecting, so a longer automatic retry would just make the user
+// stare at "Connecting..." for a fix that empirically doesn't arrive
+// that way. This catches the genuinely-brief case cheaply; needsReload
+// covers the persistent one.
+const OPEN_RETRY_DELAYS_MS = [300, 800];
 
 /** Whether an open() failure looks like the OS/driver hasn't actually
  * finished releasing this same port from a just-completed close() yet --
- * worth openPort's one bounded retry for, since a resolved close()
- * promise doesn't guarantee the underlying handle is released
+ * worth openPort's short sanity-check retry for, since a resolved
+ * close() promise doesn't guarantee the underlying handle is released
  * instantly, particularly on Windows with a USB-UART bridge chipset
  * (e.g. the CP210x family most USB GPS receivers use). Chrome surfaces
  * this specific case as InvalidStateError -- distinct from NetworkError,
  * which means a DIFFERENT program has the port and a retry here
  * couldn't possibly help (describeOpenError's existing hint for that
- * case). The readLoopPromise fix above (teardownConnection now awaits
- * the read loop's actual completion, not just reader.cancel()) closes
- * the JS-level version of this race; this retry is defense-in-depth for
- * whatever OS/driver-level gap can't be eliminated in JS alone. */
+ * case).
+ *
+ * Confirmed via the WICG/serial and Mozilla/Firefox issue trackers: this
+ * is a known, Windows-specific Web Serial limitation, not a bug specific
+ * to this app's cleanup sequencing. Firefox hit the identical symptom
+ * and could only fix it by making their close() implementation
+ * synchronous at the C++ level (using CancelIoEx instead of CancelIo to
+ * cancel in-flight I/O) -- something no page-level JS can do. That's why
+ * this retry is short and needsReload exists as the real recovery path:
+ * there is no reliable amount of waiting-and-retrying from application
+ * code that fixes this, only a fresh page load (confirmed empirically --
+ * a reload always works, reusing the same SerialPort object sometimes
+ * doesn't, regardless of how long you wait first). */
 function isPortStillClosingError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'InvalidStateError';
 }
@@ -641,9 +689,10 @@ function isPortStillClosingError(err: unknown): boolean {
 /** Same as describeError, but adds an actionable hint for the two
  * open()-failure causes worth calling out specifically: the OS refusing
  * to hand over a port another program already has open (NetworkError
- * per the Web Serial spec), or this same port still not being fully
- * released from a previous close() even after openPort's own retry
- * (InvalidStateError -- see isPortStillClosingError's own comment).
+ * per the Web Serial spec), or this same port not reopening after a
+ * previous close() even after openPort's own short retry
+ * (InvalidStateError -- see isPortStillClosingError's own comment, and
+ * needsReload for the actual fix this message points at).
  * Field-relevant: a laptop running both this app and a separate
  * NMEA-monitoring tool against the same USB GPS receiver is a realistic,
  * not hypothetical, setup. */
@@ -653,7 +702,7 @@ function describeOpenError(err: unknown): string {
     return `${message} (the port may be in use by another program)`;
   }
   if (isPortStillClosingError(err)) {
-    return `${message} (the port may still be releasing from a previous connection -- try again in a moment)`;
+    return `${message} -- a known Chrome/Windows limitation reopening this port; reload the page to fix it`;
   }
   return message;
 }
@@ -674,6 +723,7 @@ if (isWebSerialSupported()) {
       status: 'error',
       error: 'GPS device disconnected',
       clockOffsetMs: null,
+      needsReload: false,
     }));
   });
 }
