@@ -1,11 +1,28 @@
 # GPS NMEA Monitor — Expansion Plan
 
-Status: **planning only — nothing in this doc has been implemented.** No GPS
-source file was touched to produce it; this is a design document written
-after a read-through of the current `app/src/serial/` + `app/src/lib/Gps*`
-code, meant to be picked up in a future session (possibly on another
-machine, with no memory of the conversation that produced it) and turned
-into actual PRs, phase by phase.
+Status: **Phase 1 (§6) implemented, tested, and wired end-to-end.** Landed:
+the `monitorActive` gating mechanism (§3) wired into `connection.ts`'s
+`applyLine()`/`openPort()`; GSV parsing (`nmeaRich.ts`) and multi-sentence
+reassembly (`nmeaSatellites.ts`, §5) with two real bugs found and fixed by
+adversarial review (an epoch-splice bug in the reassembly reducer and a
+Signal-ID/truncated-satellite-group parsing ambiguity — see their own
+commit messages for details); the satellite sky-plot and SNR bar chart
+(`app/src/lib/gps-monitor/`); and the §10 addendum ("Live rows" toggle for
+the raw NMEA stream) as an unplanned but closely-related addition built in
+the same pass. 150 tests passing, typecheck clean, live-verified in a
+browser with synthetic data injected directly into the stores (real
+hardware not available in this environment — see §9 item 3, still
+unverified against a real receiver). Phases 2–4 below are still just a
+plan, not started.
+
+No GPS source file was touched to produce the *original* version of this
+document below — it was a design document written after a read-through of
+the (then-current) `app/src/serial/` + `app/src/lib/Gps*` code. It's kept
+largely as-written (a plan, not a changelog) except for this status line
+and the §2 addendum below, which were updated as implementation actually
+happened. Treat everything past this point as the ORIGINAL plan, written
+before Phase 1 existed — cross-check against the real code for anything
+Phase 1 may have since done differently than planned.
 
 Written the same way `docs/HANDOFF-2026-07-13.md` was written: assume the
 reader has not seen this code before and re-derive the important bits from
