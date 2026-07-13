@@ -4,6 +4,7 @@
 // below), continuously, not a frozen snapshot.
 import { derived, writable } from 'svelte/store';
 import { now } from './now';
+import { getGpsClockOffsetMs } from '../serial/connection';
 
 export type ClockMode = 'live' | 'sim';
 /** Which window TimeBar's track currently shows -- 'in' is a close-up
@@ -28,8 +29,17 @@ export const clock = writable<ClockState>({
 });
 
 // The instant every time-driven view (map shadow marker, time slider
-// cursor, ...) should actually display.
-export const effectiveTime = derived(
-  [clock, now],
-  ([$clock, $now]) => ($clock.mode === 'live' ? $now : new Date($clock.simTimeMs)),
-);
+// cursor, ...) should actually display. In 'live' mode this is
+// disciplined to a connected GPS's own UTC when available (PLAN.md §6)
+// -- offset-corrected system time rather than the GPS's own (sparser,
+// throttled) timestamp directly, so it still ticks smoothly every
+// second between fixes instead of jumping only when a new NMEA sentence
+// arrives. getGpsClockOffsetMs() is a plain function call, not a store
+// subscription, so a fast (10Hz) receiver disciplining the offset in the
+// background doesn't add any recomputation beyond this derived store's
+// existing 1Hz tick from `now`.
+export const effectiveTime = derived([clock, now], ([$clock, $now]) => {
+  if ($clock.mode !== 'live') return new Date($clock.simTimeMs);
+  const offsetMs = getGpsClockOffsetMs();
+  return offsetMs === null ? $now : new Date($now.getTime() + offsetMs);
+});

@@ -41,3 +41,15 @@ export function elevationAt(lat: number, lon: number): number {
 
   return Math.max(0, value);
 }
+
+/** Whether `lat`/`lon` falls inside the bundled ETOPO grid's own bbox --
+ * i.e. whether elevationAt() above is a real interpolated reading rather
+ * than an edge-clamped guess. Used by stores/observer.ts to flag
+ * out-of-bounds sources (browser geolocation, eventually serial GPS) so
+ * the UI can warn instead of silently showing a meaningless "nearest
+ * Iberian edge cell" value for e.g. a location outside Spain entirely. */
+export function isWithinElevationBounds(lat: number, lon: number): boolean {
+  const latMax = latMin + (rows - 1) * latStep;
+  const lonMax = lonMin + (cols - 1) * lonStep;
+  return lat >= latMin && lat <= latMax && lon >= lonMin && lon <= lonMax;
+}

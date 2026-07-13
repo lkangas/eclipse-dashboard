@@ -1,14 +1,15 @@
 <script lang="ts">
   import { observer, setObserver, setObserverElevation } from '../stores/observer';
   import { clock, effectiveTime } from '../stores/clock';
+  import { gpsConnection, connectGps, disconnectGps, freezeGps, unfreezeGps } from '../serial/connection';
 
   // Location-mode toggle group (direct request): GPS / Browser / Manual
   // (map) / a named preset, one active at a time -- observer.source IS
-  // this mode (stores/observer.ts). GPS/Browser aren't wired up to any
-  // real data source yet, so they're rendered disabled rather than
-  // clickable-but-inert; Calamocha (this project's fixed default site)
+  // this mode (stores/observer.ts). GPS (serial NMEA, see toggleGps
+  // below) and Browser (navigator.geolocation, see useBrowserLocation
+  // below) are both real. Calamocha (this project's fixed default site)
   // is included as a preset alongside the others, and is the actual
-  // default source since gps/browser aren't available.
+  // default source until one of GPS/Browser is used.
   const SITES: Record<string, { lat: number; lon: number; label: string }> = {
     calamocha: { lat: 40.92, lon: -1.3, label: 'Calamocha' },
     acoruna: { lat: 43.36, lon: -8.41, label: 'A Coruña' },
@@ -42,6 +43,8 @@
     const site = SITES[key];
     if (!site) return;
     selectedPresetKey = key;
+    browserStatus = 'idle';
+    browserError = '';
     setObserver(site.lat, site.lon, 'preset');
   }
 
@@ -49,9 +52,118 @@
   // flips into editable/map-draggable mode, showing whatever was
   // already active (direct request).
   function selectManual() {
+    browserStatus = 'idle';
+    browserError = '';
     setObserver($observer.lat, $observer.lon, 'manual');
   }
   const isManual = $derived($observer.source === 'manual');
+
+  // Browser geolocation (PLAN.md §5): navigator.geolocation needs a secure
+  // context -- HTTPS or localhost, NOT file:// or plain http://<ip> -- so
+  // that's checked up front and surfaced as a clear message rather than
+  // left to silently fail/never prompt. A transient status (locating/
+  // error) rather than folding into observer.source alone, since an error
+  // must stay visible without pretending the mode switched.
+  let browserStatus: 'idle' | 'locating' | 'error' = $state('idle');
+  let browserError = $state('');
+
+  function useBrowserLocation() {
+    browserError = '';
+    if (!window.isSecureContext || !navigator.geolocation) {
+      browserStatus = 'error';
+      browserError = 'Needs HTTPS or localhost';
+      return;
+    }
+    browserStatus = 'locating';
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        browserStatus = 'idle';
+        setObserver(pos.coords.latitude, pos.coords.longitude, 'browser');
+      },
+      (err) => {
+        browserStatus = 'error';
+        browserError =
+          err.code === err.PERMISSION_DENIED
+            ? 'Permission denied'
+            : err.code === err.TIMEOUT
+              ? 'Timed out'
+              : 'Location unavailable';
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
+  }
+
+  // USB/serial NMEA GPS (PLAN.md §5 #4) -- connection lifecycle and NMEA
+  // parsing live in serial/connection.ts (real navigator.serial glue,
+  // not unit-testable) and serial/nmea*.ts (pure, unit-tested); this
+  // just drives the button/baud select and renders whatever
+  // gpsConnection reports. requestPort()'s native device picker needs a
+  // baud rate chosen *before* the click that opens it (Web Serial has no
+  // "change baud on an already-open port" call), hence the separate
+  // select rather than a setting revealed only after connecting -- 9600
+  // is the most common default among cheap USB/GNSS dongles (the NMEA
+  // spec's own default is 4800, also offered).
+  const BAUD_RATES = [4800, 9600, 19200, 38400, 57600, 115200];
+  let gpsBaud = $state(9600);
+
+  function toggleGps() {
+    if ($gpsConnection.status === 'connected' || $gpsConnection.status === 'connecting') {
+      disconnectGps();
+    } else {
+      connectGps(gpsBaud);
+    }
+  }
+
+  const gpsButtonLabel = $derived($gpsConnection.status === 'connecting' ? 'Connecting…' : 'GPS');
+  const gpsButtonTitle = $derived.by(() => {
+    const s = $gpsConnection;
+    if (s.status === 'error') return s.error;
+    if (s.status === 'connecting') return 'Waiting for the port picker…';
+    if (s.status === 'connected') return 'Click to disconnect';
+    return 'Connect a USB/serial NMEA GPS receiver';
+  });
+  // Separate from the button's own title/tooltip (which only a hover
+  // reveals) -- an always-visible line, same convention as browserError
+  // below, since fix-quality is worth seeing at a glance while connected
+  // rather than only on request.
+  const gpsStatusText = $derived.by(() => {
+    const s = $gpsConnection;
+    if (s.status === 'error') return s.error;
+    if (s.status === 'connecting') return 'Waiting for port…';
+    if (s.status !== 'connected') return '';
+    if (!s.fix.hasFix) {
+      const searching = s.fix.numSatellites !== null ? `No fix (${s.fix.numSatellites} sats)` : 'No fix yet';
+      return s.frozen ? `${searching} -- frozen` : searching;
+    }
+    const sats = s.fix.numSatellites !== null ? `${s.fix.numSatellites} sats` : 'fix';
+    const hdop = s.fix.hdop !== null ? `, HDOP ${s.fix.hdop.toFixed(1)}` : '';
+    const frozen = s.frozen ? ' -- frozen' : '';
+    return `Fix: ${sats}${hdop}${frozen}`;
+  });
+  const gpsStatusIsWarn = $derived(
+    $gpsConnection.status === 'error' || ($gpsConnection.status === 'connected' && !$gpsConnection.fix.hasFix),
+  );
+
+  // Freeze (direct request): lock the observer marker to whatever fix is
+  // current, since even a "good" fix can still jitter a few meters
+  // report to report -- see freezeGps()'s own comment. Manual only, no
+  // auto-freeze on first fix. Enabled once there's a fix to freeze onto,
+  // OR while already frozen (so it can always be toggled back off).
+  function toggleGpsFreeze() {
+    if ($gpsConnection.frozen) unfreezeGps();
+    else freezeGps();
+  }
+  const gpsFreezeDisabled = $derived(!$gpsConnection.frozen && !$gpsConnection.fix.hasFix);
+
+  // GPS clock discipline (PLAN.md §6) -- effectiveTime (clock.ts) already
+  // applies the offset; this just renders it so the offset itself is
+  // visible, not only its effect. Signed seconds, one decimal --
+  // sub-second precision is the interesting range here (system clocks
+  // are rarely off by whole seconds), anything coarser would hide it.
+  function formatClockOffset(ms: number): string {
+    const s = ms / 1000;
+    return `${s >= 0 ? '+' : ''}${s.toFixed(1)}s`;
+  }
 
   // Local editable strings, not bound directly to the store's formatted
   // value -- typing a decimal point (e.g. "40.") would otherwise get
@@ -133,8 +245,47 @@
 
 <div class="topbar">
   <div class="modegroup">
-    <button class="modebtn" disabled title="Not yet available">GPS</button>
-    <button class="modebtn" disabled title="Not yet available">Browser</button>
+    <button
+      class="modebtn"
+      class:on={$observer.source === 'gps'}
+      disabled={$gpsConnection.status === 'connecting'}
+      onclick={toggleGps}
+      title={gpsButtonTitle}
+    >
+      {gpsButtonLabel}
+    </button>
+    <select
+      class="modebtn baudselect"
+      bind:value={gpsBaud}
+      disabled={$gpsConnection.status === 'connecting' || $gpsConnection.status === 'connected'}
+      title="Baud rate -- set before connecting"
+    >
+      {#each BAUD_RATES as rate (rate)}
+        <option value={rate}>{rate}</option>
+      {/each}
+    </select>
+    {#if $gpsConnection.status === 'connected'}
+      <button
+        class="modebtn freezebtn"
+        class:on={$gpsConnection.frozen}
+        disabled={gpsFreezeDisabled}
+        onclick={toggleGpsFreeze}
+        title={$gpsConnection.frozen
+          ? 'Resume live GPS tracking'
+          : 'Lock the observer to the current GPS fix'}
+      >
+        {$gpsConnection.frozen ? 'Unfreeze' : 'Freeze'}
+      </button>
+    {/if}
+    <button
+      class="modebtn"
+      class:on={$observer.source === 'browser'}
+      disabled={browserStatus === 'locating'}
+      onclick={useBrowserLocation}
+      title={browserStatus === 'error' ? browserError : 'Use this browser/device location'}
+    >
+      {browserStatus === 'locating' ? 'Locating…' : 'Browser'}
+    </button>
     <button class="modebtn" class:on={isManual} onclick={selectManual}>Manual (map)</button>
     <select
       class="modebtn presetbtn"
@@ -146,6 +297,12 @@
         <option value={key}>{site.label}</option>
       {/each}
     </select>
+    {#if browserStatus === 'error'}
+      <span class="sourcestatus warn">{browserError}</span>
+    {/if}
+    {#if gpsStatusText}
+      <span class="sourcestatus" class:warn={gpsStatusIsWarn}>{gpsStatusText}</span>
+    {/if}
   </div>
   <input
     type="text"
@@ -164,19 +321,34 @@
     disabled={!isManual}
   />
   <div class="elevwrap" title="Ground elevation above sea level (offline DEM lookup)">
+    {#if $observer.elevationOutOfBounds && !$observer.elevationManuallySet}
+      <span
+        class="elevwarn"
+        title="No elevation data here -- outside the bundled Spain / W. Mediterranean terrain grid. Defaulted to 0; enter the real figure if you know it."
+        >⚠</span
+      >
+    {/if}
     <input
       type="number"
       class="coordinput elevinput"
       step="1"
       bind:value={elevStr}
       oninput={onElevInput}
-      disabled={!isManual}
+      disabled={!isManual && !$observer.elevationOutOfBounds}
     />
     <span class="unit">m</span>
   </div>
   <span class="fill"></span>
   {#if $clock.mode === 'sim'}
     <span class="simbadge">Sim</span>
+  {/if}
+  {#if $gpsConnection.status === 'connected' && $gpsConnection.clockOffsetMs !== null}
+    <span
+      class="gpsclockbadge"
+      title="GPS UTC vs system clock -- the clock below is disciplined to GPS time while connected"
+    >
+      GPS Δ{formatClockOffset($gpsConnection.clockOffsetMs)}
+    </span>
   {/if}
   <span class="clocktext">{cestFmt.format($effectiveTime)} CEST</span>
   <span class="clocktext">{utFmt.format($effectiveTime)} UT</span>
@@ -198,7 +370,15 @@
   }
   .modegroup {
     display: flex;
+    align-items: center;
     gap: 4px;
+  }
+  .sourcestatus {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .sourcestatus.warn {
+    color: #c22;
   }
   /* Shared toggle-group visual language (same convention as MapPanel's
      .zoomtoggle / ContactsPanel's .globaltoggle) -- <button> and
@@ -225,6 +405,12 @@
   }
   .presetbtn {
     max-width: 120px;
+  }
+  .baudselect {
+    max-width: 68px;
+  }
+  .freezebtn {
+    min-width: 58px;
   }
   .coordinput {
     font: inherit;
@@ -262,6 +448,11 @@
   .elevinput {
     width: 50px;
   }
+  .elevwarn {
+    color: #c22;
+    font-size: 12px;
+    cursor: help;
+  }
   .unit {
     color: var(--muted);
   }
@@ -273,6 +464,11 @@
     border: 1px solid var(--accent);
     border-radius: 4px;
     padding: 1px 5px;
+  }
+  .gpsclockbadge {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
   }
   /* "A bit bigger and bold" (direct request) -- was the same 13px/
      regular-weight as everything else in the bar. */
