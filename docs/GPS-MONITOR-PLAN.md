@@ -82,6 +82,46 @@ stands alone:
 This is a **much** richer tool than the current few-fields prototype. This
 plan does not propose building all of it in one PR — see §6 for phasing.
 
+### Corrections/refinements from an actual screenshot
+
+The paragraphs above were written from a text description of the reference
+tool. A real screenshot surfaced later confirms most of it but corrects a
+few specifics worth locking in before Phase 2 builds on top of them:
+
+- **The sky-plot and SNR bar chart are NOT colored by constellation.** The
+  real tool draws every satellite (regardless of system) in the same shared
+  plot/chart, and the only visual distinction is **used-in-fix (filled/red)
+  vs. visible-only (outline/blue)** — confirmed directly: the screenshot's
+  GPS GSA panel lists SV1=18, SV2=20 as used, and those are exactly the two
+  filled/red circles in the sky-plot and the two filled/black bars in the
+  SNR chart; every other visible satellite (from either system) is an
+  outline/white circle or bar. Per-constellation separation is handled
+  entirely by having **separate GPGSV/GAGSV and per-system GSA panels**,
+  not by coloring the shared plot/chart. This matters for Phase 2 (§6):
+  Phase 1's sky-plot/SNR-chart use constellation-based coloring as a
+  placeholder, simply because no `usedInFix` data exists until Phase 2's
+  full-GSA parsing lands — Phase 2 should **switch** the primary visual
+  encoding to used-vs-visible (matching the reference exactly), not just
+  layer it on top of the constellation colors from Phase 1.
+- **GSV's trailing Signal ID field is shown as a human-readable label**
+  (e.g. "L1CA", "L1BC"), not the raw NMEA numeric/single-char code —
+  worth a small `describeSignalId()`-style label helper (mirroring
+  `monitor.ts`'s existing `describeFixQuality`/`describeFixType`/
+  `describeConstellation` convention) whenever Phase 3 actually renders a
+  GSV panel with this field visible.
+- **GNRMC has one more field than originally listed**: "Nav. Sta."
+  (navigation status — an NMEA 4.1+ optional trailing RMC field, values
+  like V/S/C/U for not-valid/safe/caution/unsafe), shown as "Not valid" in
+  the screenshot. Add to Phase 3's RMC-extras scope.
+- **Per-constellation GSA panels can show identical PDOP/HDOP/VDOP** across
+  systems (the screenshot's GPS and Galileo GSA panels both read 8.21 /
+  5.24 / 6.32) — this is a real, correct receiver behavior (one
+  combined-solution DOP reported redundantly in each per-constellation GSA
+  sentence), not a display bug to "fix" by trying to compute a
+  per-constellation-only DOP that the receiver never actually sends. Worth
+  a one-line comment near Phase 2's GSA-panel rendering so a future
+  reviewer doesn't mistake identical numbers for a copy-paste bug.
+
 ---
 
 ## 3. Question 1 — should the richer parsing be gated on the monitor being open?
@@ -326,7 +366,7 @@ large PR:
 | Phase | Scope | Why this grouping |
 |---|---|---|
 | **1** | Gating mechanism (§3) + GSV parsing/reassembly (§5) + satellite sky-plot (SVG) + SNR bar chart + `GpsMonitorPanel.svelte` layout restructuring from single-grid to multi-panel | Single most visually distinctive addition (a sky-plot is immediately "wow, I can see my satellites"), and it's also where the *answer to the user's own question* (the gating mechanism) has to land — no point building it separately from the first thing it actually gates. Layout restructuring has to happen here too, since a sky-plot + bar chart don't fit the current single fields-grid. |
-| **2** | Full GSA (PRN list actually used + PDOP/VDOP) + per-constellation GSA panels side by side, cross-referenced into phase 1's sky-plot/bars (fill/highlight used-vs-visible) | Builds directly on phase 1's per-constellation data structures; the "used in fix" highlight is the payoff that makes phase 1's sky-plot match the reference tool's red-highlight behavior. |
+| **2** | Full GSA (PRN list actually used + PDOP/VDOP) + per-constellation GSA panels side by side, cross-referenced into phase 1's sky-plot/bars — **switch** their primary visual encoding from phase 1's constellation-coloring placeholder to used-vs-visible (filled/red vs. outline), matching the confirmed screenshot exactly (see §2's "Corrections from an actual screenshot") | Builds directly on phase 1's per-constellation data structures; the "used in fix" highlight is the payoff that makes phase 1's sky-plot match the reference tool's actual behavior — confirmed via screenshot to be used-vs-visible, not constellation-colored. |
 | **3** | VTG, GLL, ZDA, HDG, GNS extra panels | Cheap (no reassembly, one sentence each) but lower value — the user's own read of the reference screenshot was that these panels "appeared sparser/less central." Good candidates for a single combined PR since each is a few fields with no shared complexity. |
 | **4 (optional/polish)** | Multi-signal-ID (L1/L5 dual-frequency) display nuance; per-constellation staleness/aging (a constellation disabled mid-session should visibly age out rather than freeze forever — same class of fix `GpsMonitorPanel.svelte` already applied to the Hz readout); protocol-mode bottom bar | See caveat below on protocol mode. |
 
