@@ -82,11 +82,22 @@ stands alone:
 This is a **much** richer tool than the current few-fields prototype. This
 plan does not propose building all of it in one PR — see §6 for phasing.
 
+**Note on how literally to take this reference (direct steer from the
+user): it is inspiration for the level of richness/polish to aim for, not
+a spec to replicate pixel-for-pixel.** "Equally fancy," not "identical."
+Panel layout, exact field sets, and visual conventions below are all fair
+game to adapt to this app's own style (see e.g. `SkyPanel.svelte`'s
+existing dark-sky/filled-Sun-and-Moon visual language) rather than
+copied wholesale. Where the notes below say something like "match the
+reference," read that as "here's a reasonable design precedent worth
+knowing about," not "this is mandatory."
+
 ### Corrections/refinements from an actual screenshot
 
 The paragraphs above were written from a text description of the reference
 tool. A real screenshot surfaced later confirms most of it but corrects a
-few specifics worth locking in before Phase 2 builds on top of them:
+few specifics worth knowing about before Phase 2 builds on top of them —
+again, as useful context/precedent, not a checklist to match exactly:
 
 - **The sky-plot and SNR bar chart are NOT colored by constellation.** The
   real tool draws every satellite (regardless of system) in the same shared
@@ -97,12 +108,16 @@ few specifics worth locking in before Phase 2 builds on top of them:
   SNR chart; every other visible satellite (from either system) is an
   outline/white circle or bar. Per-constellation separation is handled
   entirely by having **separate GPGSV/GAGSV and per-system GSA panels**,
-  not by coloring the shared plot/chart. This matters for Phase 2 (§6):
+  not by coloring the shared plot/chart. Worth knowing for Phase 2 (§6):
   Phase 1's sky-plot/SNR-chart use constellation-based coloring as a
   placeholder, simply because no `usedInFix` data exists until Phase 2's
-  full-GSA parsing lands — Phase 2 should **switch** the primary visual
-  encoding to used-vs-visible (matching the reference exactly), not just
-  layer it on top of the constellation colors from Phase 1.
+  full-GSA parsing lands. Once that data exists, a used-vs-visible visual
+  distinction (filled vs. outline, or any other clear treatment — doesn't
+  need to be literally red/black) is probably a more useful signal than
+  constellation color for a shared plot, since per-system separation is
+  already handled by the dedicated GSA/GSV panels — but this is a design
+  call for whoever implements Phase 2, not a hard requirement to match the
+  reference's own color choice.
 - **GSV's trailing Signal ID field is shown as a human-readable label**
   (e.g. "L1CA", "L1BC"), not the raw NMEA numeric/single-char code —
   worth a small `describeSignalId()`-style label helper (mirroring
@@ -366,7 +381,7 @@ large PR:
 | Phase | Scope | Why this grouping |
 |---|---|---|
 | **1** | Gating mechanism (§3) + GSV parsing/reassembly (§5) + satellite sky-plot (SVG) + SNR bar chart + `GpsMonitorPanel.svelte` layout restructuring from single-grid to multi-panel | Single most visually distinctive addition (a sky-plot is immediately "wow, I can see my satellites"), and it's also where the *answer to the user's own question* (the gating mechanism) has to land — no point building it separately from the first thing it actually gates. Layout restructuring has to happen here too, since a sky-plot + bar chart don't fit the current single fields-grid. |
-| **2** | Full GSA (PRN list actually used + PDOP/VDOP) + per-constellation GSA panels side by side, cross-referenced into phase 1's sky-plot/bars — **switch** their primary visual encoding from phase 1's constellation-coloring placeholder to used-vs-visible (filled/red vs. outline), matching the confirmed screenshot exactly (see §2's "Corrections from an actual screenshot") | Builds directly on phase 1's per-constellation data structures; the "used in fix" highlight is the payoff that makes phase 1's sky-plot match the reference tool's actual behavior — confirmed via screenshot to be used-vs-visible, not constellation-colored. |
+| **2** | Full GSA (PRN list actually used + PDOP/VDOP) + per-constellation GSA panels side by side, cross-referenced into phase 1's sky-plot/bars — consider reworking their visual encoding from phase 1's constellation-coloring placeholder toward a used-vs-visible distinction (see §2's "Corrections from an actual screenshot" — inspiration, not a spec to match exactly) | Builds directly on phase 1's per-constellation data structures; the "used in fix" highlight is the payoff that makes phase 1's sky-plot genuinely more informative, regardless of the exact visual treatment chosen. |
 | **3** | VTG, GLL, ZDA, HDG, GNS extra panels | Cheap (no reassembly, one sentence each) but lower value — the user's own read of the reference screenshot was that these panels "appeared sparser/less central." Good candidates for a single combined PR since each is a few fields with no shared complexity. |
 | **4 (optional/polish)** | Multi-signal-ID (L1/L5 dual-frequency) display nuance; per-constellation staleness/aging (a constellation disabled mid-session should visibly age out rather than freeze forever — same class of fix `GpsMonitorPanel.svelte` already applied to the Hz readout); protocol-mode bottom bar | See caveat below on protocol mode. |
 
