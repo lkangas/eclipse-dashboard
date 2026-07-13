@@ -13,6 +13,34 @@ function topojson(): Plugin {
   }
 }
 
+// Vite's HTML generation always writes type="module" on the entry
+// <script> for a normal (non-library-mode) build, regardless of
+// build.rollupOptions.output.format -- even though the bundle itself IS
+// a genuine classic-script-compatible IIFE with that format set
+// (verified: no top-level import/export, wrapped in an IIFE). A module
+// script is exactly what Chrome refuses to fetch/execute from a
+// file:// origin at all (a restriction on the *origin*, unrelated to
+// path format -- base: './' alone didn't fix the blank-page bug report),
+// so this strips the attribute Vite insists on adding, matching what
+// the bundle already actually is.
+//
+// defer is added back in its place (bug report: blank page even over a
+// real localhost server, no console error surfaced) -- module scripts
+// are deferred by the HTML spec automatically (execute only after the
+// document is parsed), but plain classic <script> in <head> is NOT: it
+// runs immediately, before <body><div id="app"> has even been parsed
+// yet, so main.ts's document.getElementById('app') returned null and
+// mount() had nothing to attach to. defer restores the "run after
+// parsing" timing without needing type="module" itself.
+function classicScriptHtml(): Plugin {
+  return {
+    name: 'classic-script-html',
+    transformIndexHtml(html) {
+      return html.replace(/<script type="module"( crossorigin)?/g, '<script defer')
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   // Relative asset paths, not absolute /assets/... -- PLAN.md's "quick
@@ -22,5 +50,27 @@ export default defineConfig({
   // folder). Harmless for the real field-day path too (served from
   // localhost's root either way), so this is a pure win, not a tradeoff.
   base: './',
-  plugins: [svelte(), topojson()],
+  plugins: [svelte(), topojson(), classicScriptHtml()],
+  build: {
+    rollupOptions: {
+      output: {
+        // IIFE, not Vite's default ES-module output -- base: './' alone
+        // wasn't enough to make dist/index.html work via file:// (bug
+        // report: blank white page). The actual blocker is
+        // `<script type="module">` itself: Chrome refuses to fetch/
+        // execute module scripts loaded from a file:// origin at all
+        // (a CORS restriction on the origin, unrelated to the path
+        // format) -- the HTML shell renders, but the script that mounts
+        // the Svelte app into #app never runs, hence blank. A classic
+        // (non-module) IIFE <script src="..."> isn't subject to that
+        // restriction and loads fine over file://. No downside for the
+        // real localhost-server path either. No inlineDynamicImports
+        // needed alongside it -- this app has no dynamic import()
+        // anywhere, and Rolldown already disables chunk splitting by
+        // default for this build regardless, so there's only ever one
+        // chunk for format: 'iife' to apply to in the first place.
+        format: 'iife',
+      },
+    },
+  },
 })
