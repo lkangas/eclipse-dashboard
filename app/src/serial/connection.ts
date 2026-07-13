@@ -8,7 +8,7 @@
 import { writable } from 'svelte/store';
 import { parseNmeaSentence } from './nmea';
 import { applyNmeaSentence, initialNmeaFixState, type NmeaFixState } from './nmeaFix';
-import { appendLine } from './monitor';
+import { appendLine, recordFixEvent } from './monitor';
 import { setObserver } from '../stores/observer';
 
 export type GpsConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
@@ -47,6 +47,32 @@ export interface GpsConnectionState {
   // re-showing Chrome's native picker. Deliberately never reset back to
   // false (not even on disconnect), since lastPort itself isn't either.
   hasRememberedPort: boolean;
+  // Epoch (GGA sentence) arrival rate, averaged over a trailing window
+  // (see monitor.ts's recordFixEvent) -- null until enough samples exist
+  // to say anything. GpsMonitorPanel's Hz readout/pulse (direct request
+  // -- "readily indicates visually whether my gps is in 1hz or 10hz
+  // mode"). Reset on a fresh connect, same as recentLines above.
+  fixRateHz: number | null;
+  // Bumped on every GGA arrival regardless of fix quality -- a `{#key}`
+  // trigger for the monitor panel's pulse dot animation, not a count of
+  // anything meaningful on its own (deliberately not reset on
+  // disconnect -- like recentLines, nothing depends on it starting back
+  // at 0).
+  fixPulse: number;
+  // Wall-clock time (Date.now()) of the last GGA arrival -- lets
+  // GpsMonitorPanel detect staleness itself (a receiver that stops
+  // emitting GGA specifically, while still sending RMC/GSA, would
+  // otherwise leave fixRateHz/fixPulse frozen at their last real value
+  // forever, since nothing here re-evaluates them on a timer -- see
+  // that component's own isStale comment). Reset on a fresh connect,
+  // same as fixRateHz.
+  lastFixEventMs: number | null;
+  // The baud rate this connection was actually opened at, for the
+  // monitor panel's header -- null before any successful connect this
+  // session. Left alone on disconnect (same "freeze the last known
+  // state" philosophy as fix/recentLines above), only ever set fresh by
+  // the next successful openPort().
+  baudRate: number | null;
 }
 
 export const gpsConnection = writable<GpsConnectionState>({
@@ -57,6 +83,10 @@ export const gpsConnection = writable<GpsConnectionState>({
   clockOffsetMs: null,
   recentLines: [],
   hasRememberedPort: false,
+  fixRateHz: null,
+  fixPulse: 0,
+  lastFixEventMs: null,
+  baudRate: null,
 });
 
 // How many raw lines the gear popover's NMEA monitor keeps around --
@@ -64,6 +94,12 @@ export const gpsConnection = writable<GpsConnectionState>({
 // constellation receiver's GGA+RMC+GSA+GSV+VTG+GLL burst, small enough
 // to stay a glance-able debug panel rather than a full log.
 const RAW_LINE_HISTORY = 40;
+
+// Trailing window recordFixEvent averages the GGA arrival rate over --
+// long enough to settle a stable-looking 1 vs 10 Hz reading within
+// about one window of connecting, short enough that a receiver's actual
+// rate change (a config command sent mid-session) shows up promptly.
+const GGA_RATE_WINDOW_MS = 2500;
 
 export function isWebSerialSupported(): boolean {
   return typeof navigator !== 'undefined' && 'serial' in navigator;
@@ -79,7 +115,7 @@ let keepReading = false;
 
 // The most recently *successfully opened* port, kept even after
 // disconnectGps() closes `port` above -- lets the main GPS button
-// (toggleGps in GpsPanel.svelte) reconnect to the same device without
+// (toggleConnect in GpsRibbon.svelte) reconnect to the same device without
 // re-showing Chrome's native picker every time (direct request -- "now
 // browser wants to choose the port" every time was the complaint).
 // Never reset to null: Web Serial's own permission grant already
@@ -154,6 +190,12 @@ let latestFix: NmeaFixState = initialNmeaFixState;
 let lastFlushMs = 0;
 const FLUSH_INTERVAL_MS = 500;
 
+// GGA arrival timestamps feeding the Hz readout/pulse (monitor.ts's
+// recordFixEvent) -- unthrottled and independent of the flush above,
+// same reasoning as recentLines: only touches gpsConnection, never
+// observer, so there's no expensive cascade to rate-limit.
+let ggaTimestamps: number[] = [];
+
 // Generous defense-in-depth margin on top of the throttle above (at
 // 115200 baud, still under 1.5s of continuous data) -- Chrome's own
 // default is a stingy 255 bytes, nowhere near enough for a 10Hz
@@ -180,7 +222,7 @@ export function getGpsClockOffsetMs(): number | null {
 /** Ports the page has previously been granted access to -- Web Serial
  * never lists ungranted devices (a privacy boundary in the spec), so
  * this is only ever a subset of what's physically plugged in. Backs the
- * gear popover's port list (GpsPanel.svelte); refreshed on demand
+ * port picker (GpsRibbon.svelte); refreshed on demand
  * (there's no live change event worth wiring up for a debug/config
  * panel). */
 export async function listKnownPorts(): Promise<SerialPort[]> {
@@ -245,6 +287,7 @@ async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
   latestFix = initialNmeaFixState;
   lastFlushMs = 0;
   clockOffsetMs = null;
+  ggaTimestamps = [];
   gpsConnection.update((s) => ({
     ...s,
     status: 'connected',
@@ -254,6 +297,9 @@ async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
     clockOffsetMs: null,
     recentLines: [],
     hasRememberedPort: true,
+    fixRateHz: null,
+    lastFixEventMs: null,
+    baudRate,
   }));
   void readLoop(selected);
 }
@@ -394,6 +440,18 @@ function applyLine(rawLine: string): void {
   if (!sentence) return;
   latestFix = applyNmeaSentence(latestFix, sentence);
 
+  // GGA is the standard once-per-epoch position sentence -- its arrival
+  // rate IS the receiver's configured fix rate (1Hz/10Hz/...), unlike
+  // raw line count above (a receiver emits several sentence types per
+  // epoch regardless of fix rate, so counting every line would just
+  // measure "how chatty is this sentence mix," not the fix rate itself).
+  if (sentence.type === 'GGA') {
+    const now = Date.now();
+    const { timestamps, hz } = recordFixEvent(ggaTimestamps, now, GGA_RATE_WINDOW_MS);
+    ggaTimestamps = timestamps;
+    gpsConnection.update((s) => ({ ...s, fixRateHz: hz, fixPulse: s.fixPulse + 1, lastFixEventMs: now }));
+  }
+
   // Unthrottled and independent of the store flush below -- cheap
   // arithmetic, not a store write, so there's no cost to doing this on
   // every one of a 10Hz receiver's sentences. Gated on the sentence
@@ -402,7 +460,7 @@ function applyLine(rawLine: string): void {
   // fix) and on a date having been established at least once (RMC-only
   // -- see nmeaFix.ts's withTime) so this never disciplines the clock
   // off a dateless, garbage instant.
-  if (sentence.timeOfDay && latestFix.utc) {
+  if (sentence.type !== 'GSA' && sentence.timeOfDay && latestFix.utc) {
     clockOffsetMs = latestFix.utc.getTime() - Date.now();
   }
 

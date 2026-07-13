@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyNmeaSentence, initialNmeaFixState, type NmeaFixState } from './nmeaFix';
-import type { GgaSentence, RmcSentence } from './nmea';
+import type { GgaSentence, GsaSentence, RmcSentence } from './nmea';
 
 const GOOD_GGA: GgaSentence = {
   type: 'GGA',
@@ -108,5 +108,35 @@ describe('applyNmeaSentence', () => {
       timeOfDay: { hours: 12, minutes: 0, seconds: 0.5 },
     });
     expect(state.utc).toEqual(new Date(Date.UTC(2026, 7, 12, 12, 0, 0, 500)));
+  });
+
+  it('fixType starts null until a GSA arrives', () => {
+    const state = applyNmeaSentence(initialNmeaFixState, GOOD_GGA);
+    expect(state.fixType).toBeNull();
+  });
+
+  it('adopts fixType from a GSA sentence without touching anything else', () => {
+    const afterGga = applyNmeaSentence(initialNmeaFixState, GOOD_GGA);
+    const gsa3d: GsaSentence = { type: 'GSA', fixType: 3 };
+    const state = applyNmeaSentence(afterGga, gsa3d);
+    expect(state.fixType).toBe(3);
+    // everything GGA supplied stays exactly as it was
+    expect(state).toMatchObject({
+      hasFix: true,
+      lat: 40.92,
+      lon: -1.3,
+      altitudeM: 900,
+      numSatellites: 8,
+      hdop: 0.9,
+    });
+  });
+
+  it('updates fixType on a later GSA without disturbing a fix already in hand', () => {
+    let state = applyNmeaSentence(initialNmeaFixState, GOOD_GGA);
+    state = applyNmeaSentence(state, { type: 'GSA', fixType: 2 });
+    expect(state.fixType).toBe(2);
+    state = applyNmeaSentence(state, { type: 'GSA', fixType: 3 });
+    expect(state.fixType).toBe(3);
+    expect(state.hasFix).toBe(true);
   });
 });

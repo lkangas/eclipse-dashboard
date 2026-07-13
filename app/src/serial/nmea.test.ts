@@ -71,8 +71,23 @@ describe('parseNmeaSentence', () => {
     expect(parseNmeaSentence('$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*00')).toBeNull();
   });
 
-  it('rejects sentence types this app has no use for (e.g. GSA)', () => {
-    expect(parseNmeaSentence(withChecksum('GPGSA,A,3,04,05,,,,,,,,,,,2.5,1.3,2.1'))).toBeNull();
+  it('rejects sentence types this app has no use for (e.g. GSV)', () => {
+    expect(parseNmeaSentence(withChecksum('GPGSV,1,1,00'))).toBeNull();
+  });
+
+  it('parses a GSA 3D fix', () => {
+    const result = parseNmeaSentence(withChecksum('GPGSA,A,3,04,05,,09,12,,,24,,,,,2.5,1.3,2.1'));
+    expect(result).toEqual({ type: 'GSA', fixType: 3 });
+  });
+
+  it('parses a GSA 2D fix', () => {
+    const result = parseNmeaSentence(withChecksum('GPGSA,A,2,04,05,,,,,,,,,,,9.9,5.0,8.5'));
+    expect(result).toEqual({ type: 'GSA', fixType: 2 });
+  });
+
+  it('parses a GSA no-fix', () => {
+    const result = parseNmeaSentence(withChecksum('GPGSA,A,1,,,,,,,,,,,,,,,'));
+    expect(result).toEqual({ type: 'GSA', fixType: 1 });
   });
 
   it('rejects garbage that is not an NMEA sentence at all', () => {

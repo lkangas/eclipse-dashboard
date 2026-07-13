@@ -1,6 +1,6 @@
-// PLAN.md §5 #4: parses the two NMEA 0183 sentences a GPS receiver needs
-// to supply for this app -- GGA (fix quality, altitude) and RMC (date,
-// active/void status). Pure and DOM-free by design (no navigator.serial
+// PLAN.md §5 #4: parses the NMEA 0183 sentences this app needs -- GGA
+// (fix quality, altitude), RMC (date, active/void status), and GSA (2D
+// vs 3D fix type). Pure and DOM-free by design (no navigator.serial
 // here) so it's fully unit-testable against known sentences without a
 // real device -- see connection.ts for the Web Serial glue that feeds it
 // live lines.
@@ -46,7 +46,16 @@ export interface RmcSentence {
   date: NmeaDate | null;
 }
 
-export type NmeaSentence = GgaSentence | RmcSentence;
+export interface GsaSentence {
+  type: 'GSA';
+  /** GSA's own Mode 2 field -- 1 = no fix, 2 = 2D (no reliable altitude),
+   * 3 = 3D. Independent of GGA's fixQuality (SPS/DGPS/RTK/...): a
+   * receiver can report e.g. "3D + DGPS" at once, since these describe
+   * different axes of the same fix, not one combined scale. */
+  fixType: number;
+}
+
+export type NmeaSentence = GgaSentence | RmcSentence | GsaSentence;
 
 // XOR of every byte between '$' and '*', hex-encoded -- the standard
 // NMEA 0183 checksum. Rejecting bad checksums up front matters more here
@@ -151,6 +160,17 @@ export function parseNmeaSentence(line: string): NmeaSentence | null {
       lon: toDecimalDegrees(lon, lonHem),
       date: parseDdmmyy(date),
     };
+  }
+
+  if (sentenceId === 'GSA') {
+    // fields[0] is the address, fields[1] is GSA's Mode 1 (M/A, manual
+    // vs automatic 2D/3D selection -- not needed here); Mode 2 (the fix
+    // type itself) is fields[2]. The satellite-PRN and PDOP/HDOP/VDOP
+    // fields after it aren't parsed -- HDOP already comes from GGA.
+    const [, , mode2] = fields;
+    const fixType = toInt(mode2);
+    if (fixType === null) return null;
+    return { type: 'GSA', fixType };
   }
 
   return null;

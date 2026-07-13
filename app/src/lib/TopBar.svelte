@@ -2,7 +2,8 @@
   import { observer, setObserver, setObserverElevation } from '../stores/observer';
   import { clock, effectiveTime } from '../stores/clock';
   import { gpsConnection, disconnectGps } from '../serial/connection';
-  import GpsPanel from './GpsPanel.svelte';
+  import { gpsRibbonExpanded } from '../stores/layout';
+  import GpsRibbon from './GpsRibbon.svelte';
 
   // Switching to a different position source must actually release the
   // GPS serial connection, not just change observer.source (bug report:
@@ -18,12 +19,14 @@
 
   // Location-mode toggle group (direct request): GPS / Browser / Manual
   // (map) / a named preset, one active at a time -- observer.source IS
-  // this mode (stores/observer.ts). GPS (serial NMEA -- see GpsPanel.svelte,
-  // which owns connect/disconnect) and Browser (navigator.geolocation,
-  // see useBrowserLocation below) are both real. Calamocha (this
-  // project's fixed default site) is included as a preset alongside the
-  // others, and is the actual default source until one of GPS/Browser is
-  // used.
+  // this mode (stores/observer.ts). GPS (serial NMEA) is real; the button
+  // below is deliberately just a show/hide toggle for GpsRibbon.svelte
+  // (the second row, direct request -- "the GPS button should be a
+  // toggle for the second ribbon"), which is where connect/disconnect,
+  // baud, port, and Freeze actually live. Browser (navigator.geolocation,
+  // see useBrowserLocation below) is also real. Calamocha (this project's
+  // fixed default site) is included as a preset alongside the others,
+  // and is the actual default source until one of GPS/Browser is used.
   const SITES: Record<string, { lat: number; lon: number; label: string }> = {
     calamocha: { lat: 40.92, lon: -1.3, label: 'Calamocha' },
     acoruna: { lat: 43.36, lon: -8.41, label: 'A Coruña' },
@@ -110,16 +113,6 @@
     );
   }
 
-  // GPS clock discipline (PLAN.md §6) -- effectiveTime (clock.ts) already
-  // applies the offset; this just renders it so the offset itself is
-  // visible, not only its effect. Signed seconds, one decimal --
-  // sub-second precision is the interesting range here (system clocks
-  // are rarely off by whole seconds), anything coarser would hide it.
-  function formatClockOffset(ms: number): string {
-    const s = ms / 1000;
-    return `${s >= 0 ? '+' : ''}${s.toFixed(1)}s`;
-  }
-
   // Local editable strings, not bound directly to the store's formatted
   // value -- typing a decimal point (e.g. "40.") would otherwise get
   // clobbered by toFixed(2) reformatting on every keystroke. Only
@@ -200,7 +193,14 @@
 
 <div class="topbar">
   <div class="modegroup">
-    <GpsPanel />
+    <button
+      class="modebtn"
+      class:on={$observer.source === 'gps'}
+      onclick={() => gpsRibbonExpanded.update((v) => !v)}
+      title={$gpsRibbonExpanded ? 'Hide GPS controls' : 'Show GPS controls'}
+    >
+      GPS {$gpsRibbonExpanded ? '▴' : '▾'}
+    </button>
     <button
       class="modebtn"
       class:on={$observer.source === 'browser'}
@@ -263,17 +263,12 @@
   {#if $clock.mode === 'sim'}
     <span class="simbadge">Sim</span>
   {/if}
-  {#if $gpsConnection.status === 'connected' && $gpsConnection.clockOffsetMs !== null}
-    <span
-      class="gpsclockbadge"
-      title="GPS UTC vs system clock -- the clock below is disciplined to GPS time while connected"
-    >
-      GPS Δ{formatClockOffset($gpsConnection.clockOffsetMs)}
-    </span>
-  {/if}
   <span class="clocktext">{cestFmt.format($effectiveTime)} CEST</span>
   <span class="clocktext">{utFmt.format($effectiveTime)} UT</span>
 </div>
+{#if $gpsRibbonExpanded}
+  <GpsRibbon />
+{/if}
 
 <style>
   .topbar {
@@ -379,11 +374,6 @@
     border: 1px solid var(--accent);
     border-radius: 4px;
     padding: 1px 5px;
-  }
-  .gpsclockbadge {
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    color: var(--muted);
   }
   /* "A bit bigger and bold" (direct request) -- was the same 13px/
      regular-weight as everything else in the bar. */

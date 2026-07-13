@@ -1,9 +1,10 @@
 // A GPS receiver interleaves GGA (fix quality, altitude, satellite
-// count) and RMC (date, active/void status) once a second each -- this
-// merges the two into one running "current fix" a UI or the observer
-// store can read directly, rather than making every caller track both
-// sentence types itself. Pure reducer (old state + one parsed sentence
-// -> new state), same testable-without-a-real-device shape as nmea.ts.
+// count), RMC (date, active/void status), and GSA (2D/3D fix type) once
+// an epoch each -- this merges all three into one running "current fix"
+// a UI or the observer store can read directly, rather than making every
+// caller track all three sentence types itself. Pure reducer (old state
+// + one parsed sentence -> new state), same testable-without-a-real-
+// device shape as nmea.ts.
 import type { NmeaDate, NmeaSentence, NmeaTimeOfDay } from './nmea';
 
 export interface NmeaFixState {
@@ -23,6 +24,12 @@ export interface NmeaFixState {
   fixQuality: number;
   numSatellites: number | null;
   hdop: number | null;
+  /** GSA's own fix-type code (1=no fix, 2=2D, 3=3D) -- null until at
+   * least one GSA has been seen (not every receiver/config emits it).
+   * Independent of fixQuality above -- see GsaSentence's own comment in
+   * nmea.ts for why they're two different axes, not one combined value.
+   * Kept even while hasFix is false, same reasoning as fixQuality. */
+  fixType: number | null;
   /** Combined UTC date+time -- null until at least one RMC has supplied
    * a date (GGA/RMC's own time-of-day field has no date component). */
   utc: Date | null;
@@ -36,6 +43,7 @@ export const initialNmeaFixState: NmeaFixState = {
   fixQuality: 0,
   numSatellites: null,
   hdop: null,
+  fixType: null,
   utc: null,
 };
 
@@ -66,6 +74,12 @@ export function applyNmeaSentence(state: NmeaFixState, sentence: NmeaSentence): 
       hdop: sentence.hdop,
       utc: withTime(state.utc, null, sentence.timeOfDay),
     };
+  }
+
+  if (sentence.type === 'GSA') {
+    // Only fixType changes -- GSA carries no lat/lon/time/quality of its
+    // own, so everything else stays exactly as the last GGA/RMC left it.
+    return { ...state, fixType: sentence.fixType };
   }
 
   // RMC doesn't carry satellite count/HDOP/altitude -- those fields are

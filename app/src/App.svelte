@@ -2,6 +2,7 @@
   import TopBar from './lib/TopBar.svelte';
   import TimeBar from './lib/TimeBar.svelte';
   import FullscreenBar from './lib/FullscreenBar.svelte';
+  import GpsMonitorPanel from './lib/GpsMonitorPanel.svelte';
   import ContactsPanel from './lib/panels/ContactsPanel.svelte';
   import CountdownPanel from './lib/panels/CountdownPanel.svelte';
   import MapPanel from './lib/panels/MapPanel.svelte';
@@ -105,6 +106,7 @@
     </div>
   </div>
   <TimeBar />
+  <GpsMonitorPanel />
 </div>
 
 <style>
