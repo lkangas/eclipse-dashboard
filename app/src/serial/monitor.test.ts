@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendLine, describeFixQuality, describeFixType, describePort, recordFixEvent } from './monitor';
+import { appendLine, describeConstellation, describeFixQuality, describeFixType, describePort, recordFixEvent } from './monitor';
 
 describe('appendLine', () => {
   it('appends within capacity', () => {
@@ -132,5 +132,22 @@ describe('describeFixType', () => {
 
   it('falls back for an unrecognized code', () => {
     expect(describeFixType(9)).toBe('Unknown (9)');
+  });
+});
+
+describe('describeConstellation', () => {
+  it('labels the standard talker IDs', () => {
+    expect(describeConstellation('GP')).toBe('GPS');
+    expect(describeConstellation('GL')).toBe('GLONASS');
+    expect(describeConstellation('GA')).toBe('Galileo');
+    expect(describeConstellation('GB')).toBe('BeiDou');
+    expect(describeConstellation('BD')).toBe('BeiDou');
+    expect(describeConstellation('GQ')).toBe('QZSS');
+    expect(describeConstellation('GI')).toBe('NavIC');
+    expect(describeConstellation('GN')).toBe('Multi-GNSS');
+  });
+
+  it('falls back for an unrecognized talker ID', () => {
+    expect(describeConstellation('ZZ')).toBe('Unknown (ZZ)');
   });
 });

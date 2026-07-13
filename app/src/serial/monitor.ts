@@ -104,3 +104,22 @@ export function describeFixType(fixType: number | null): string {
   if (fixType === null) return '—';
   return FIX_TYPE_LABELS[fixType] ?? `Unknown (${fixType})`;
 }
+
+const CONSTELLATION_LABELS: Record<string, string> = {
+  GP: 'GPS',
+  GL: 'GLONASS',
+  GA: 'Galileo',
+  GB: 'BeiDou',
+  BD: 'BeiDou',
+  GQ: 'QZSS',
+  GI: 'NavIC',
+  GN: 'Multi-GNSS',
+};
+
+/** NMEA talker ID (GP/GL/GA/GB/BD/GQ/GI/GN/...) as a short human label,
+ * for the rich monitor's per-constellation panels -- the pattern this
+ * app's core pipeline (nmea.ts) deliberately ignores, but which the rich
+ * parser (nmeaRich.ts) tracks precisely so panels can be split by system. */
+export function describeConstellation(talkerId: string): string {
+  return CONSTELLATION_LABELS[talkerId] ?? `Unknown (${talkerId})`;
+}
