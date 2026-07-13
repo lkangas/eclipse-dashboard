@@ -57,17 +57,35 @@ let keepReading = false;
 // 10Hz receiver means up to 10/sec), but only flushed into the Svelte
 // store -- which drives the observer marker and cascades into the full
 // local-circumstances/sky-view recompute -- at the throttled cadence
-// below (plus immediately on any hasFix transition, so losing/gaining
-// lock is never delayed). This is a stationary eclipse-observing setup,
-// not a moving vehicle, so there's no benefit to redoing that recompute
-// 10x/sec just because the receiver can talk that fast.
+// below. This is a stationary eclipse-observing setup, not a moving
+// vehicle, so there's no benefit to redoing that recompute 10x/sec just
+// because the receiver can talk that fast.
+//
+// The throttle is now UNIFORM -- no bypass for hasFix transitions
+// (dropped after a real "buffer overrun" report). setObserver()
+// synchronously cascades into Svelte's derived local-circumstances
+// (iterative Besselian root-finding + astronomy-engine's SearchRiseSet)
+// and sky-view (per-star/planet position) recomputes, tens to hundreds
+// of ms of real work -- and that used to run immediately, with no rate
+// limit, on every single fix-quality flap. Indoors during acquisition a
+// marginal signal flaps between fix/no-fix rapidly, so that "always
+// flush transitions immediately" rule could fire the expensive cascade
+// many times back-to-back, blocking the read loop long enough that the
+// browser's own serial receive buffer overran regardless of
+// SERIAL_BUFFER_SIZE below (backpressure propagates all the way back to
+// the hardware buffer once JS stops draining reader.read() promptly).
+// Losing/gaining lock can now lag up to FLUSH_INTERVAL_MS in the status
+// line -- an acceptable trade for the connection actually staying up.
 let latestFix: NmeaFixState = initialNmeaFixState;
-let lastFlushedHasFix = false;
 let lastFlushMs = 0;
 const FLUSH_INTERVAL_MS = 500;
 
-// See the comment where this is used (connectGps's open() call).
-const SERIAL_BUFFER_SIZE = 4096;
+// Generous defense-in-depth margin on top of the throttle above (at
+// 115200 baud, still under 1.5s of continuous data) -- Chrome's own
+// default is a stingy 255 bytes, nowhere near enough for a 10Hz
+// multi-constellation receiver's GGA+RMC+GSA+several GSV blocks+VTG+GLL
+// per epoch even without any read-loop stall at all.
+const SERIAL_BUFFER_SIZE = 16384;
 
 // Plain module variable, not a store field -- read directly by
 // clock.ts's effectiveTime on its own pre-existing 1Hz tick (see
@@ -114,14 +132,8 @@ export async function connectGps(baudRate: number): Promise<void> {
   }
 
   try {
-    // Chrome's own default receive buffer is a stingy 255 bytes -- fine
-    // for a slow 1Hz talker, but a 10Hz multi-constellation receiver can
-    // emit GGA+RMC+GSA+several GSV blocks+VTG+GLL per epoch (easily
-    // several hundred bytes) faster than the async read loop below gets
-    // scheduled to drain it, overflowing that buffer and surfacing as a
-    // "buffer overrun" error on the very next read(). SERIAL_BUFFER_SIZE
-    // is generous on purpose (at 115200 baud it's still under half a
-    // second of data) rather than tuned to a specific receiver's output.
+    // See SERIAL_BUFFER_SIZE's own comment for why this isn't Chrome's
+    // 255-byte default.
     await selected.open({ baudRate, bufferSize: SERIAL_BUFFER_SIZE });
   } catch (err) {
     gpsConnection.update((s) => ({ ...s, status: 'error', error: describeError(err, 'Could not open port') }));
@@ -130,7 +142,6 @@ export async function connectGps(baudRate: number): Promise<void> {
 
   port = selected;
   latestFix = initialNmeaFixState;
-  lastFlushedHasFix = false;
   lastFlushMs = 0;
   clockOffsetMs = null;
   gpsConnection.update((s) => ({
@@ -211,21 +222,32 @@ function applyLine(rawLine: string): void {
   }
 
   const now = Date.now();
-  const fixTransitioned = latestFix.hasFix !== lastFlushedHasFix;
-  if (fixTransitioned || now - lastFlushMs >= FLUSH_INTERVAL_MS) {
+  if (now - lastFlushMs >= FLUSH_INTERVAL_MS) {
     lastFlushMs = now;
-    lastFlushedHasFix = latestFix.hasFix;
     flushFix();
   }
 }
 
 function flushFix(): void {
+  const fixSnapshot = latestFix;
+  const offsetSnapshot = clockOffsetMs;
+  let shouldApply = false;
   gpsConnection.update((s) => {
-    if (!s.frozen && latestFix.hasFix && latestFix.lat !== null && latestFix.lon !== null) {
-      setObserver(latestFix.lat, latestFix.lon, 'gps', latestFix.altitudeM ?? undefined);
-    }
-    return { ...s, fix: latestFix, clockOffsetMs };
+    shouldApply = !s.frozen;
+    return { ...s, fix: fixSnapshot, clockOffsetMs: offsetSnapshot };
   });
+  if (shouldApply && fixSnapshot.hasFix && fixSnapshot.lat !== null && fixSnapshot.lon !== null) {
+    const lat = fixSnapshot.lat;
+    const lon = fixSnapshot.lon;
+    const altitudeM = fixSnapshot.altitudeM ?? undefined;
+    // Deferred to a macrotask rather than called inline -- setObserver's
+    // synchronous recompute cascade (see the big comment above
+    // latestFix) would otherwise run nested inside the tight read loop
+    // above, delaying the next reader.read() by however long that
+    // cascade takes. Deferring lets the read loop get back to awaiting
+    // the next chunk right away instead.
+    setTimeout(() => setObserver(lat, lon, 'gps', altitudeM), 0);
+  }
 }
 
 /** Locks the observer to whatever fix is current right now -- further
