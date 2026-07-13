@@ -16,6 +16,15 @@
   import { gpsMonitorOpen } from '../stores/layout';
   import { gpsConnection } from '../serial/connection';
   import { describeFixQuality, describeFixType } from '../serial/monitor';
+  // GPS-MONITOR-PLAN.md phase 1: satellite sky-plot + SNR bar chart. Both
+  // are self-contained (no props -- they subscribe to the gpsSatellites
+  // store directly, same convention as this panel's own direct
+  // gpsConnection import above) and render their own "No satellite data
+  // yet." empty state, so nothing here needs to know or care that
+  // connection.ts isn't wired to populate that store yet (deferred, see
+  // stores/gpsSatellites.ts's own comment on why).
+  import SatelliteSkyPlot from './gps-monitor/SatelliteSkyPlot.svelte';
+  import SnrBarChart from './gps-monitor/SnrBarChart.svelte';
 
   function close() {
     gpsMonitorOpen.set(false);
@@ -128,6 +137,19 @@
       <div class="field"><span>Altitude</span><b>{$gpsConnection.fix.altitudeM !== null ? `${$gpsConnection.fix.altitudeM.toFixed(1)} m` : '—'}</b></div>
       <div class="field"><span>Satellites</span><b>{$gpsConnection.fix.numSatellites ?? '—'}</b></div>
       <div class="field"><span>HDOP</span><b>{$gpsConnection.fix.hdop !== null ? $gpsConnection.fix.hdop.toFixed(1) : '—'}</b></div>
+    </div>
+
+    <!-- Satellite sky-plot + SNR bars, side by side on wide viewports and
+         stacked on narrow ones (repeat(auto-fit, ...), same responsive
+         pattern the .fields grid above already uses). Fixed height, not
+         sharing .monitorbox's flex-grow, so the raw NMEA stream below
+         keeps getting 100% of whatever vertical space is left over, same
+         as before this section existed -- see .satpanels's own CSS
+         comment for why. -->
+    <div class="streamhead">Satellites</div>
+    <div class="satpanels">
+      <SatelliteSkyPlot />
+      <SnrBarChart />
     </div>
 
     <div class="streamhead">Raw NMEA stream</div>
@@ -262,6 +284,34 @@
     text-transform: uppercase;
     letter-spacing: 0.4px;
     padding: 12px 0 6px;
+  }
+  .satpanels {
+    /* flex: 0 0 auto with an explicit height (rather than a content-based
+       auto flex-basis) is deliberate: flex-basis:auto defers to the
+       height property when one is specified, so this gives the grid a
+       definite, non-circular height to stretch its single row against --
+       which is what lets SatelliteSkyPlot/SnrBarChart's own internal
+       `height: 100%` resolve to something real instead of chasing an
+       indeterminate auto size through their nested flex layouts. Fixed
+       (flex-shrink: 0), not sharing growth with .monitorbox below, so the
+       raw NMEA stream keeps getting 100% of whatever vertical space is
+       left over, exactly as before this section existed -- same
+       non-growing convention .fields/.header/this .streamhead already
+       use, with .monitorbox as the one element that absorbs remaining
+       space and scrolls internally.
+       min-height: 0 (like .monitorbox) rather than the flex-item default
+       auto-min-size, so this row can still shrink below its content's
+       natural minimum on the rare very-short viewport instead of forcing
+       .gpsmonitor's fixed, non-scrolling container to overflow the
+       viewport. */
+    flex: 0 0 auto;
+    height: 260px;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
   }
   .monitorbox {
     flex: 1 1 auto;
