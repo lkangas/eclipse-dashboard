@@ -11,7 +11,16 @@ import { applyNmeaSentence, initialNmeaFixState, type NmeaFixState } from './nme
 import { appendLine, recordFixEvent } from './monitor';
 import { setObserver } from '../stores/observer';
 
-export type GpsConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
+// 'disconnecting' exists so the UI (GpsRibbon's Connect/Connected button)
+// has something to disable against for the ENTIRE duration of a
+// disconnect, not just the connect side (bug report: clicking
+// Connect->Disconnect->Connect fast enough gave "the port is already
+// open" -- the store stayed 'connected' throughout disconnectGps()'s
+// awaits, so a second click during teardown, or a fast reconnect right
+// after it flipped back to idle, could race the still-in-flight close()).
+// See disconnectGps's own comment for how this is now guarded at the
+// store level too, not just left to the button's disabled attribute.
+export type GpsConnectionStatus = 'idle' | 'connecting' | 'connected' | 'disconnecting' | 'error';
 
 export interface GpsConnectionState {
   status: GpsConnectionStatus;
@@ -113,6 +122,26 @@ let port: SerialPort | null = null;
 let reader: ReadableStreamDefaultReader<string> | null = null;
 let keepReading = false;
 
+// The promise returned by the currently-running readLoop() (openPort sets
+// this instead of firing readLoop off with a bare `void`) -- lets
+// teardownConnection await the loop's actual completion, not just
+// reader.cancel()'s. Those are NOT the same moment: cancel() resolves
+// once the cancellation signal is accepted, but readLoop's own
+// `finally { reader?.releaseLock(); ... }` -- which is what actually frees
+// the underlying port's readable stream lock -- runs in a separate
+// continuation of readLoop's own `await reader.read()`, whose ordering
+// relative to cancel()'s resolution isn't guaranteed by the code as
+// written (two independent promise chains). Without this, port.close()
+// could run while the reader's lock hadn't actually been released yet --
+// on real hardware (Windows + a CP210x-class USB-UART bridge, the kind
+// of chipset most USB GPS receivers use) that's consistent with the "the
+// port is already open" bug report: close() can silently fail (its own
+// try/catch swallows the error) if the stream is still locked, leaving
+// the browser's internal state -- and the OS-level handle -- never
+// actually released, so the very next open() on that same object throws
+// InvalidStateError.
+let readLoopPromise: Promise<void> | null = null;
+
 // The most recently *successfully opened* port, kept even after
 // disconnectGps() closes `port` above -- lets the main GPS button
 // (toggleConnect in GpsRibbon.svelte) reconnect to the same device without
@@ -154,6 +183,17 @@ async function teardownConnection(): Promise<void> {
   } catch {
     // stream already errored/closed -- nothing left to cancel
   }
+  // Wait for readLoop's own promise to settle, not just reader.cancel()'s
+  // -- see readLoopPromise's own comment for why those differ and why
+  // this matters. readLoop() already catches everything it can throw
+  // internally, so this is just belt-and-suspenders; a null/already-
+  // settled readLoopPromise resolves immediately either way.
+  try {
+    await readLoopPromise;
+  } catch {
+    // readLoop handles/logs its own errors already -- nothing left to do
+  }
+  readLoopPromise = null;
   try {
     await port?.close();
   } catch {
@@ -258,14 +298,27 @@ async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
   await teardownConnection();
   if (myGeneration !== connectionGeneration) return; // superseded while tearing down
 
-  try {
-    // See SERIAL_BUFFER_SIZE's own comment for why this isn't Chrome's
-    // 255-byte default.
-    await selected.open({ baudRate, bufferSize: SERIAL_BUFFER_SIZE });
-  } catch (err) {
-    if (myGeneration !== connectionGeneration) return; // superseded meanwhile -- don't clobber whatever replaced us
-    gpsConnection.update((s) => ({ ...s, status: 'error', error: describeOpenError(err) }));
-    return;
+  // Up to one retry, and ONLY for the specific failure that looks like
+  // the OS/driver hasn't fully released the port from the close() a few
+  // lines up yet (see isPortStillClosingError's own comment) -- not a
+  // general-purpose retry loop, which would just mask a genuinely absent
+  // or in-use-by-another-program device behind a longer hang.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      // See SERIAL_BUFFER_SIZE's own comment for why this isn't Chrome's
+      // 255-byte default.
+      await selected.open({ baudRate, bufferSize: SERIAL_BUFFER_SIZE });
+      break;
+    } catch (err) {
+      if (myGeneration !== connectionGeneration) return; // superseded meanwhile -- don't clobber whatever replaced us
+      if (attempt === 0 && isPortStillClosingError(err)) {
+        await new Promise((resolve) => setTimeout(resolve, OPEN_RETRY_DELAY_MS));
+        if (myGeneration !== connectionGeneration) return; // superseded during the retry delay
+        continue;
+      }
+      gpsConnection.update((s) => ({ ...s, status: 'error', error: describeOpenError(err) }));
+      return;
+    }
   }
 
   if (myGeneration !== connectionGeneration) {
@@ -301,7 +354,9 @@ async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
     lastFixEventMs: null,
     baudRate,
   }));
-  void readLoop(selected);
+  // Tracked (not fire-and-forget) so teardownConnection can await this
+  // exact loop's actual completion -- see readLoopPromise's own comment.
+  readLoopPromise = readLoop(selected);
 }
 
 /** First-ever connect (or "Choose a port..." in the gear popover) --
@@ -519,7 +574,32 @@ export function unfreezeGps(): void {
   flushFix();
 }
 
+/** Tears down the current connection. Safe to call more than once
+ * concurrently or redundantly (bug report: a second click on the
+ * Connect/Connected button while a disconnect was already tearing down
+ * the port -- possible in the gap before the store's status even
+ * reaches 'disconnecting', let alone before any UI re-renders a disabled
+ * button -- used to fire a second overlapping disconnectGps(), racing
+ * the first over the shared `port`/`reader`; and TopBar's leaveGps()
+ * calls this any time the user switches away from GPS regardless of
+ * whether a disconnect is already in flight). The guard below reads and
+ * updates status in the SAME synchronous store-update callback, so
+ * there's no gap between "check if already idle/disconnecting" and
+ * "claim it" for a second call to land in -- JS's run-to-completion
+ * semantics mean that callback always finishes before the next
+ * disconnectGps() call (from a second click, or leaveGps()) can start
+ * its own. */
 export async function disconnectGps(): Promise<void> {
+  let alreadyStopping = false;
+  gpsConnection.update((s) => {
+    if (s.status === 'idle' || s.status === 'disconnecting') {
+      alreadyStopping = true;
+      return s;
+    }
+    return { ...s, status: 'disconnecting' };
+  });
+  if (alreadyStopping) return;
+
   // Bumped BEFORE tearing down -- an openPort() attempt already in
   // flight (its own open() still pending) checks this after every
   // await, so it notices it's been superseded and releases the port it
@@ -534,19 +614,46 @@ function describeError(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
-/** Same as describeError, but adds an actionable hint for the one
- * open()-failure cause worth calling out specifically: the OS refusing
+// How long openPort's one bounded retry waits before trying open() again
+// -- see isPortStillClosingError's own comment for what it's working
+// around. Short enough not to make a genuine reconnect feel sluggish,
+// long enough to be a real second attempt rather than a same-tick retry
+// that hits the exact same still-releasing driver handle.
+const OPEN_RETRY_DELAY_MS = 250;
+
+/** Whether an open() failure looks like the OS/driver hasn't actually
+ * finished releasing this same port from a just-completed close() yet --
+ * worth openPort's one bounded retry for, since a resolved close()
+ * promise doesn't guarantee the underlying handle is released
+ * instantly, particularly on Windows with a USB-UART bridge chipset
+ * (e.g. the CP210x family most USB GPS receivers use). Chrome surfaces
+ * this specific case as InvalidStateError -- distinct from NetworkError,
+ * which means a DIFFERENT program has the port and a retry here
+ * couldn't possibly help (describeOpenError's existing hint for that
+ * case). The readLoopPromise fix above (teardownConnection now awaits
+ * the read loop's actual completion, not just reader.cancel()) closes
+ * the JS-level version of this race; this retry is defense-in-depth for
+ * whatever OS/driver-level gap can't be eliminated in JS alone. */
+function isPortStillClosingError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'InvalidStateError';
+}
+
+/** Same as describeError, but adds an actionable hint for the two
+ * open()-failure causes worth calling out specifically: the OS refusing
  * to hand over a port another program already has open (NetworkError
- * per the Web Serial spec -- distinct from InvalidStateError, which
- * means WE already have it open, a case openPort's generation guard
- * above now prevents from happening in the first place). Field-relevant:
- * a laptop running both this app and a separate NMEA-monitoring tool
- * against the same USB GPS receiver is a realistic, not hypothetical,
- * setup. */
+ * per the Web Serial spec), or this same port still not being fully
+ * released from a previous close() even after openPort's own retry
+ * (InvalidStateError -- see isPortStillClosingError's own comment).
+ * Field-relevant: a laptop running both this app and a separate
+ * NMEA-monitoring tool against the same USB GPS receiver is a realistic,
+ * not hypothetical, setup. */
 function describeOpenError(err: unknown): string {
   const message = describeError(err, 'Could not open port');
   if (err instanceof DOMException && err.name === 'NetworkError') {
     return `${message} (the port may be in use by another program)`;
+  }
+  if (isPortStillClosingError(err)) {
+    return `${message} (the port may still be releasing from a previous connection -- try again in a moment)`;
   }
   return message;
 }
