@@ -36,6 +36,7 @@
     const s = $gpsConnection;
     if (s.status === 'error') return `Error -- ${s.error}`;
     if (s.status === 'connecting') return 'Connecting…';
+    if (s.status === 'disconnecting') return 'Disconnecting…';
     if (s.status === 'idle') return 'Not connected';
     return s.fix.hasFix ? 'Connected' : 'Connected -- no fix yet';
   });
