@@ -36,6 +36,7 @@ export function satelliteGroupKey(talkerId: string, signalId: string | null): st
 interface GsvAssembly {
   totalMsgs: number;
   slots: (SatelliteInView[] | undefined)[]; // index 0..totalMsgs-1, undefined = not yet seen this epoch
+  firstSlotAtMs: number; // wall-clock time this assembly was started (see STALE_ASSEMBLY_MS below)
 }
 
 export interface SatellitesState {
@@ -45,7 +46,20 @@ export interface SatellitesState {
 
 export const initialSatellitesState: SatellitesState = { assemblies: {}, constellations: {} };
 
-export function applyGsvSentence(state: SatellitesState, sentence: GsvSentence): SatellitesState {
+// An assembly that's sat incomplete for longer than this has necessarily
+// spanned into a later epoch -- a real GSV run for one constellation is
+// always transmitted together within a single epoch's sentence burst (see
+// this module's own comment above on serial-stream ordering guarantees),
+// so no realistic single-epoch gap should ever approach this. Matches
+// GpsMonitorPanel.svelte's own STALE_MS constant (same value, same
+// reasoning, applied there to Hz-readout staleness detection instead).
+const STALE_ASSEMBLY_MS = 3000;
+
+export function applyGsvSentence(
+  state: SatellitesState,
+  sentence: GsvSentence,
+  nowMs: number,
+): SatellitesState {
   // Defensive guard: nmeaRich.ts's parser should already reject these
   // before they reach here -- this is defense in depth, not the primary
   // guard, so an in-progress assembly never gets corrupted by a
@@ -58,20 +72,29 @@ export function applyGsvSentence(state: SatellitesState, sentence: GsvSentence):
   const existing = state.assemblies[key];
 
   // A new epoch's run starts fresh -- msgNum 1, no in-progress assembly
-  // yet, or a receiver changing its satellite count mid-run (totalMsgs
-  // disagrees with what's already buffered). Any incomplete assembly
-  // already sitting there is stale, not "better than nothing": same
-  // freeze-last-known-state philosophy as nmeaFix.ts, applied to
+  // yet, a receiver changing its satellite count mid-run (totalMsgs
+  // disagrees with what's already buffered), or the existing assembly
+  // having sat incomplete for longer than a single epoch could plausibly
+  // take (STALE_ASSEMBLY_MS) -- that last case catches a constellation's
+  // own msgNum===1 sentence being dropped in two or more consecutive
+  // epochs, which would otherwise let genuinely different epochs' slots
+  // get spliced into one "complete" published list. Any incomplete
+  // assembly already sitting there is stale, not "better than nothing":
+  // same freeze-last-known-state philosophy as nmeaFix.ts, applied to
   // in-progress data instead of published data -- an abandoned partial
   // epoch is actively misleading, so it's discarded rather than kept.
-  const startFresh = sentence.msgNum === 1 || !existing || existing.totalMsgs !== sentence.totalMsgs;
+  const startFresh =
+    sentence.msgNum === 1 ||
+    !existing ||
+    existing.totalMsgs !== sentence.totalMsgs ||
+    nowMs - existing.firstSlotAtMs > STALE_ASSEMBLY_MS;
   const assembly: GsvAssembly = startFresh
     ? // NOT `new Array(n)` -- that produces a sparse array of holes, and
       // Array.prototype.every() SKIPS holes (vacuously "passes" them),
       // which would make an all-holes-but-one array look complete below.
       // .fill(undefined) makes every slot a real, explicit `undefined`.
-      { totalMsgs: sentence.totalMsgs, slots: new Array(sentence.totalMsgs).fill(undefined) }
-    : { totalMsgs: existing.totalMsgs, slots: existing.slots.slice() };
+      { totalMsgs: sentence.totalMsgs, slots: new Array(sentence.totalMsgs).fill(undefined), firstSlotAtMs: nowMs }
+    : { totalMsgs: existing.totalMsgs, slots: existing.slots.slice(), firstSlotAtMs: existing.firstSlotAtMs };
 
   assembly.slots[sentence.msgNum - 1] = sentence.satellites;
 

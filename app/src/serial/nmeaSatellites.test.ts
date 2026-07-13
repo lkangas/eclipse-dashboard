@@ -34,9 +34,13 @@ describe('satelliteGroupKey', () => {
 describe('applyGsvSentence', () => {
   it('publishes one complete constellation after a clean 3-message run, and clears the in-progress assembly', () => {
     let state = initialSatellitesState;
-    state = applyGsvSentence(state, gsv('GPGSV,3,1,09,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,45'));
-    state = applyGsvSentence(state, gsv('GPGSV,3,2,09,05,50,100,50,06,60,120,55,07,70,140,60,08,80,160,00'));
-    state = applyGsvSentence(state, gsv('GPGSV,3,3,09,09,90,180,20'));
+    state = applyGsvSentence(state, gsv('GPGSV,3,1,09,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,45'), 0);
+    state = applyGsvSentence(
+      state,
+      gsv('GPGSV,3,2,09,05,50,100,50,06,60,120,55,07,70,140,60,08,80,160,00'),
+      100,
+    );
+    state = applyGsvSentence(state, gsv('GPGSV,3,3,09,09,90,180,20'), 200);
 
     const key = satelliteGroupKey('GP', null);
     expect(state.assemblies[key]).toBeUndefined();
@@ -63,15 +67,17 @@ describe('applyGsvSentence', () => {
     const key = satelliteGroupKey('GP', null);
 
     // Epoch 1: msgNum 1 and 3 arrive, msgNum 2 is dropped.
-    state = applyGsvSentence(state, gsv('GPGSV,3,1,09,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,45'));
-    state = applyGsvSentence(state, gsv('GPGSV,3,3,09,09,90,180,20'));
+    state = applyGsvSentence(state, gsv('GPGSV,3,1,09,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,45'), 0);
+    state = applyGsvSentence(state, gsv('GPGSV,3,3,09,09,90,180,20'), 100);
     expect(state.constellations[key]).toBeUndefined();
     expect(state.assemblies[key]?.slots[1]).toBeUndefined(); // msgNum 2's slot
 
     // Epoch 2: a fresh msgNum===1 supersedes the stale incomplete buffer
-    // and completes normally.
-    state = applyGsvSentence(state, gsv('GPGSV,2,1,05,11,11,011,11,12,12,012,12'));
-    state = applyGsvSentence(state, gsv('GPGSV,2,2,05,13,13,013,13'));
+    // and completes normally. (Well within STALE_ASSEMBLY_MS too, so this
+    // exercises the msgNum===1 reset path specifically, not the staleness
+    // one.)
+    state = applyGsvSentence(state, gsv('GPGSV,2,1,05,11,11,011,11,12,12,012,12'), 200);
+    state = applyGsvSentence(state, gsv('GPGSV,2,2,05,13,13,013,13'), 300);
 
     expect(state.assemblies[key]).toBeUndefined();
     expect(state.constellations[key]).toEqual({
@@ -91,13 +97,13 @@ describe('applyGsvSentence', () => {
     const key = satelliteGroupKey('GP', null);
 
     // Epoch 1 completes cleanly.
-    state = applyGsvSentence(state, gsv('GPGSV,1,1,02,01,10,020,30,02,20,040,35'));
+    state = applyGsvSentence(state, gsv('GPGSV,1,1,02,01,10,020,30,02,20,040,35'), 0);
     const firstComplete = state.constellations[key];
     expect(firstComplete).toBeDefined();
 
     // Epoch 2: msgNum 1 starts a fresh 2-message run, but msgNum 2 never
     // arrives -- constellations should still show epoch 1's group.
-    state = applyGsvSentence(state, gsv('GPGSV,2,1,05,11,11,011,11,12,12,012,12'));
+    state = applyGsvSentence(state, gsv('GPGSV,2,1,05,11,11,011,11,12,12,012,12'), 100);
     expect(state.constellations[key]).toBe(firstComplete);
     expect(state.assemblies[key]).toBeDefined();
   });
@@ -108,10 +114,10 @@ describe('applyGsvSentence', () => {
     const glKey = satelliteGroupKey('GL', null);
 
     // Interleaved sentence-by-sentence.
-    state = applyGsvSentence(state, gsv('GPGSV,2,1,05,01,10,020,30,02,20,040,35'));
-    state = applyGsvSentence(state, gsv('GLGSV,2,1,05,65,15,025,25,66,25,045,26'));
-    state = applyGsvSentence(state, gsv('GPGSV,2,2,05,03,30,060,40'));
-    state = applyGsvSentence(state, gsv('GLGSV,2,2,05,67,35,065,27'));
+    state = applyGsvSentence(state, gsv('GPGSV,2,1,05,01,10,020,30,02,20,040,35'), 0);
+    state = applyGsvSentence(state, gsv('GLGSV,2,1,05,65,15,025,25,66,25,045,26'), 50);
+    state = applyGsvSentence(state, gsv('GPGSV,2,2,05,03,30,060,40'), 100);
+    state = applyGsvSentence(state, gsv('GLGSV,2,2,05,67,35,065,27'), 150);
 
     expect(state.assemblies[gpKey]).toBeUndefined();
     expect(state.assemblies[glKey]).toBeUndefined();
@@ -138,8 +144,8 @@ describe('applyGsvSentence', () => {
     const l1Key = satelliteGroupKey('GP', '1');
     const l5Key = satelliteGroupKey('GP', '6');
 
-    state = applyGsvSentence(state, gsv('GPGSV,1,1,02,01,10,020,30,02,20,040,35,1'));
-    state = applyGsvSentence(state, gsv('GPGSV,1,1,02,01,10,020,44,02,20,040,46,6'));
+    state = applyGsvSentence(state, gsv('GPGSV,1,1,02,01,10,020,30,02,20,040,35,1'), 0);
+    state = applyGsvSentence(state, gsv('GPGSV,1,1,02,01,10,020,44,02,20,040,46,6'), 50);
 
     expect(state.constellations[l1Key]).toMatchObject({
       talkerId: 'GP',
@@ -164,7 +170,7 @@ describe('applyGsvSentence', () => {
 
   it('completes immediately for a single-message run with only a couple of satellites', () => {
     let state = initialSatellitesState;
-    state = applyGsvSentence(state, gsv('GAGSV,1,1,02,301,45,090,40,302,50,100,42'));
+    state = applyGsvSentence(state, gsv('GAGSV,1,1,02,301,45,090,40,302,50,100,42'), 0);
 
     const key = satelliteGroupKey('GA', null);
     expect(state.assemblies[key]).toBeUndefined();
@@ -186,7 +192,7 @@ describe('applyGsvSentence', () => {
     // this snapshot itself wrong for the slots arrays involved here.
     const beforeSnapshot = structuredClone(before);
 
-    applyGsvSentence(before, gsv('GPGSV,2,1,05,01,10,020,30,02,20,040,35'));
+    applyGsvSentence(before, gsv('GPGSV,2,1,05,01,10,020,30,02,20,040,35'), 0);
 
     expect(before).toEqual(beforeSnapshot);
     expect(before.assemblies).toEqual({});
@@ -195,10 +201,10 @@ describe('applyGsvSentence', () => {
 
   it('does not mutate an in-progress state object when folding in the next sentence', () => {
     let state = initialSatellitesState;
-    state = applyGsvSentence(state, gsv('GPGSV,2,1,05,01,10,020,30,02,20,040,35'));
+    state = applyGsvSentence(state, gsv('GPGSV,2,1,05,01,10,020,30,02,20,040,35'), 0);
     const midEpochSnapshot = structuredClone(state);
 
-    applyGsvSentence(state, gsv('GPGSV,2,2,05,03,30,060,40'));
+    applyGsvSentence(state, gsv('GPGSV,2,2,05,03,30,060,40'), 100);
 
     expect(state).toEqual(midEpochSnapshot);
   });
@@ -214,7 +220,7 @@ describe('applyGsvSentence', () => {
       signalId: null,
     };
     const state = initialSatellitesState;
-    expect(applyGsvSentence(state, malformed)).toBe(state);
+    expect(applyGsvSentence(state, malformed, 0)).toBe(state);
   });
 
   it('ignores a malformed sentence (msgNum > totalMsgs) as defense in depth', () => {
@@ -228,6 +234,60 @@ describe('applyGsvSentence', () => {
       signalId: null,
     };
     const state = initialSatellitesState;
-    expect(applyGsvSentence(state, malformed)).toBe(state);
+    expect(applyGsvSentence(state, malformed, 0)).toBe(state);
+  });
+
+  it('does not splice slots from two different epochs when a constellation drops msgNum===1 in two consecutive epochs (regression)', () => {
+    let state = initialSatellitesState;
+    const key = satelliteGroupKey('GP', null);
+
+    // Epoch A (totalMsgs=3): msgNum=1 arrives, msgNum=2 is dropped, msgNum=3
+    // arrives -- an incomplete [A1, undefined, A3] assembly is left behind.
+    state = applyGsvSentence(state, gsv('GPGSV,3,1,09,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,45'), 0);
+    state = applyGsvSentence(state, gsv('GPGSV,3,3,09,09,90,180,20'), 100);
+    expect(state.constellations[key]).toBeUndefined();
+    expect(state.assemblies[key]?.slots[0]).toBeDefined(); // A1
+    expect(state.assemblies[key]?.slots[1]).toBeUndefined(); // dropped
+    expect(state.assemblies[key]?.slots[2]).toBeDefined(); // A3
+
+    // Epoch B (totalMsgs=3, msgNum=1 ALSO dropped this epoch): msgNum=2
+    // arrives more than STALE_ASSEMBLY_MS after epoch A's last slot. Without
+    // the staleness check this would fold into slot 1 of the stale [A1,
+    // undefined, A3] buffer, making all three slots defined and (wrongly)
+    // publishing a constellation spliced from epoch A's messages 1+3 and
+    // epoch B's message 2.
+    state = applyGsvSentence(
+      state,
+      gsv('GPGSV,3,2,09,15,15,015,15,16,16,016,16,17,17,017,17'),
+      100 + 3001,
+    );
+
+    // Must NOT have "completed" from the spliced slots.
+    expect(state.constellations[key]).toBeUndefined();
+    // The stale assembly must have been discarded wholesale -- epoch A's
+    // slots 0 and 2 are gone, only epoch B's fresh msgNum=2 slot remains.
+    expect(state.assemblies[key]?.slots[0]).toBeUndefined();
+    expect(state.assemblies[key]?.slots[2]).toBeUndefined();
+    expect(state.assemblies[key]?.slots[1]).toBeDefined();
+    expect(state.assemblies[key]?.slots[1]?.[0]).toMatchObject({ prn: 15 });
+  });
+
+  it('does not spuriously reset on a short real-world gap between messages of the same epoch', () => {
+    let state = initialSatellitesState;
+    const key = satelliteGroupKey('GP', null);
+
+    // Realistic tens-to-low-hundreds-of-ms gaps between sentences of one
+    // burst -- comfortably under STALE_ASSEMBLY_MS -- must not be treated
+    // as staleness and must still complete normally.
+    state = applyGsvSentence(state, gsv('GPGSV,3,1,09,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,45'), 0);
+    state = applyGsvSentence(
+      state,
+      gsv('GPGSV,3,2,09,05,50,100,50,06,60,120,55,07,70,140,60,08,80,160,00'),
+      180,
+    );
+    state = applyGsvSentence(state, gsv('GPGSV,3,3,09,09,90,180,20'), 340);
+
+    expect(state.assemblies[key]).toBeUndefined();
+    expect(state.constellations[key]?.satellites).toHaveLength(9);
   });
 });

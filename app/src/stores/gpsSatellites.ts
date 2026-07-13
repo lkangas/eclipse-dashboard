@@ -39,7 +39,7 @@ let state: SatellitesState = initialSatellitesState;
 export function applyRichNmeaLine(rawLine: string): void {
   const sentence = parseRichNmeaSentence(rawLine);
   if (!sentence) return;
-  state = applyGsvSentence(state, sentence);
+  state = applyGsvSentence(state, sentence, Date.now());
   gpsSatellites.set(state);
 }
 
