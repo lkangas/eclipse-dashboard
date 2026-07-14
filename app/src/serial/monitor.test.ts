@@ -203,8 +203,10 @@ describe('applyLineToRows', () => {
     state = applyLineToRows(state, '$GNGSA,b2*00');
     state = applyLineToRows(state, '$GNGSA,b3*00');
 
-    // order does not grow -- same 4 keys (GGA + 3 GSA), not 7.
-    expect(state.order).toEqual(['GNGSA #1', 'GNGSA #2', 'GNGSA #3', 'GNGGA #1']);
+    // order does not grow -- same 4 keys (GGA + 3 GSA), not 7. GGA sorts
+    // first regardless of arrival order (priority-based order, not
+    // first-seen -- see sentencePriority's own comment).
+    expect(state.order).toEqual(['GNGGA #1', 'GNGSA #1', 'GNGSA #2', 'GNGSA #3']);
     expect(state.rows['GNGSA #1'].line).toBe('$GNGSA,b1*00');
     expect(state.rows['GNGSA #2'].line).toBe('$GNGSA,b2*00');
     expect(state.rows['GNGSA #3'].line).toBe('$GNGSA,b3*00');
@@ -216,13 +218,16 @@ describe('applyLineToRows', () => {
     expect(state.rows['xyz garbage noise bytes #1'].line).toBe('xyz garbage noise bytes');
   });
 
-  it('keys off the real sentence, not garbage glued onto its front (bug report: a binary protocol frame with no line terminator of its own rides along ahead of the next real NMEA line)', () => {
+  it('keys off the real sentence AND strips the garbage glued onto its front from the displayed line (bug report: a binary protocol frame with no line terminator of its own rides along ahead of the next real NMEA line)', () => {
     const state = applyLineToRows(initialLiveRowsState, '��B$GNRMC,,V,,,,,,,,,,N,V*37');
     expect(state.order).toEqual(['GNRMC #1']);
     expect(state.rows['GNRMC #1'].address).toBe('GNRMC');
-    // The full raw line (garbage included) is still shown verbatim -- only
-    // the address/key extraction is smarter, not the displayed content.
-    expect(state.rows['GNRMC #1'].line).toBe('��B$GNRMC,,V,,,,,,,,,,N,V*37');
+    // The garbage prefix is stripped from the displayed line too, not just
+    // the address -- bug report: "Monitor still shows the garbage in
+    // front of RMC." Only the real sentence (from the last '$' onward) is
+    // shown; the Scrolling raw view is unaffected and still shows the
+    // byte-for-byte original.
+    expect(state.rows['GNRMC #1'].line).toBe('$GNRMC,,V,,,,,,,,,,N,V*37');
   });
 
   it('collapses repeated hybrid lines with DIFFERENT garbage prefixes but the same real sentence onto the same stable row across epochs, instead of a new row every epoch', () => {
@@ -236,15 +241,45 @@ describe('applyLineToRows', () => {
     state = applyLineToRows(state, '$GNGGA,epoch3*00');
     state = applyLineToRows(state, '���$GNRMC,,V,,,,,,,,,,N,V*37');
     // Same address every epoch -> same key, updated in place, not a
-    // growing list of distinct garbage-keyed rows (the actual bug).
+    // growing list of distinct garbage-keyed rows (the actual bug). RMC
+    // sorts before GGA here (both priority 0, tied) since RMC was the
+    // first of the two ever seen (first-seen breaks ties within a
+    // priority group -- see sentencePriority's own comment).
     expect(state.order).toEqual(['GNRMC #1', 'GNGGA #1']);
-    expect(state.rows['GNRMC #1'].line).toBe('���$GNRMC,,V,,,,,,,,,,N,V*37');
+    // Garbage prefix stripped from the displayed line, same as the single-line test above.
+    expect(state.rows['GNRMC #1'].line).toBe('$GNRMC,,V,,,,,,,,,,N,V*37');
   });
 
-  it('uses the LAST "$" when a line somehow contains more than one, not the first', () => {
+  it('uses the LAST "$" when a line somehow contains more than one, not the first, and strips everything before it from the displayed line', () => {
     const state = applyLineToRows(initialLiveRowsState, '$garbage$GNGGA,1*00');
     expect(state.order).toEqual(['GNGGA #1']);
     expect(state.rows['GNGGA #1'].address).toBe('GNGGA');
+    expect(state.rows['GNGGA #1'].line).toBe('$GNGGA,1*00');
+  });
+
+  it('sorts rows by a fixed priority (RMC/GGA first, then other named types, then GSA/GSV last), NOT by first-seen arrival order', () => {
+    let state = initialLiveRowsState;
+    // Deliberately arrive in the WORST-case order for first-seen sorting:
+    // GSV, then GSA, then GNS, then RMC, then GGA last of all.
+    state = applyLineToRows(state, '$GPGSV,1,1,00,0*00');
+    state = applyLineToRows(state, '$GNGSA,a*00');
+    state = applyLineToRows(state, '$GNGNS,a*00');
+    state = applyLineToRows(state, '$GNRMC,a*00');
+    state = applyLineToRows(state, '$GNGGA,a*00');
+    // Fixed priority order wins regardless: RMC/GGA first (first-seen
+    // between the two of them: RMC arrived before GGA here), then GNS,
+    // then GSA, then GSV last.
+    expect(state.order).toEqual(['GNRMC #1', 'GNGGA #1', 'GNGNS #1', 'GNGSA #1', 'GPGSV #1']);
+  });
+
+  it('keeps a row in its fixed priority place across further updates, not just on first arrival', () => {
+    let state = initialLiveRowsState;
+    state = applyLineToRows(state, '$GPGSV,1,1,00,0*00'); // GSV first -- lowest priority
+    state = applyLineToRows(state, '$GNGGA,epoch1*00'); // GGA arrives second -- must still sort BEFORE the already-present GSV
+    expect(state.order).toEqual(['GNGGA #1', 'GPGSV #1']);
+    // A further GGA update (new epoch) keeps the same fixed order.
+    state = applyLineToRows(state, '$GNGGA,epoch2*00');
+    expect(state.order).toEqual(['GNGGA #1', 'GPGSV #1']);
   });
 
   it('does not mutate the previous state object', () => {

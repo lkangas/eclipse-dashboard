@@ -27,15 +27,48 @@ export interface LiveRow {
 /** Accumulated state for the "live rows" raw-stream display mode --
  * PLAN.md §10's addendum. `epochCounts` resets on every GGA arrival (the
  * same once-per-epoch boundary the Hz tracker above already relies on);
- * `order` and `rows` persist across epochs so a row's position never
- * moves once assigned. */
+ * `rows` persists across epochs so a row updates in place rather than
+ * being recreated. `order` is NOT first-seen order -- see
+ * `sentencePriority` below -- it's recomputed every call so a row's
+ * FIXED, priority-based position never depends on which sentence
+ * happened to arrive first (direct request: "I need the rows to stay in
+ * their fixed places. Example RMC always in the same place."). */
 export interface LiveRowsState {
   epochCounts: Record<string, number>; // address -> occurrences seen since the last GGA (epoch boundary)
-  order: string[]; // first-seen key order, so rows don't reshuffle position across renders
+  order: string[]; // priority-sorted key order -- see sentencePriority
   rows: Record<string, LiveRow>;
 }
 
 export const initialLiveRowsState: LiveRowsState = { epochCounts: {}, order: [], rows: {} };
+
+// Fixed display priority by sentence TYPE (last 3 letters of the address,
+// talker-ID-agnostic -- same "matched by the sentence's last 3 letters
+// only" convention nmea.ts's own core parser already uses, so "GNRMC" and
+// "GPRMC" rank identically). Direct request: "Preferable RMC/GGA first,
+// then others in some fixed order, then GSA/GSV" -- RMC/GGA tie for first
+// (both are the core once-per-epoch position sentences), then the other
+// named sentence types in a fixed reading order (matching the reference
+// tool transcribed in docs/GPS-MONITOR-PLAN.md §2), then GSA/GSV last
+// (the high-volume, multi-sentence-per-epoch ones). An address whose type
+// isn't in this table (including the '?' fallback for a line with no '$'
+// anywhere at all) lands in DEFAULT_SENTENCE_PRIORITY, grouped with the
+// "other" named types rather than at either extreme.
+const SENTENCE_PRIORITY: Record<string, number> = {
+  RMC: 0,
+  GGA: 0,
+  VTG: 1,
+  GLL: 2,
+  ZDA: 3,
+  HDG: 4,
+  GNS: 5,
+  GSA: 10,
+  GSV: 11,
+};
+const DEFAULT_SENTENCE_PRIORITY = 6;
+
+function sentencePriority(address: string): number {
+  return SENTENCE_PRIORITY[address.slice(-3)] ?? DEFAULT_SENTENCE_PRIORITY;
+}
 
 /** Folds one raw line into the "live rows" state: one row per distinct
  * sentence identity (address + per-epoch recurrence ordinal), updating
@@ -68,12 +101,23 @@ export function applyLineToRows(state: LiveRowsState, rawLine: string): LiveRows
   // reliably regardless of what binary noise precedes it, so all these
   // hybrids collapse back onto the one stable address they actually
   // share. A line with no '$' anywhere at all (pure binary, no attached
-  // sentence) still falls back to the whole trimmed text, same as before.
+  // sentence) still falls back to the whole trimmed text for addressing.
   const lastDollarIdx = trimmed.lastIndexOf('$');
-  const afterDollar = lastDollarIdx >= 0 ? trimmed.slice(lastDollarIdx + 1) : trimmed;
+  const hasDollar = lastDollarIdx >= 0;
+  const afterDollar = hasDollar ? trimmed.slice(lastDollarIdx + 1) : trimmed;
   const commaIdx = afterDollar.indexOf(',');
   const rawAddress = commaIdx >= 0 ? afterDollar.slice(0, commaIdx) : afterDollar;
   const address = rawAddress.length > 0 ? rawAddress : '?';
+
+  // Displayed content: just the real sentence (from the last '$' onward),
+  // not the whole raw line -- bug report: "Monitor still shows the
+  // garbage in front of RMC." Once the address extraction above already
+  // knows where the real sentence starts, showing the garbage ahead of it
+  // is noise, not useful transparency (the Scrolling raw view, unchanged,
+  // is still there for anyone who wants the byte-for-byte unmodified
+  // stream). A line with no '$' anywhere still shows its full raw text --
+  // there's no "real sentence" to isolate it from.
+  const displayLine = hasDollar ? trimmed.slice(lastDollarIdx) : rawLine;
 
   // GGA marks the epoch boundary -- reset before processing this line so
   // the GGA itself is the new epoch's first occurrence, not the previous
@@ -84,12 +128,25 @@ export function applyLineToRows(state: LiveRowsState, rawLine: string): LiveRows
   const count = (epochCounts[address] ?? 0) + 1;
   const key = `${address} #${count}`;
 
-  const order = state.order.includes(key) ? state.order : [...state.order, key];
+  const insertionOrder = state.order.includes(key) ? state.order : [...state.order, key];
+  const rows = { ...state.rows, [key]: { key, address, line: displayLine } };
+
+  // Re-sorted every call (cheap -- at most a handful of distinct keys),
+  // not just when a new key is inserted, so a row's FIXED priority
+  // position is correct even the first time it appears, regardless of
+  // what else has already arrived. Array.prototype.sort is a stable sort
+  // (guaranteed since ES2019), so rows sharing the same priority (e.g.
+  // three GSA lines within one epoch, or GGA/RMC's shared top priority)
+  // keep their original first-seen relative order among themselves --
+  // only the PRIORITY GROUPS are reordered, not the rows within one.
+  const order = insertionOrder
+    .slice()
+    .sort((a, b) => sentencePriority(rows[a].address) - sentencePriority(rows[b].address));
 
   return {
     epochCounts: { ...epochCounts, [address]: count },
     order,
-    rows: { ...state.rows, [key]: { key, address, line: rawLine } },
+    rows,
   };
 }
 
