@@ -10,6 +10,7 @@
   // wiring beyond mounting it.
   import { gpsSatellites } from '../../stores/gpsSatellites';
   import { describeConstellation } from '../../serial/monitor';
+  import { findMatchingGsa, withUsedInFix } from '../../serial/nmeaSatellites';
 
   // Real GNSS receivers essentially never report anywhere near NMEA's
   // nominal 0-99 dB-Hz ceiling -- scaling bars against 99 would make every
@@ -44,6 +45,7 @@
     barKey: string;
     prn: number;
     snrDb: number | null;
+    usedInFix: boolean;
   }
   interface Group {
     talkerId: string;
@@ -62,12 +64,27 @@
   // satellites into the same bucket here, keyed uniquely per bar via
   // the source constellation's own `key` (which does include signalId)
   // rather than by PRN alone, so nothing collides.
+  // usedInFix cross-reference (PLAN.md §5's "usedInFix cross-reference" /
+  // §6 phase 2), same lookup pattern as the sky-plot sibling component:
+  // find this constellation's matching full-GSA (by talkerId, falling
+  // back to System-ID-derived name matching -- see findMatchingGsa's own
+  // comment) and overlay its used-PRN list onto the GSV satellite list.
+  // No match (the documented shared-talker/no-System-ID gap) -> usedPrns
+  // defaults to [], which withUsedInFix naturally turns into "not used"
+  // for every satellite in that group, rather than guessing.
   const groups = $derived.by((): Group[] => {
     const byTalker = new Map<string, Bar[]>();
     for (const constellation of Object.values($gpsSatellites.constellations)) {
+      const matchingGsa = findMatchingGsa($gpsSatellites.gsaByKey, constellation.talkerId);
+      const withUsage = withUsedInFix(constellation.satellites, matchingGsa?.usedPrns ?? []);
       const bars = byTalker.get(constellation.talkerId) ?? [];
-      for (const sat of constellation.satellites) {
-        bars.push({ barKey: `${constellation.key}-${sat.prn}`, prn: sat.prn, snrDb: sat.snrDb });
+      for (const sat of withUsage) {
+        bars.push({
+          barKey: `${constellation.key}-${sat.prn}`,
+          prn: sat.prn,
+          snrDb: sat.snrDb,
+          usedInFix: sat.usedInFix,
+        });
       }
       byTalker.set(constellation.talkerId, bars);
     }
@@ -111,6 +128,7 @@
     barY: number;
     barHeight: number;
     color: string;
+    usedInFix: boolean;
   }
   interface PositionedGroup {
     talkerId: string;
@@ -137,6 +155,7 @@
           barY: BASELINE_Y - barHeight,
           barHeight,
           color: b.snrDb === null ? 'var(--muted)' : g.color,
+          usedInFix: b.usedInFix,
         };
       });
       const groupStart = cursor - g.bars.length * slotWidth;
@@ -158,7 +177,26 @@
 
       {#each positionedGroups as group (group.talkerId)}
         {#each group.bars as bar (bar.barKey)}
-          <rect class="bar" x={bar.cx - barWidth / 2} y={bar.barY} width={barWidth} height={bar.barHeight} fill={bar.color} />
+          <!-- usedInFix encoding (PLAN.md §6 phase 2 / §2's "Corrections
+               from an actual screenshot"): matches the sky-plot sibling
+               component's own choice (solid vs. outline-only) rather than
+               an opacity treatment, for a consistent visual language
+               across both new panels. A satellite actually used in the
+               fix gets a SOLID bar in its constellation color; a
+               visible-but-unused satellite gets an OUTLINE-only bar --
+               stroke in the same constellation color, no fill -- so it
+               still reads as "which system" at a glance, just visually
+               lighter for "not contributing to the fix." -->
+          <rect
+            class="bar"
+            class:outline={!bar.usedInFix}
+            x={bar.cx - barWidth / 2}
+            y={bar.barY}
+            width={barWidth}
+            height={bar.barHeight}
+            fill={bar.usedInFix ? bar.color : 'none'}
+            stroke={bar.usedInFix ? 'none' : bar.color}
+          />
           <text
             class="prnlabel"
             x={bar.cx}
@@ -213,6 +251,11 @@
     transition:
       height 180ms ease-out,
       y 180ms ease-out;
+    /* fill/stroke themselves are set per-bar inline (used-vs-visible
+       encoding, see the template's own comment) -- only the outline bars'
+       stroke thickness is a fixed, shared style, same convention the
+       sky-plot sibling's own .satdot rule uses for the same reason. */
+    stroke-width: 1.3;
   }
   .prnlabel {
     font-size: 8px;

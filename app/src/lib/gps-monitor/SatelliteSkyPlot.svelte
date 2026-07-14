@@ -16,8 +16,28 @@
   // the two views have different, both-correct chirality for what they
   // each represent. That's why this file has its own tiny projection
   // function (skyPos below) instead of importing/reusing SkyPanel's.
+  //
+  // Used-vs-visible encoding (GPS-MONITOR-PLAN.md §6 phase 2): the
+  // per-constellation dot COLOR stays exactly as phase 1 built it (still
+  // useful -- the dedicated GSA/GSV panels split by system, but this
+  // shared plot benefits from showing both signals at once). Layered on
+  // top: a satellite actually used in the current fix (cross-referenced
+  // from the matching GSA's PRN list, see findMatchingGsa/withUsedInFix)
+  // renders as a SOLID dot in its constellation color; a satellite that's
+  // merely visible (tracked by GSV but not in that GSA's used-PRN list)
+  // renders as an OUTLINE-ONLY circle -- stroke in the same constellation
+  // color, no fill -- so it still reads as "which system" at a glance,
+  // just visually lighter for "not contributing to the fix." When no
+  // matching GSA exists at all for a constellation (the documented
+  // shared-GN-talker/no-System-ID gap -- see findMatchingGsa's own
+  // comment in nmeaSatellites.ts), every satellite in that group is
+  // treated as not-used (outline) rather than guessed -- same safe-default
+  // reasoning already established there, achieved for free here by simply
+  // passing an empty usedPrns list through the same withUsedInFix() join
+  // used for the found case, not a separate code path.
   import { gpsSatellites } from '../../stores/gpsSatellites';
   import { describeConstellation } from '../../serial/monitor';
+  import { findMatchingGsa, withUsedInFix } from '../../serial/nmeaSatellites';
 
   const CX = 100;
   const CY = 100;
@@ -61,6 +81,7 @@
     x: number;
     y: number;
     color: string;
+    usedInFix: boolean;
   }
 
   interface LegendEntry {
@@ -77,10 +98,16 @@
     const list: PlottedSatellite[] = [];
     for (const group of groups) {
       const color = constellationColor(describeConstellation(group.talkerId));
-      for (const sat of group.satellites) {
+      // findMatchingGsa returns null for the documented "shared talker,
+      // no System ID" gap (see its own comment in nmeaSatellites.ts) --
+      // `?? []` then makes withUsedInFix mark every satellite in this
+      // group as not-used, the safe default, without a separate branch.
+      const gsaInfo = findMatchingGsa($gpsSatellites.gsaByKey, group.talkerId);
+      const withUsed = withUsedInFix(group.satellites, gsaInfo?.usedPrns ?? []);
+      for (const sat of withUsed) {
         if (sat.elevationDeg === null || sat.azimuthDeg === null) continue;
         const [x, y] = skyPos(sat.elevationDeg, sat.azimuthDeg);
-        list.push({ id: `${group.key}-${sat.prn}`, prn: sat.prn, x, y, color });
+        list.push({ id: `${group.key}-${sat.prn}`, prn: sat.prn, x, y, color, usedInFix: sat.usedInFix });
       }
     }
     return list;
@@ -125,7 +152,15 @@
       <text class="cardinal" x={CX} y={CY + OUTER_R + 8}>S</text>
       <text class="cardinal" x={CX - OUTER_R - 8} y={CY}>W</text>
       {#each plotted as sat (sat.id)}
-        <circle class="satdot" cx={sat.x} cy={sat.y} r={SAT_DOT_R} fill={sat.color} />
+        <circle
+          class="satdot"
+          class:outline={!sat.usedInFix}
+          cx={sat.x}
+          cy={sat.y}
+          r={SAT_DOT_R}
+          fill={sat.usedInFix ? sat.color : 'none'}
+          stroke={sat.usedInFix ? 'none' : sat.color}
+        />
         <text class="satlabel" x={sat.x} y={sat.y - SAT_DOT_R - 2}>{sat.prn}</text>
       {/each}
     </svg>
@@ -134,6 +169,9 @@
         {#each legendEntries as entry (entry.name)}
           <span class="legenditem"><span class="swatch" style:background={entry.color}></span>{entry.name}</span>
         {/each}
+      </div>
+      <div class="usedhint">
+        <span class="usedglyph filled"></span>used in fix &nbsp;&nbsp;<span class="usedglyph outline"></span>visible only
       </div>
     {/if}
     {#if noPositionCount > 0}
@@ -168,7 +206,13 @@
     dominant-baseline: middle;
   }
   .satdot {
-    stroke: none;
+    /* fill/stroke themselves are set per-dot inline (used-vs-visible
+       encoding, see the script's own comment) -- a CSS rule forcing
+       `stroke: none` here would win over that per-element attribute for
+       every dot regardless of value, since a stylesheet rule always beats
+       a plain presentation attribute. Only the outline dots' stroke
+       thickness is a fixed, shared style. */
+    stroke-width: 1.3;
   }
   .satlabel {
     fill: var(--ink);
@@ -194,6 +238,32 @@
     height: 8px;
     border-radius: 50%;
     display: inline-block;
+  }
+  /* One-line caption explaining the filled-vs-outline dot encoding above
+     -- monochrome (var(--muted)/var(--ink)), deliberately NOT colored per
+     constellation, since this is explaining the used-vs-visible signal
+     specifically, orthogonal to the color legend just above it. */
+  .usedhint {
+    flex: 0 0 auto;
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+  }
+  .usedglyph {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 4px;
+    box-sizing: border-box;
+  }
+  .usedglyph.filled {
+    background: var(--ink);
+  }
+  .usedglyph.outline {
+    background: none;
+    border: 1.3px solid var(--ink);
   }
   .hint {
     color: var(--muted);

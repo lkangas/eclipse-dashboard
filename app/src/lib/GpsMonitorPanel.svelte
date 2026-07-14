@@ -16,15 +16,15 @@
   import { gpsMonitorOpen } from '../stores/layout';
   import { gpsConnection } from '../serial/connection';
   import { describeFixQuality, describeFixType, applyLineToRows, initialLiveRowsState } from '../serial/monitor';
-  // GPS-MONITOR-PLAN.md phase 1: satellite sky-plot + SNR bar chart. Both
-  // are self-contained (no props -- they subscribe to the gpsSatellites
-  // store directly, same convention as this panel's own direct
-  // gpsConnection import above) and render their own "No satellite data
-  // yet." empty state, so nothing here needs to know or care that
-  // connection.ts isn't wired to populate that store yet (deferred, see
-  // stores/gpsSatellites.ts's own comment on why).
+  // GPS-MONITOR-PLAN.md phase 1 (satellite sky-plot + SNR bar chart) and
+  // phase 2 (per-constellation GsaPanel). All three are self-contained (no
+  // props -- they subscribe to the gpsSatellites store directly, same
+  // convention as this panel's own direct gpsConnection import above) and
+  // render their own "No ... data yet." empty state, so nothing here needs
+  // to know or care about the state of connection.ts's monitorActive gate.
   import SatelliteSkyPlot from './gps-monitor/SatelliteSkyPlot.svelte';
   import SnrBarChart from './gps-monitor/SnrBarChart.svelte';
+  import GsaPanel from './gps-monitor/GsaPanel.svelte';
 
   function close() {
     gpsMonitorOpen.set(false);
@@ -181,6 +181,28 @@
     <div class="satpanels">
       <SatelliteSkyPlot />
       <SnrBarChart />
+    </div>
+
+    <!-- Per-constellation GSA (PLAN.md §6 phase 2 / §2's "two GNGSA panels
+         side by side" reference idea) -- its own section below .satpanels
+         rather than a third item squeezed into that row. GsaPanel renders
+         a variable number of cards (one per constellation currently
+         reporting a full-GSA sentence: 0 with no data yet, more as a
+         multi-constellation receiver reports in) and, unlike
+         SatelliteSkyPlot/SnrBarChart, doesn't fill a `height: 100%` --
+         it's sized by its own content. Forcing that into .satpanels's
+         fixed 260px row would mean either clipping a multi-constellation
+         receiver's cards with no scroll affordance, or fighting the
+         auto-fit grid for a share of a row built for exactly two
+         fixed-height SVG panels. Content-sized instead (flex: 0 0 auto,
+         same non-growing convention as .fields/.satpanels/.streamhead
+         above), so it grows with however many constellations are
+         reporting and simply pushes the raw NMEA stream down --
+         .monitorbox below is still the one element that absorbs whatever
+         vertical space is left over and scrolls internally, unchanged. -->
+    <div class="streamhead">GSA (per constellation)</div>
+    <div class="gsasection">
+      <GsaPanel />
     </div>
 
     <div class="streamheadrow">
@@ -409,6 +431,15 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  /* GSA section (see the markup's own comment above for why this is a
+     separate, content-sized section rather than a third .satpanels item):
+     flex: 0 0 auto, same non-growing convention as .fields/.satpanels
+     above it -- .monitorbox is still the only element that grows/scrolls. */
+  .gsasection {
+    flex: 0 0 auto;
     padding: 12px 0;
     border-bottom: 1px solid var(--line);
   }
