@@ -50,9 +50,29 @@ export const initialLiveRowsState: LiveRowsState = { epochCounts: {}, order: [],
  * garbage always gets a row rather than being dropped or throwing. */
 export function applyLineToRows(state: LiveRowsState, rawLine: string): LiveRowsState {
   const trimmed = rawLine.trim();
-  const withoutDollar = trimmed.startsWith('$') ? trimmed.slice(1) : trimmed;
-  const commaIdx = withoutDollar.indexOf(',');
-  const rawAddress = commaIdx >= 0 ? withoutDollar.slice(0, commaIdx) : withoutDollar;
+  // Bug report, confirmed via the pause button this feature exists for:
+  // a receiver emitting a binary protocol (e.g. UBX) alongside NMEA can
+  // send a frame with no line terminator of its own -- connection.ts's
+  // newline-based line-splitting doesn't cut it into its own "line" at
+  // all, so it just rides along glued onto whatever real
+  // "$...*XX\r\n" sentence happens to follow next in the stream (always
+  // the SAME sentence content in the observed case -- an RMC void-fix
+  // sentence, which is naturally identical every epoch with no fix yet).
+  // Since the garbage prefix differs byte to byte, keying off whichever
+  // text happens to come before the address (previously: only stripped a
+  // LEADING '$', otherwise used the whole raw text) gave every such
+  // hybrid line a different, ever-changing address -- flooding this view
+  // with one-off rows that never repeat instead of the stable small set
+  // it's meant to show. Taking the LAST '$' in the line (not just
+  // checking whether it STARTS with one) finds the real sentence
+  // reliably regardless of what binary noise precedes it, so all these
+  // hybrids collapse back onto the one stable address they actually
+  // share. A line with no '$' anywhere at all (pure binary, no attached
+  // sentence) still falls back to the whole trimmed text, same as before.
+  const lastDollarIdx = trimmed.lastIndexOf('$');
+  const afterDollar = lastDollarIdx >= 0 ? trimmed.slice(lastDollarIdx + 1) : trimmed;
+  const commaIdx = afterDollar.indexOf(',');
+  const rawAddress = commaIdx >= 0 ? afterDollar.slice(0, commaIdx) : afterDollar;
   const address = rawAddress.length > 0 ? rawAddress : '?';
 
   // GGA marks the epoch boundary -- reset before processing this line so

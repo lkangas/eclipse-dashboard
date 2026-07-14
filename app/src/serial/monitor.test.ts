@@ -216,6 +216,37 @@ describe('applyLineToRows', () => {
     expect(state.rows['xyz garbage noise bytes #1'].line).toBe('xyz garbage noise bytes');
   });
 
+  it('keys off the real sentence, not garbage glued onto its front (bug report: a binary protocol frame with no line terminator of its own rides along ahead of the next real NMEA line)', () => {
+    const state = applyLineToRows(initialLiveRowsState, '��B$GNRMC,,V,,,,,,,,,,N,V*37');
+    expect(state.order).toEqual(['GNRMC #1']);
+    expect(state.rows['GNRMC #1'].address).toBe('GNRMC');
+    // The full raw line (garbage included) is still shown verbatim -- only
+    // the address/key extraction is smarter, not the displayed content.
+    expect(state.rows['GNRMC #1'].line).toBe('��B$GNRMC,,V,,,,,,,,,,N,V*37');
+  });
+
+  it('collapses repeated hybrid lines with DIFFERENT garbage prefixes but the same real sentence onto the same stable row across epochs, instead of a new row every epoch', () => {
+    let state = initialLiveRowsState;
+    // One hybrid RMC-with-garbage-prefix line per epoch (matching the bug
+    // report: RMC arrives once/epoch, each epoch's binary frame prefix
+    // differs) -- separated by GGA epoch-boundary markers.
+    state = applyLineToRows(state, '�B$GNRMC,,V,,,,,,,,,,N,V*37');
+    state = applyLineToRows(state, '$GNGGA,epoch2*00');
+    state = applyLineToRows(state, "'U�$GNRMC,,V,,,,,,,,,,N,V*37");
+    state = applyLineToRows(state, '$GNGGA,epoch3*00');
+    state = applyLineToRows(state, '���$GNRMC,,V,,,,,,,,,,N,V*37');
+    // Same address every epoch -> same key, updated in place, not a
+    // growing list of distinct garbage-keyed rows (the actual bug).
+    expect(state.order).toEqual(['GNRMC #1', 'GNGGA #1']);
+    expect(state.rows['GNRMC #1'].line).toBe('���$GNRMC,,V,,,,,,,,,,N,V*37');
+  });
+
+  it('uses the LAST "$" when a line somehow contains more than one, not the first', () => {
+    const state = applyLineToRows(initialLiveRowsState, '$garbage$GNGGA,1*00');
+    expect(state.order).toEqual(['GNGGA #1']);
+    expect(state.rows['GNGGA #1'].address).toBe('GNGGA');
+  });
+
   it('does not mutate the previous state object', () => {
     const state = applyLineToRows(initialLiveRowsState, '$GNGGA,1*00');
     const before = JSON.parse(JSON.stringify(state));

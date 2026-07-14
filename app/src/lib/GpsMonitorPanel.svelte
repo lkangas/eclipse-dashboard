@@ -113,14 +113,18 @@
   // never touches the toggle.
   let rawViewMode: 'scrolling' | 'live' = $state('scrolling');
 
-  // Raw stream visibility/fullscreen/pause (direct requests: "hidden by
-  // default and come out with a button, can be fullscreen then" + "a pause
-  // button so that i can inspect what's happening" -- a u-blox M10 can
-  // interleave binary UBX frames with NMEA text, which can garble the
-  // line-split display unpredictably; pausing doesn't fix that, it just
-  // lets the user freeze the view to inspect it).
+  // Raw stream visibility/pause (direct requests: "hidden by default and
+  // come out with a button" + "a pause button so that i can inspect what's
+  // happening" -- a u-blox M10 can interleave binary UBX frames with NMEA
+  // text, which can garble the line-split display unpredictably; pausing
+  // doesn't fix that, it just lets the user freeze the view to inspect
+  // it). Showing the stream is ALWAYS fullscreen -- direct correction:
+  // "always needs to be fullscreen, not enable first and then full
+  // screen. There is no need for it in a narrow view in the bottom" -- so
+  // there's no separate streamFullscreen flag; streamVisible alone both
+  // reveals the stream section AND hides the fields/satellite/GSA
+  // sections below, in one action.
   let streamVisible = $state(false);
-  let streamFullscreen = $state(false);
   let paused = $state(false);
   let frozenLines: string[] | null = $state(null);
 
@@ -139,7 +143,6 @@
 
   function hideStream() {
     streamVisible = false;
-    streamFullscreen = false;
     // Collapsing starts fresh next time it's reopened -- same principle as
     // the "every fresh open starts pinned to the newest line" comment above.
     paused = false;
@@ -198,7 +201,7 @@
       <button class="closebtn" onclick={close} title="Close (Esc)">✕</button>
     </div>
 
-    {#if !streamFullscreen}
+    {#if !streamVisible}
       <div class="fields">
         <div class="field"><span>Fix</span><b>{$gpsConnection.fix.hasFix ? describeFixQuality($gpsConnection.fix.fixQuality) : 'No fix'}</b></div>
         <div class="field"><span>Fix type</span><b>{describeFixType($gpsConnection.fix.fixType)}</b></div>
@@ -250,9 +253,10 @@
          permanently eat most of this panel's vertical space even for
          someone who just wants to glance at the fields/satellite panels).
          streamVisible false shows a compact one-line expand affordance
-         instead; once shown, its own header row carries Pause/Resume, a
-         fullscreen toggle (hides everything above except the top .header
-         row so .monitorbox gets nearly the whole panel body), and Hide. -->
+         instead; showing it is ALWAYS fullscreen (see streamVisible's own
+         comment for why there's no separate intermediate step) -- its own
+         header row carries Pause/Resume and Hide (which returns to the
+         fields/satellite/GSA view above). -->
     {#if streamVisible}
       <div class="streamheadrow">
         <div class="streamhead">Raw NMEA stream</div>
@@ -278,12 +282,6 @@
           onclick={togglePause}
           title="Freeze the stream display to inspect it -- fix data, satellite panels, and Hz readout keep updating live"
         >{paused ? '▶ Resume' : '⏸ Pause'}</button>
-        <button
-          type="button"
-          class="modebtn"
-          class:on={streamFullscreen}
-          onclick={() => (streamFullscreen = !streamFullscreen)}
-        >{streamFullscreen ? '⛶ Exit' : '⛶ Fullscreen'}</button>
         <button type="button" class="modebtn" onclick={hideStream}>Hide</button>
       </div>
       {#if rawViewMode === 'scrolling'}
