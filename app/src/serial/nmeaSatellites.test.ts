@@ -38,6 +38,38 @@ function gsa(line: string): FullGsaSentence {
   return result;
 }
 
+// Builds a full-GSA sentence body (without address/checksum) from named
+// parts instead of hand-counting commas across GSA's 12 fixed empty-able
+// SV sub-fields -- easy to get wrong by eye when the PRN count varies
+// between fixtures (see nmeaRich.ts's parseGsa() for the exact field
+// layout this mirrors: Mode1, Mode2, SV1..SV12, PDOP, HDOP, VDOP, and an
+// optional trailing System ID).
+function gsaLine(params: {
+  talkerId: string;
+  fixType: number;
+  prns: number[];
+  pdop: number;
+  hdop: number;
+  vdop: number;
+  systemId?: string;
+}): string {
+  const svFields = new Array(12).fill('');
+  params.prns.forEach((prn, i) => {
+    svFields[i] = String(prn);
+  });
+  const fields = [
+    `${params.talkerId}GSA`,
+    'A',
+    String(params.fixType),
+    ...svFields,
+    String(params.pdop),
+    String(params.hdop),
+    String(params.vdop),
+  ];
+  if (params.systemId !== undefined) fields.push(params.systemId);
+  return fields.join(',');
+}
+
 describe('satelliteGroupKey', () => {
   it('combines talkerId and signalId', () => {
     expect(satelliteGroupKey('GP', '1')).toBe('GP:1');
@@ -336,6 +368,7 @@ describe('applyGsaSentence', () => {
       pdop: 1.94,
       hdop: 1.18,
       vdop: 1.54,
+      possiblyMixed: false, // systemId is present ('1'), not the ambiguous shape
     });
   });
 
@@ -380,6 +413,55 @@ describe('applyGsaSentence', () => {
     expect(before).toEqual(beforeSnapshot);
     expect(before.gsaByKey).toEqual({});
   });
+
+  // Confirmed-bug regression: a receiver that shares the 'GN' talker AND
+  // omits System ID on two DIFFERENT physical constellations collapses
+  // both onto gsaKey's same 'GN:' string key. Before this fix, the second
+  // arrival's plain-replace upsert silently discarded the first arrival's
+  // entire usedPrns list. Now this specific (talkerId==='GN' &&
+  // systemId===null) shape is flagged possiblyMixed, and usedPrns unions
+  // instead of replacing, so both constellations' used-PRN data survives.
+  it('unions usedPrns and sets possiblyMixed when two GN GSAs both omit systemId (real collision)', () => {
+    let state = applyGsaSentence(
+      initialSatellitesState,
+      gsa(gsaLine({ talkerId: 'GN', fixType: 3, prns: [5, 12], pdop: 1.5, hdop: 1.0, vdop: 1.2 })),
+    );
+    state = applyGsaSentence(
+      state,
+      gsa(gsaLine({ talkerId: 'GN', fixType: 3, prns: [20, 25], pdop: 2.0, hdop: 1.8, vdop: 1.6 })),
+    );
+
+    const key = gsaKey('GN', null);
+    expect(Object.keys(state.gsaByKey)).toHaveLength(1); // still collapsed onto one key
+    expect(state.gsaByKey[key].possiblyMixed).toBe(true);
+    expect(state.gsaByKey[key].usedPrns.slice().sort((a, b) => a - b)).toEqual([5, 12, 20, 25]);
+    // Scalars are last-write-wins even in the ambiguous case -- only
+    // usedPrns accumulates (see applyGsaSentence's own comment).
+    expect(state.gsaByKey[key].pdop).toBe(2.0);
+    expect(state.gsaByKey[key].hdop).toBe(1.8);
+    expect(state.gsaByKey[key].vdop).toBe(1.6);
+  });
+
+  // Non-ambiguous control case: an ordinary per-constellation-talker
+  // receiver (e.g. 'GP') that simply doesn't emit System ID at all. There
+  // is only ever one real constellation behind a 'GP' talker, so a second
+  // GSA arriving under the same key is that same constellation reporting
+  // again -- plain replace remains correct, and possiblyMixed must stay
+  // false (must not regress into unioning here).
+  it('still does a plain replace (not union) and possiblyMixed stays false for an ordinary talkerId with no systemId', () => {
+    let state = applyGsaSentence(
+      initialSatellitesState,
+      gsa(gsaLine({ talkerId: 'GP', fixType: 3, prns: [1, 2], pdop: 1.0, hdop: 1.0, vdop: 1.0 })),
+    );
+    state = applyGsaSentence(
+      state,
+      gsa(gsaLine({ talkerId: 'GP', fixType: 3, prns: [3, 4], pdop: 2.0, hdop: 2.0, vdop: 2.0 })),
+    );
+
+    const key = gsaKey('GP', null);
+    expect(state.gsaByKey[key].possiblyMixed).toBe(false);
+    expect(state.gsaByKey[key].usedPrns).toEqual([3, 4]); // replaced, not unioned with [1, 2]
+  });
 });
 
 describe('withUsedInFix', () => {
@@ -420,6 +502,7 @@ describe('findMatchingGsa', () => {
       pdop: 1.94,
       hdop: 1.18,
       vdop: 1.54,
+      possiblyMixed: false, // talkerId is 'GP', not 'GN' -- not the ambiguous shape
     };
     const gsaByKey: Record<string, GsaInfo> = { [gpGsa.key]: gpGsa };
 
@@ -436,6 +519,7 @@ describe('findMatchingGsa', () => {
       pdop: 8.21,
       hdop: 5.24,
       vdop: 6.32,
+      possiblyMixed: false, // systemId is present -- not the ambiguous shape
     };
     const gsaByKey: Record<string, GsaInfo> = { [gnGsa.key]: gnGsa };
 
@@ -453,6 +537,7 @@ describe('findMatchingGsa', () => {
       pdop: 1.94,
       hdop: 1.18,
       vdop: 1.54,
+      possiblyMixed: true, // exactly the ambiguous shape -- talkerId 'GN', no systemId
     };
     const gsaByKey: Record<string, GsaInfo> = { [gnGsa.key]: gnGsa };
 
@@ -463,5 +548,30 @@ describe('findMatchingGsa', () => {
 
   it('returns null when gsaByKey is empty', () => {
     expect(findMatchingGsa({}, 'GP')).toBeNull();
+  });
+
+  it('does not false-match on two different unmapped values that would collide under an identical fallback template', () => {
+    // Regression test: describeSystemId and describeConstellation used to
+    // share the literal `Unknown (${x})` fallback, so a GSA with a
+    // non-conforming System ID whose raw text happened to equal an
+    // unmapped GSV talkerId's raw text (both 'XX' here) would produce the
+    // same label from both helpers and be wrongly treated as a match.
+    // Now that each fallback is structurally distinct
+    // (`Unknown talker (...)` vs `Unknown systemId (...)`), this must
+    // return null instead of pairing unrelated constellations.
+    const gnGsa: GsaInfo = {
+      key: gsaKey('GN', 'XX'),
+      talkerId: 'GN',
+      systemId: 'XX',
+      fixType: 3,
+      usedPrns: [1, 2],
+      pdop: 1.94,
+      hdop: 1.18,
+      vdop: 1.54,
+      possiblyMixed: false, // systemId is present ('XX') -- not the ambiguous shape
+    };
+    const gsaByKey: Record<string, GsaInfo> = { [gnGsa.key]: gnGsa };
+
+    expect(findMatchingGsa(gsaByKey, 'XX')).toBeNull();
   });
 });

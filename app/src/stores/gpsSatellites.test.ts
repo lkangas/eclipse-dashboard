@@ -115,6 +115,7 @@ describe('applyRichNmeaLine', () => {
       pdop: 1.94,
       hdop: 1.18,
       vdop: 1.54,
+      possiblyMixed: false, // systemId is present ('1') -- not the ambiguous shape
     });
   });
 

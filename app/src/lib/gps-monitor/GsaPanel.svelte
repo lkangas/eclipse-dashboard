@@ -24,6 +24,7 @@
     hdopText: string;
     vdopText: string;
     usedText: string;
+    possiblyMixed: boolean;
   }
 
   function dopText(value: number | null): string {
@@ -45,6 +46,7 @@
         hdopText: dopText(info.hdop),
         vdopText: dopText(info.vdop),
         usedText: info.usedPrns.length > 0 ? info.usedPrns.join(', ') : '—',
+        possiblyMixed: info.possiblyMixed,
       })),
   );
   const noData = $derived(entries.length === 0);
@@ -57,6 +59,9 @@
     {#each entries as entry (entry.key)}
       <div class="panel">
         <div class="panelheader">{entry.label}</div>
+        {#if entry.possiblyMixed}
+          <div class="mixedhint">May combine multiple systems — receiver doesn't distinguish them.</div>
+        {/if}
         <div class="fields">
           <div class="field"><span>Fix type</span><b>{entry.fixTypeText}</b></div>
           <div class="field"><span>PDOP</span><b>{entry.pdopText}</b></div>
@@ -94,6 +99,15 @@
     color: var(--ink);
     text-transform: uppercase;
     letter-spacing: 0.4px;
+  }
+  /* Flags a gsaByKey entry whose talker/systemId shape is structurally
+     ambiguous (GsaInfo.possiblyMixed -- see nmeaSatellites.ts's own
+     comment) so a viewer doesn't mistake this card's data for being as
+     reliably attributed to one constellation as a normal card. */
+  .mixedhint {
+    font-size: 11px;
+    font-style: italic;
+    color: var(--muted);
   }
   /* Same label-above-value convention as GpsMonitorPanel.svelte's own
      .field/.fields (copied here rather than shared -- see this file's

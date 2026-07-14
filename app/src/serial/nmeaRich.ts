@@ -123,10 +123,22 @@ function parseGsaSatellitePrns(fields: string[]): number[] {
  * FullGsaSentence's own field comments for what each means. `fields`
  * still includes fields[0] (the address); talkerId is passed separately
  * since the caller already split it off the address for both GSV and
- * GSA. Returns null if Mode 2 doesn't parse as a number -- same
- * "reject the sentence, don't half-populate it" behavior nmea.ts's own
- * GSA handling uses for the one field it reads. */
+ * GSA. Returns null if the overall field count isn't 18 or 19, or if
+ * Mode 2 doesn't parse as a number -- same "reject the sentence, don't
+ * half-populate it" behavior nmea.ts's own GSA handling uses for the one
+ * field it reads. */
 function parseGsa(talkerId: string, fields: string[]): FullGsaSentence | null {
+  // fields[0]=address, fields[1]=Mode1, fields[2]=Mode2/fixType,
+  // fields[3..14]=SV1..SV12, fields[15..17]=PDOP/HDOP/VDOP, and an
+  // optional fields[18]=System ID -- exactly 18 or 19 fields total,
+  // including the address. If a receiver drops a middle empty SV slot's
+  // comma, every subsequent field shifts left by one and a DOP value
+  // could land in the SV12 slot (parsed as a phantom "used" PRN) while
+  // PDOP/HDOP/VDOP themselves get garbled -- so reject the sentence
+  // outright rather than half-populate it, same philosophy already
+  // applied to Mode 2/msgNum/totalMsgs elsewhere in this file.
+  if (fields.length !== 18 && fields.length !== 19) return null;
+
   const fixType = toInt(fields[2]);
   if (fixType === null) return null;
 
@@ -135,11 +147,10 @@ function parseGsa(talkerId: string, fields: string[]): FullGsaSentence | null {
   const hdop = toFloat(fields[16]);
   const vdop = toFloat(fields[17]);
   // fields[18] (a 19th field, index 18) is the optional trailing System
-  // ID -- present only on NMEA 4.11+ receivers that emit it. A receiver
-  // with fields.length > 19 (extra unexpected trailing fields) is handled
-  // defensively by still reading fields[18] as systemId and ignoring
-  // anything past it, rather than rejecting the whole sentence.
-  const systemId = fields.length >= 19 ? fields[18] || null : null;
+  // ID -- present only on NMEA 4.11+ receivers that emit it. The
+  // fields.length check above already guarantees length is exactly 18 or
+  // 19, so this is just "is the 19th field present".
+  const systemId = fields.length === 19 ? fields[18] || null : null;
 
   return { type: 'GSA', talkerId, fixType, satellitePrns, pdop, hdop, vdop, systemId };
 }

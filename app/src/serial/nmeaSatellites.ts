@@ -50,6 +50,15 @@ export interface GsaInfo {
   pdop: number | null;
   hdop: number | null;
   vdop: number | null;
+  // A purely STRUCTURAL fact about this sentence -- true whenever
+  // talkerId==='GN' and systemId===null, regardless of whether an actual
+  // key collision has happened yet. That shape is inherently ambiguous:
+  // a shared 'GN' talker with no System ID gives this app no way to tell
+  // WHICH physical constellation the sentence belongs to (see gsaKey()'s
+  // own comment and applyGsaSentence() below for what this means for
+  // upserts). Any GSA matching this shape gets flagged, not just the
+  // second one to arrive under a given key.
+  possiblyMixed: boolean;
 }
 
 /** The one place the (talkerId, systemId) -> lookup key is derived for
@@ -159,19 +168,48 @@ export function applyGsvSentence(
 /** Folds one full-GSA sentence into gsaByKey -- PLAN.md §6 phase 2. Unlike
  * applyGsvSentence, a single GSA sentence is already complete on its own
  * (no multi-sentence reassembly, no staleness concern -- see this file's
- * header comment on why GSV needs that and GSA doesn't), so this is just
- * an immutable upsert: compute the key, build a GsaInfo, store it. */
+ * header comment on why GSV needs that and GSA doesn't), so this is
+ * usually just an immutable upsert: compute the key, build a GsaInfo,
+ * store it.
+ *
+ * The one exception: gsaKey() collapses onto the SAME string key (e.g.
+ * 'GN:') whenever two DIFFERENT constellations both report under the
+ * shared 'GN' talker AND both omit the System ID field -- a real, known-
+ * possible receiver behavior (see GsaInfo.possiblyMixed's own comment,
+ * and docs/GPS-MONITOR-PLAN.md §4's discussion of this exact ambiguity).
+ * A plain replace in that specific case would silently discard the first
+ * arrival's entire usedPrns list the moment the second constellation's
+ * GSA lands under the same key -- so when BOTH the existing entry and the
+ * incoming sentence have that ambiguous shape, this unions usedPrns
+ * (deduplicated) instead of replacing it, so a satellite reported as used
+ * by either arrival stays visible. Scalar fields (fixType/pdop/hdop/vdop)
+ * can't be meaningfully merged across two different constellations, so
+ * those stay last-write-wins even in the ambiguous case -- only usedPrns
+ * accumulates. Every other case (a real per-constellation talker like
+ * 'GP'/'GL'/'GA', or a 'GN' talker that DOES have a systemId) keeps the
+ * existing plain-replace behavior: a talker/systemId-qualified key
+ * reliably belongs to one real constellation reporting again, so stale
+ * satellites shouldn't linger and replace semantics are correct there. */
 export function applyGsaSentence(state: SatellitesState, sentence: FullGsaSentence): SatellitesState {
   const key = gsaKey(sentence.talkerId, sentence.systemId);
+  const possiblyMixed = sentence.talkerId === 'GN' && sentence.systemId === null;
+  const existing = state.gsaByKey[key];
+
+  const usedPrns =
+    possiblyMixed && existing?.possiblyMixed
+      ? Array.from(new Set([...existing.usedPrns, ...sentence.satellitePrns]))
+      : sentence.satellitePrns.slice();
+
   const info: GsaInfo = {
     key,
     talkerId: sentence.talkerId,
     systemId: sentence.systemId,
     fixType: sentence.fixType,
-    usedPrns: sentence.satellitePrns.slice(),
+    usedPrns,
     pdop: sentence.pdop,
     hdop: sentence.hdop,
     vdop: sentence.vdop,
+    possiblyMixed,
   };
   return {
     ...state,

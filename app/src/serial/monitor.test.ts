@@ -238,7 +238,7 @@ describe('describeConstellation', () => {
   });
 
   it('falls back for an unrecognized talker ID', () => {
-    expect(describeConstellation('ZZ')).toBe('Unknown (ZZ)');
+    expect(describeConstellation('ZZ')).toBe('Unknown talker (ZZ)');
   });
 });
 
@@ -253,6 +253,6 @@ describe('describeSystemId', () => {
   });
 
   it('falls back for an unrecognized code', () => {
-    expect(describeSystemId('9')).toBe('Unknown (9)');
+    expect(describeSystemId('9')).toBe('Unknown systemId (9)');
   });
 });

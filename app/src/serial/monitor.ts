@@ -177,7 +177,7 @@ const CONSTELLATION_LABELS: Record<string, string> = {
  * app's core pipeline (nmea.ts) deliberately ignores, but which the rich
  * parser (nmeaRich.ts) tracks precisely so panels can be split by system. */
 export function describeConstellation(talkerId: string): string {
-  return CONSTELLATION_LABELS[talkerId] ?? `Unknown (${talkerId})`;
+  return CONSTELLATION_LABELS[talkerId] ?? `Unknown talker (${talkerId})`;
 }
 
 const SYSTEM_ID_LABELS: Record<string, string> = {
@@ -197,5 +197,5 @@ const SYSTEM_ID_LABELS: Record<string, string> = {
  * describeConstellation(gsv.talkerId) (PLAN.md §4's GSA/GSV
  * cross-reference join, built in a later phase). */
 export function describeSystemId(systemId: string): string {
-  return SYSTEM_ID_LABELS[systemId] ?? `Unknown (${systemId})`;
+  return SYSTEM_ID_LABELS[systemId] ?? `Unknown systemId (${systemId})`;
 }

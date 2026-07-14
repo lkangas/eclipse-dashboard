@@ -240,4 +240,48 @@ describe('parseRichNmeaSentence (GSA)', () => {
       expect(result).toMatchObject({ type: 'GSA', talkerId });
     }
   });
+
+  it('rejects a GSA with a field dropped from the middle (wrong overall field count)', () => {
+    // Same as the valid 18-field case below but with one of the empty SV
+    // slots' commas dropped, shifting PDOP/HDOP/VDOP left by one --
+    // fields.length is 17 here instead of the required 18/19, so this
+    // must be rejected rather than silently misparsed (e.g. a DOP value
+    // landing in the SV12 slot and being read as a phantom "used" PRN).
+    const result = parseRichNmeaSentence(
+      withChecksum('GNGSA,A,3,18,20,21,26,,,,,,,,1.94,1.18,1.54'),
+    );
+    expect(result).toBeNull();
+  });
+
+  it('still parses a valid 18-field GSA (no System ID) after the field-count check', () => {
+    const result = parseRichNmeaSentence(
+      withChecksum('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54'),
+    );
+    expect(result).toEqual({
+      type: 'GSA',
+      talkerId: 'GN',
+      fixType: 3,
+      satellitePrns: [18, 20, 21, 26],
+      pdop: 1.94,
+      hdop: 1.18,
+      vdop: 1.54,
+      systemId: null,
+    });
+  });
+
+  it('still parses a valid 19-field GSA (with System ID) after the field-count check', () => {
+    const result = parseRichNmeaSentence(
+      withChecksum('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'),
+    );
+    expect(result).toEqual({
+      type: 'GSA',
+      talkerId: 'GN',
+      fixType: 3,
+      satellitePrns: [18, 20, 21, 26],
+      pdop: 1.94,
+      hdop: 1.18,
+      vdop: 1.54,
+      systemId: '1',
+    });
+  });
 });
