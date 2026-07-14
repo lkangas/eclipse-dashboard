@@ -18,6 +18,10 @@ function withChecksum(body: string): string {
 function gsv(line: string): GsvSentence {
   const result = parseRichNmeaSentence(withChecksum(line));
   if (!result) throw new Error(`test fixture failed to parse: ${line}`);
+  // parseRichNmeaSentence's return type now also includes full-GSA
+  // (PLAN.md §6 phase 2) -- this helper only ever feeds hand-built GSV
+  // lines, so a non-GSV result here means the fixture itself is wrong.
+  if (result.type !== 'GSV') throw new Error(`test fixture did not parse as GSV: ${line}`);
   return result;
 }
 

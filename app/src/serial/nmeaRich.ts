@@ -11,9 +11,14 @@
 // -- nmea.ts ignores talker ID on purpose (one merged fix regardless of
 // constellation); this file is the opposite case.
 //
-// Phase 1 scope: GSV only. Full GSA (PRN list/PDOP/VDOP), VTG, GLL, ZDA,
-// HDG, GNS are later phases (see plan doc §6) and intentionally not
-// stubbed out here.
+// Phase 1 scope: GSV. Phase 2 (this file's current scope) adds full GSA
+// (PRN list actually used in the fix, PDOP/HDOP/VDOP, optional trailing
+// System ID) -- unlike nmea.ts's own GSA handling (which only ever reads
+// Mode 2/fixType and ignores everything else, since that's all the core
+// fix pipeline needs), this parser reads the whole sentence, talker-ID-
+// aware, for the rich monitor's per-constellation GSA panels (PLAN.md §4
+// and §6 phase 2). VTG, GLL, ZDA, HDG, GNS are still later phases (see
+// plan doc §6) and intentionally not stubbed out here.
 
 export interface GsvSatelliteSlot {
   prn: number;
@@ -44,9 +49,35 @@ export interface GsvSentence {
   signalId: string | null;
 }
 
-// Widen with a union (GsaSentence | VtgSentence | ...) as later phases add
-// sentence types -- see plan doc §6/§7.
-export type RichNmeaSentence = GsvSentence;
+export interface FullGsaSentence {
+  type: 'GSA';
+  talkerId: string;
+  /** Mode 2 field -- 1 = no fix, 2 = 2D (no reliable altitude), 3 = 3D.
+   * Same meaning as nmea.ts's own GsaSentence.fixType, duplicated here
+   * (not imported -- see this file's header comment on zero shared
+   * surface) since the rich monitor's per-constellation GSA panels need
+   * their own copy alongside the fields nmea.ts never reads. */
+  fixType: number;
+  /** PRNs actually USED in this fix (not merely visible -- that's GSV's
+   * job) -- empty slots among GSA's fixed 12 SV sub-fields are skipped,
+   * not zero-padded into the array, same "skip empty, don't pad"
+   * convention this file's own GSV satellite-slot parsing already uses. */
+  satellitePrns: number[];
+  pdop: number | null;
+  hdop: number | null;
+  vdop: number | null;
+  /** NMEA 4.11+ trailing field disambiguating which constellation this
+   * GSA belongs to when multiple GSA sentences share one talker ID (e.g.
+   * a shared "GN" talker) -- see PLAN.md §4. Null when the receiver
+   * doesn't emit it (older/simpler receivers, or ones that instead use a
+   * per-constellation talker ID). Numeric string, e.g. '1' (GPS) .. '6'
+   * (NavIC) -- see monitor.ts's describeSystemId() for the mapping. */
+  systemId: string | null;
+}
+
+// Widen with a union (VtgSentence | ...) as later phases add sentence
+// types -- see plan doc §6/§7.
+export type RichNmeaSentence = GsvSentence | FullGsaSentence;
 
 // Same XOR-checksum logic as nmea.ts's own private checksumValid -- see
 // that file's comment for why rejecting bad checksums matters more on a
@@ -74,12 +105,52 @@ function toInt(raw: string | undefined): number | null {
   return v === null ? null : Math.trunc(v);
 }
 
+/** Parses GSA's fixed 12 SV sub-fields (fields[3]..fields[14] -- SV1..SV12)
+ * into the PRNs actually used in the fix, skipping empty slots rather than
+ * zero-padding them -- same convention this file's own GSV satellite-slot
+ * parsing (below, in parseRichNmeaSentence) already uses. */
+function parseGsaSatellitePrns(fields: string[]): number[] {
+  const prns: number[] = [];
+  for (let i = 3; i <= 14; i++) {
+    const prn = toInt(fields[i]);
+    if (prn !== null) prns.push(prn);
+  }
+  return prns;
+}
+
+/** Full GSA: Mode 2 (fixType), the 12-slot used-satellite-PRN list,
+ * PDOP/HDOP/VDOP, and (NMEA 4.11+) the trailing System ID field -- see
+ * FullGsaSentence's own field comments for what each means. `fields`
+ * still includes fields[0] (the address); talkerId is passed separately
+ * since the caller already split it off the address for both GSV and
+ * GSA. Returns null if Mode 2 doesn't parse as a number -- same
+ * "reject the sentence, don't half-populate it" behavior nmea.ts's own
+ * GSA handling uses for the one field it reads. */
+function parseGsa(talkerId: string, fields: string[]): FullGsaSentence | null {
+  const fixType = toInt(fields[2]);
+  if (fixType === null) return null;
+
+  const satellitePrns = parseGsaSatellitePrns(fields);
+  const pdop = toFloat(fields[15]);
+  const hdop = toFloat(fields[16]);
+  const vdop = toFloat(fields[17]);
+  // fields[18] (a 19th field, index 18) is the optional trailing System
+  // ID -- present only on NMEA 4.11+ receivers that emit it. A receiver
+  // with fields.length > 19 (extra unexpected trailing fields) is handled
+  // defensively by still reading fields[18] as systemId and ignoring
+  // anything past it, rather than rejecting the whole sentence.
+  const systemId = fields.length >= 19 ? fields[18] || null : null;
+
+  return { type: 'GSA', talkerId, fixType, satellitePrns, pdop, hdop, vdop, systemId };
+}
+
 /** Parses one NMEA line (no trailing CR/LF expected -- same convention as
  * nmea.ts's parseNmeaSentence, the serial reader line-splits before
- * calling this) into a typed GSV sentence, or null for anything else: a
- * bad checksum, a non-GSV sentence type, or a malformed run (bad
- * totalMsgs/msgNum). Unlike nmea.ts, the talker ID is kept -- it's the
- * key the caller needs for per-constellation reassembly/display. */
+ * calling this) into a typed GSV or full-GSA sentence, or null for
+ * anything else: a bad checksum, an unrecognized sentence type, or a
+ * malformed run (bad totalMsgs/msgNum, or an unparseable GSA Mode 2).
+ * Unlike nmea.ts, the talker ID is kept -- it's the key the caller needs
+ * for per-constellation reassembly/display. */
 export function parseRichNmeaSentence(line: string): RichNmeaSentence | null {
   const sentence = line.trim();
   if (!checksumValid(sentence)) return null;
@@ -89,6 +160,7 @@ export function parseRichNmeaSentence(line: string): RichNmeaSentence | null {
   if (address.length < 3) return null;
   const talkerId = address.slice(0, -3);
   const sentenceId = address.slice(-3);
+  if (sentenceId === 'GSA') return parseGsa(talkerId, fields);
   if (sentenceId !== 'GSV') return null;
 
   const totalMsgs = toInt(fields[1]);

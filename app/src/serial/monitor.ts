@@ -179,3 +179,23 @@ const CONSTELLATION_LABELS: Record<string, string> = {
 export function describeConstellation(talkerId: string): string {
   return CONSTELLATION_LABELS[talkerId] ?? `Unknown (${talkerId})`;
 }
+
+const SYSTEM_ID_LABELS: Record<string, string> = {
+  '1': 'GPS',
+  '2': 'GLONASS',
+  '3': 'Galileo',
+  '4': 'BeiDou',
+  '5': 'QZSS',
+  '6': 'NavIC',
+};
+
+/** NMEA 4.11+ GSA's trailing System ID field (a numeric string, '1'..'6')
+ * as the same short human label describeConstellation() produces for a
+ * talker ID -- this is what lets a GSA sentence sharing a talker-ID-less
+ * "GN" address still be matched to the right GSV constellation, by
+ * comparing describeSystemId(gsa.systemId) against
+ * describeConstellation(gsv.talkerId) (PLAN.md §4's GSA/GSV
+ * cross-reference join, built in a later phase). */
+export function describeSystemId(systemId: string): string {
+  return SYSTEM_ID_LABELS[systemId] ?? `Unknown (${systemId})`;
+}

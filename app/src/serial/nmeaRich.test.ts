@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { parseRichNmeaSentence } from './nmeaRich';
+import { parseRichNmeaSentence, type GsvSentence, type RichNmeaSentence } from './nmeaRich';
+
+// Narrows a parse result to GsvSentence for the handful of assertions below
+// that read GSV-only fields (e.g. `.satellites`) directly rather than via
+// `toMatchObject` -- parseRichNmeaSentence's return type now also includes
+// FullGsaSentence (this file's own GSA describe block, below), so TS can no
+// longer infer `.satellites` exists without this check.
+function asGsv(result: RichNmeaSentence | null): GsvSentence {
+  if (!result || result.type !== 'GSV') throw new Error('expected a parsed GSV sentence');
+  return result;
+}
 
 // Appends a correct checksum to a hand-built sentence body (everything
 // between '$' and '*') -- mirrors nmea.test.ts's own withChecksum helper,
@@ -40,7 +50,7 @@ describe('parseRichNmeaSentence', () => {
       withChecksum('GPGSV,1,1,04,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,45,1'),
     );
     expect(result).toMatchObject({ signalId: '1' });
-    expect(result?.satellites).toHaveLength(4);
+    expect(asGsv(result).satellites).toHaveLength(4);
   });
 
   it('leaves signalId null when the trailing field is absent', () => {
@@ -56,7 +66,7 @@ describe('parseRichNmeaSentence', () => {
     const result = parseRichNmeaSentence(
       '$GPGSV,3,3,11,22,42,067,42,24,14,311,43,27,05,244,00,,,,*4D',
     );
-    expect(result?.satellites).toEqual([
+    expect(asGsv(result).satellites).toEqual([
       { prn: 22, elevationDeg: 42, azimuthDeg: 67, snrDb: 42 },
       { prn: 24, elevationDeg: 14, azimuthDeg: 311, snrDb: 43 },
       { prn: 27, elevationDeg: 5, azimuthDeg: 244, snrDb: 0 },
@@ -157,5 +167,77 @@ describe('parseRichNmeaSentence', () => {
   it('trims a trailing CR left over from CRLF line-splitting', () => {
     const result = parseRichNmeaSentence(withChecksum('GPGSV,1,1,01,05,20,100,33') + '\r');
     expect(result).toMatchObject({ talkerId: 'GP', satellites: [{ prn: 5, elevationDeg: 20, azimuthDeg: 100, snrDb: 33 }] });
+  });
+});
+
+describe('parseRichNmeaSentence (GSA)', () => {
+  it('parses a full 12-slot GSA with only a few PRNs actually populated', () => {
+    // Mode1=A (ignored), Mode2=3 (3D fix), SV1..SV12 with only 4 populated
+    // (18, 20, 21, 26), the rest of the 12 slots empty -- then PDOP/HDOP/
+    // VDOP, no trailing System ID (18 fields total, address included).
+    const result = parseRichNmeaSentence(
+      withChecksum('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54'),
+    );
+    expect(result).toEqual({
+      type: 'GSA',
+      talkerId: 'GN',
+      fixType: 3,
+      satellitePrns: [18, 20, 21, 26],
+      pdop: 1.94,
+      hdop: 1.18,
+      vdop: 1.54,
+      systemId: null,
+    });
+  });
+
+  it('parses a trailing System ID field when present', () => {
+    const result = parseRichNmeaSentence(
+      withChecksum('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'),
+    );
+    expect(result).toMatchObject({ systemId: '1' });
+  });
+
+  it('leaves systemId null when the trailing field is absent', () => {
+    const result = parseRichNmeaSentence(
+      withChecksum('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54'),
+    );
+    expect(result).toMatchObject({ systemId: null });
+  });
+
+  it('parses a 2D fix (Mode 2 = 2)', () => {
+    const result = parseRichNmeaSentence(
+      withChecksum('GPGSA,A,2,18,20,,,,,,,,,,,2.50,2.00,1.50'),
+    );
+    expect(result).toMatchObject({ fixType: 2 });
+  });
+
+  it('parses a 3D fix (Mode 2 = 3)', () => {
+    const result = parseRichNmeaSentence(
+      withChecksum('GPGSA,A,3,18,20,21,,,,,,,,,,1.94,1.18,1.54'),
+    );
+    expect(result).toMatchObject({ fixType: 3 });
+  });
+
+  it('rejects a bad checksum', () => {
+    expect(
+      parseRichNmeaSentence('$GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54*00'),
+    ).toBeNull();
+  });
+
+  it('rejects non-GSA/non-GSV sentence types (e.g. RMC)', () => {
+    expect(
+      parseRichNmeaSentence(
+        withChecksum('GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W'),
+      ),
+    ).toBeNull();
+  });
+
+  it('preserves talker ID across GP/GN/GL variants', () => {
+    for (const talkerId of ['GP', 'GN', 'GL']) {
+      const result = parseRichNmeaSentence(
+        withChecksum(`${talkerId}GSA,A,3,18,20,,,,,,,,,,,1.94,1.18,1.54`),
+      );
+      expect(result).toMatchObject({ type: 'GSA', talkerId });
+    }
   });
 });

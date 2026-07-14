@@ -6,6 +6,7 @@ import {
   describeFixQuality,
   describeFixType,
   describePort,
+  describeSystemId,
   initialLiveRowsState,
   recordFixEvent,
 } from './monitor';
@@ -238,5 +239,20 @@ describe('describeConstellation', () => {
 
   it('falls back for an unrecognized talker ID', () => {
     expect(describeConstellation('ZZ')).toBe('Unknown (ZZ)');
+  });
+});
+
+describe('describeSystemId', () => {
+  it('labels the standard NMEA 4.11 System ID codes', () => {
+    expect(describeSystemId('1')).toBe('GPS');
+    expect(describeSystemId('2')).toBe('GLONASS');
+    expect(describeSystemId('3')).toBe('Galileo');
+    expect(describeSystemId('4')).toBe('BeiDou');
+    expect(describeSystemId('5')).toBe('QZSS');
+    expect(describeSystemId('6')).toBe('NavIC');
+  });
+
+  it('falls back for an unrecognized code', () => {
+    expect(describeSystemId('9')).toBe('Unknown (9)');
   });
 });

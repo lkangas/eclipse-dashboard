@@ -38,7 +38,12 @@ let state: SatellitesState = initialSatellitesState;
  */
 export function applyRichNmeaLine(rawLine: string): void {
   const sentence = parseRichNmeaSentence(rawLine);
-  if (!sentence) return;
+  // nmeaRich.ts's parser now also recognizes full GSA (PLAN.md §6 phase
+  // 2) -- this reducer is still GSV-only (the GSA -> usedInFix
+  // cross-reference is a later phase, see nmeaSatellites.ts's own header
+  // comment), so a non-GSV sentence is a no-op here rather than being fed
+  // into a reducer that doesn't know how to read it.
+  if (!sentence || sentence.type !== 'GSV') return;
   state = applyGsvSentence(state, sentence, Date.now());
   gpsSatellites.set(state);
 }
