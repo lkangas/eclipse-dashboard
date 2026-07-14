@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { parseRichNmeaSentence, type GsvSentence } from './nmeaRich';
+import { parseRichNmeaSentence, type FullGsaSentence, type GsvSentence } from './nmeaRich';
 import {
+  applyGsaSentence,
   applyGsvSentence,
+  findMatchingGsa,
+  gsaKey,
   initialSatellitesState,
   satelliteGroupKey,
+  withUsedInFix,
+  type GsaInfo,
+  type SatelliteInView,
   type SatellitesState,
 } from './nmeaSatellites';
 
@@ -22,6 +28,13 @@ function gsv(line: string): GsvSentence {
   // (PLAN.md §6 phase 2) -- this helper only ever feeds hand-built GSV
   // lines, so a non-GSV result here means the fixture itself is wrong.
   if (result.type !== 'GSV') throw new Error(`test fixture did not parse as GSV: ${line}`);
+  return result;
+}
+
+function gsa(line: string): FullGsaSentence {
+  const result = parseRichNmeaSentence(withChecksum(line));
+  if (!result) throw new Error(`test fixture failed to parse: ${line}`);
+  if (result.type !== 'GSA') throw new Error(`test fixture did not parse as GSA: ${line}`);
   return result;
 }
 
@@ -293,5 +306,162 @@ describe('applyGsvSentence', () => {
 
     expect(state.assemblies[key]).toBeUndefined();
     expect(state.constellations[key]?.satellites).toHaveLength(9);
+  });
+});
+
+describe('gsaKey', () => {
+  it('combines talkerId and systemId', () => {
+    expect(gsaKey('GN', '1')).toBe('GN:1');
+  });
+
+  it('treats a null systemId as its own bucket', () => {
+    expect(gsaKey('GP', null)).toBe('GP:');
+  });
+});
+
+describe('applyGsaSentence', () => {
+  it('stores a GsaInfo keyed by talkerId+systemId', () => {
+    const state = applyGsaSentence(
+      initialSatellitesState,
+      gsa('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'),
+    );
+
+    const key = gsaKey('GN', '1');
+    expect(state.gsaByKey[key]).toEqual({
+      key,
+      talkerId: 'GN',
+      systemId: '1',
+      fixType: 3,
+      usedPrns: [18, 20, 21, 26],
+      pdop: 1.94,
+      hdop: 1.18,
+      vdop: 1.54,
+    });
+  });
+
+  it('updates in place when a second GSA arrives with the same key', () => {
+    let state = applyGsaSentence(
+      initialSatellitesState,
+      gsa('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'),
+    );
+    state = applyGsaSentence(state, gsa('GNGSA,A,2,18,20,,,,,,,,,,,2.50,2.00,1.50,1'));
+
+    const key = gsaKey('GN', '1');
+    expect(state.gsaByKey[key]).toMatchObject({
+      fixType: 2,
+      usedPrns: [18, 20],
+      pdop: 2.5,
+      hdop: 2.0,
+      vdop: 1.5,
+    });
+    expect(Object.keys(state.gsaByKey)).toHaveLength(1);
+  });
+
+  it('keeps different keys from colliding', () => {
+    let state = applyGsaSentence(
+      initialSatellitesState,
+      gsa('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'),
+    );
+    state = applyGsaSentence(state, gsa('GNGSA,A,3,301,302,,,,,,,,,,,8.21,5.24,6.32,3'));
+
+    const gpsKey = gsaKey('GN', '1');
+    const galileoKey = gsaKey('GN', '3');
+    expect(state.gsaByKey[gpsKey]).toMatchObject({ usedPrns: [18, 20, 21, 26] });
+    expect(state.gsaByKey[galileoKey]).toMatchObject({ usedPrns: [301, 302] });
+    expect(Object.keys(state.gsaByKey)).toHaveLength(2);
+  });
+
+  it('does not mutate the previous state object passed in', () => {
+    const before: SatellitesState = initialSatellitesState;
+    const beforeSnapshot = structuredClone(before);
+
+    applyGsaSentence(before, gsa('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'));
+
+    expect(before).toEqual(beforeSnapshot);
+    expect(before.gsaByKey).toEqual({});
+  });
+});
+
+describe('withUsedInFix', () => {
+  const satellites: SatelliteInView[] = [
+    { prn: 18, elevationDeg: 45, azimuthDeg: 90, snrDb: 40 },
+    { prn: 20, elevationDeg: 50, azimuthDeg: 100, snrDb: 42 },
+    { prn: 21, elevationDeg: 30, azimuthDeg: 200, snrDb: 25 },
+  ];
+
+  it('flags satellites whose PRN is in the used list and leaves others false', () => {
+    expect(withUsedInFix(satellites, [18, 21])).toEqual([
+      { prn: 18, elevationDeg: 45, azimuthDeg: 90, snrDb: 40, usedInFix: true },
+      { prn: 20, elevationDeg: 50, azimuthDeg: 100, snrDb: 42, usedInFix: false },
+      { prn: 21, elevationDeg: 30, azimuthDeg: 200, snrDb: 25, usedInFix: true },
+    ]);
+  });
+
+  it('flags nothing when the used list is empty', () => {
+    const result = withUsedInFix(satellites, []);
+    expect(result.every((s) => s.usedInFix === false)).toBe(true);
+  });
+
+  it('does not mutate its input', () => {
+    const satellitesSnapshot = structuredClone(satellites);
+    withUsedInFix(satellites, [18]);
+    expect(satellites).toEqual(satellitesSnapshot);
+  });
+});
+
+describe('findMatchingGsa', () => {
+  it('matches directly via talkerId (e.g. a GPGSV against a GPGSA)', () => {
+    const gpGsa: GsaInfo = {
+      key: gsaKey('GP', null),
+      talkerId: 'GP',
+      systemId: null,
+      fixType: 3,
+      usedPrns: [18, 20],
+      pdop: 1.94,
+      hdop: 1.18,
+      vdop: 1.54,
+    };
+    const gsaByKey: Record<string, GsaInfo> = { [gpGsa.key]: gpGsa };
+
+    expect(findMatchingGsa(gsaByKey, 'GP')).toBe(gpGsa);
+  });
+
+  it('matches a shared-talker GNGSA against a GPGSV via System ID', () => {
+    const gnGsa: GsaInfo = {
+      key: gsaKey('GN', '1'),
+      talkerId: 'GN',
+      systemId: '1', // describeSystemId('1') === 'GPS'
+      fixType: 3,
+      usedPrns: [18, 20],
+      pdop: 8.21,
+      hdop: 5.24,
+      vdop: 6.32,
+    };
+    const gsaByKey: Record<string, GsaInfo> = { [gnGsa.key]: gnGsa };
+
+    // describeConstellation('GP') === 'GPS' === describeSystemId('1')
+    expect(findMatchingGsa(gsaByKey, 'GP')).toBe(gnGsa);
+  });
+
+  it('returns null when neither strategy applies (shared talker, no System ID)', () => {
+    const gnGsa: GsaInfo = {
+      key: gsaKey('GN', null),
+      talkerId: 'GN',
+      systemId: null,
+      fixType: 3,
+      usedPrns: [65, 66],
+      pdop: 1.94,
+      hdop: 1.18,
+      vdop: 1.54,
+    };
+    const gsaByKey: Record<string, GsaInfo> = { [gnGsa.key]: gnGsa };
+
+    // 'GN' !== 'GL' (no direct match), and there's no systemId to fall
+    // back on -- this is the documented gap (PLAN.md §4 item 3), not a bug.
+    expect(findMatchingGsa(gsaByKey, 'GL')).toBeNull();
+  });
+
+  it('returns null when gsaByKey is empty', () => {
+    expect(findMatchingGsa({}, 'GP')).toBeNull();
   });
 });

@@ -10,7 +10,8 @@
 // to handle gaps, not reordering -- a message that's simply missing just
 // leaves that one epoch's group unpublished (frozen at the last complete
 // group), it never needs resequencing logic.
-import type { GsvSentence } from './nmeaRich';
+import type { FullGsaSentence, GsvSentence } from './nmeaRich';
+import { describeConstellation, describeSystemId } from './monitor';
 
 export interface SatelliteInView {
   prn: number;
@@ -33,6 +34,33 @@ export function satelliteGroupKey(talkerId: string, signalId: string | null): st
   return `${talkerId}:${signalId ?? ''}`;
 }
 
+/** A single constellation's latest full-GSA sentence -- PLAN.md §6 phase
+ * 2. Stored independently of ConstellationSatellites/GsvAssembly (a
+ * separate, GSV-reassembly-shaped data source arriving on its own
+ * schedule) rather than merged into the GSV reducer's own state, so the
+ * two independently-arriving sentence types never need to be kept in
+ * lockstep inside this reducer -- see findMatchingGsa()/withUsedInFix()
+ * below for the pure join that combines them on demand instead. */
+export interface GsaInfo {
+  key: string; // `${talkerId}:${systemId ?? ''}` -- see gsaKey() below
+  talkerId: string;
+  systemId: string | null;
+  fixType: number;
+  usedPrns: number[];
+  pdop: number | null;
+  hdop: number | null;
+  vdop: number | null;
+}
+
+/** The one place the (talkerId, systemId) -> lookup key is derived for
+ * GSA info, same "derive it once" spirit as satelliteGroupKey() above --
+ * NOT the same key as satelliteGroupKey (GSA has no signalId of its own),
+ * so this is deliberately a separate function rather than reusing that
+ * one with a renamed parameter. */
+export function gsaKey(talkerId: string, systemId: string | null): string {
+  return `${talkerId}:${systemId ?? ''}`;
+}
+
 interface GsvAssembly {
   totalMsgs: number;
   slots: (SatelliteInView[] | undefined)[]; // index 0..totalMsgs-1, undefined = not yet seen this epoch
@@ -42,9 +70,10 @@ interface GsvAssembly {
 export interface SatellitesState {
   assemblies: Record<string, GsvAssembly>; // in-progress, not yet complete
   constellations: Record<string, ConstellationSatellites>; // last COMPLETE group per key
+  gsaByKey: Record<string, GsaInfo>; // latest full-GSA per constellation key, see applyGsaSentence below
 }
 
-export const initialSatellitesState: SatellitesState = { assemblies: {}, constellations: {} };
+export const initialSatellitesState: SatellitesState = { assemblies: {}, constellations: {}, gsaByKey: {} };
 
 // An assembly that's sat incomplete for longer than this has necessarily
 // spanned into a later epoch -- a real GSV run for one constellation is
@@ -123,5 +152,76 @@ export function applyGsvSentence(
   return {
     assemblies: nextAssemblies,
     constellations: { ...state.constellations, [key]: constellation },
+    gsaByKey: state.gsaByKey,
   };
+}
+
+/** Folds one full-GSA sentence into gsaByKey -- PLAN.md §6 phase 2. Unlike
+ * applyGsvSentence, a single GSA sentence is already complete on its own
+ * (no multi-sentence reassembly, no staleness concern -- see this file's
+ * header comment on why GSV needs that and GSA doesn't), so this is just
+ * an immutable upsert: compute the key, build a GsaInfo, store it. */
+export function applyGsaSentence(state: SatellitesState, sentence: FullGsaSentence): SatellitesState {
+  const key = gsaKey(sentence.talkerId, sentence.systemId);
+  const info: GsaInfo = {
+    key,
+    talkerId: sentence.talkerId,
+    systemId: sentence.systemId,
+    fixType: sentence.fixType,
+    usedPrns: sentence.satellitePrns.slice(),
+    pdop: sentence.pdop,
+    hdop: sentence.hdop,
+    vdop: sentence.vdop,
+  };
+  return {
+    ...state,
+    gsaByKey: { ...state.gsaByKey, [key]: info },
+  };
+}
+
+/** A satellite as displayed once cross-referenced against a GSA's used-PRN
+ * list -- see withUsedInFix() below. Not stored anywhere; computed on
+ * demand (e.g. from a Svelte $derived in the UI layer) so GSV completions
+ * and GSA arrivals never need to be kept in lockstep inside this file's
+ * own reducers. */
+export interface DisplaySatellite extends SatelliteInView {
+  usedInFix: boolean;
+}
+
+/** Overlays usedInFix onto a satellite list given the set of PRNs actually
+ * used in a fix -- pure, no knowledge of where either list came from
+ * (GSV reassembly vs. full-GSA parsing). Does not mutate its inputs. */
+export function withUsedInFix(satellites: SatelliteInView[], usedPrns: number[]): DisplaySatellite[] {
+  const used = new Set(usedPrns);
+  return satellites.map((satellite) => ({ ...satellite, usedInFix: used.has(satellite.prn) }));
+}
+
+/** Finds the GsaInfo (if any) that corresponds to a GSV constellation's
+ * talkerId -- PLAN.md §4's GSA/GSV cross-reference join. Tries two
+ * strategies in order:
+ *
+ * 1. Direct talkerId match -- covers the common case (per-constellation-
+ *    talker receivers, e.g. GPGSV's talkerId 'GP' matches a GPGSA whose
+ *    own talkerId is also 'GP').
+ * 2. System-ID-derived name match -- covers a shared "GN" talker (the
+ *    receiver's GSA sentences don't carry a distinguishing talkerId of
+ *    their own), matched instead by comparing describeSystemId(gsa.systemId)
+ *    against describeConstellation(gsvTalkerId) -- both should produce the
+ *    same human name (e.g. both 'GPS') for the same real constellation.
+ *
+ * Returns null if neither matches -- a documented, known gap (see plan
+ * doc §4 item 3: a receiver that shares BOTH a talker ID AND omits
+ * System ID can't be disambiguated by this app; leaving usedInFix false
+ * for everything in that case is the safe default, not a guess). */
+export function findMatchingGsa(gsaByKey: Record<string, GsaInfo>, gsvTalkerId: string): GsaInfo | null {
+  const candidates = Object.values(gsaByKey);
+
+  const direct = candidates.find((info) => info.talkerId === gsvTalkerId);
+  if (direct) return direct;
+
+  const gsvName = describeConstellation(gsvTalkerId);
+  const bySystemId = candidates.find(
+    (info) => info.systemId !== null && describeSystemId(info.systemId) === gsvName,
+  );
+  return bySystemId ?? null;
 }
