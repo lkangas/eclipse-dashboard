@@ -49,6 +49,10 @@ describe('applyRichNmeaLine', () => {
         { prn: 8, elevationDeg: 80, azimuthDeg: 160, snrDb: 0 },
         { prn: 9, elevationDeg: 90, azimuthDeg: 180, snrDb: 20 },
       ],
+      // A real Date.now() timestamp via this module's own applyRichNmeaLine
+      // (unlike nmeaSatellites.test.ts's direct reducer calls, which pass
+      // an explicit nowMs) -- any number is fine, this isn't testing timing.
+      lastUpdatedMs: expect.any(Number),
     });
   });
 
@@ -116,6 +120,7 @@ describe('applyRichNmeaLine', () => {
       hdop: 1.18,
       vdop: 1.54,
       possiblyMixed: false, // systemId is present ('1') -- not the ambiguous shape
+      lastUpdatedMs: expect.any(Number),
     });
   });
 

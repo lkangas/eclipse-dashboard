@@ -46,7 +46,7 @@ export function applyRichNmeaLine(rawLine: string): void {
   if (sentence.type === 'GSV') {
     state = applyGsvSentence(state, sentence, Date.now());
   } else if (sentence.type === 'GSA') {
-    state = applyGsaSentence(state, sentence);
+    state = applyGsaSentence(state, sentence, Date.now());
   } else {
     return;
   }

@@ -25,6 +25,15 @@ export interface ConstellationSatellites {
   talkerId: string;
   signalId: string | null;
   satellites: SatelliteInView[];
+  /** Wall-clock time this group last completed a fresh GSV run -- PLAN.md
+   * §6 phase 4's "per-constellation staleness/aging" item: a constellation
+   * disabled mid-session (e.g. GLONASS lock dropped while GPS keeps
+   * reporting) should visibly age out in the UI rather than freeze at its
+   * last-known satellites forever looking live, same class of bug the Hz
+   * readout already had before GpsMonitorPanel.svelte's own isStale check
+   * (see that file's comment) -- this is the equivalent timestamp for
+   * per-constellation display, checked via isStale() below. */
+  lastUpdatedMs: number;
 }
 
 /** The one place the (talkerId, signalId) -> lookup key is derived, so
@@ -59,6 +68,10 @@ export interface GsaInfo {
   // upserts). Any GSA matching this shape gets flagged, not just the
   // second one to arrive under a given key.
   possiblyMixed: boolean;
+  /** Wall-clock time this entry last received a fresh GSA sentence -- same
+   * staleness/aging purpose as ConstellationSatellites.lastUpdatedMs, see
+   * its own comment. */
+  lastUpdatedMs: number;
 }
 
 /** The one place the (talkerId, systemId) -> lookup key is derived for
@@ -83,6 +96,25 @@ export interface SatellitesState {
 }
 
 export const initialSatellitesState: SatellitesState = { assemblies: {}, constellations: {}, gsaByKey: {} };
+
+// PLAN.md §6 phase 4's per-constellation staleness/aging threshold -- same
+// value and reasoning as GpsMonitorPanel.svelte's own Hz-readout STALE_MS
+// (a receiver updates GSV/GSA on the same once-per-epoch cadence as GGA,
+// so "no update in over 3s" is equally meaningful staleness evidence
+// here). Exported so the UI checks this against the same constant rather
+// than each duplicating its own guess at a reasonable threshold.
+export const STALE_CONSTELLATION_MS = 3000;
+
+/** Pure staleness check shared by ConstellationSatellites.lastUpdatedMs and
+ * GsaInfo.lastUpdatedMs -- both are "wall-clock time of last update"
+ * stamps with the same aging rule, so one function serves both rather
+ * than duplicating the same comparison. `nowMs` is the caller's own live
+ * clock tick (UI-owned, not read from Date.now() in here -- keeps this
+ * file pure/testable, same convention as applyGsvSentence's own nowMs
+ * parameter). */
+export function isStale(lastUpdatedMs: number, nowMs: number): boolean {
+  return nowMs - lastUpdatedMs > STALE_CONSTELLATION_MS;
+}
 
 // An assembly that's sat incomplete for longer than this has necessarily
 // spanned into a later epoch -- a real GSV run for one constellation is
@@ -153,6 +185,7 @@ export function applyGsvSentence(
     talkerId: sentence.talkerId,
     signalId: sentence.signalId,
     satellites,
+    lastUpdatedMs: nowMs,
   };
 
   const nextAssemblies = { ...state.assemblies };
@@ -167,11 +200,16 @@ export function applyGsvSentence(
 
 /** Folds one full-GSA sentence into gsaByKey -- PLAN.md §6 phase 2. Unlike
  * applyGsvSentence, a single GSA sentence is already complete on its own
- * (no multi-sentence reassembly, no staleness concern -- see this file's
- * header comment on why GSV needs that and GSA doesn't), so this is
- * usually just an immutable upsert: compute the key, build a GsaInfo,
- * store it.
+ * (no multi-sentence reassembly, no IN-PROGRESS-assembly staleness concern
+ * -- see this file's header comment on why GSV needs that and GSA
+ * doesn't), so this is usually just an immutable upsert: compute the key,
+ * build a GsaInfo, store it. `nowMs` is still threaded through (unlike
+ * before phase 4) to stamp GsaInfo.lastUpdatedMs -- a DIFFERENT, later
+ * kind of staleness: not "is this sentence's own reassembly abandoned"
+ * but "has this constellation's entry gone stale because it stopped
+ * reporting entirely" (PLAN.md §6 phase 4's per-constellation aging).
  *
+
  * The one exception: gsaKey() collapses onto the SAME string key (e.g.
  * 'GN:') whenever two DIFFERENT constellations both report under the
  * shared 'GN' talker AND both omit the System ID field -- a real, known-
@@ -190,7 +228,7 @@ export function applyGsvSentence(
  * existing plain-replace behavior: a talker/systemId-qualified key
  * reliably belongs to one real constellation reporting again, so stale
  * satellites shouldn't linger and replace semantics are correct there. */
-export function applyGsaSentence(state: SatellitesState, sentence: FullGsaSentence): SatellitesState {
+export function applyGsaSentence(state: SatellitesState, sentence: FullGsaSentence, nowMs: number): SatellitesState {
   const key = gsaKey(sentence.talkerId, sentence.systemId);
   const possiblyMixed = sentence.talkerId === 'GN' && sentence.systemId === null;
   const existing = state.gsaByKey[key];
@@ -210,6 +248,7 @@ export function applyGsaSentence(state: SatellitesState, sentence: FullGsaSenten
     hdop: sentence.hdop,
     vdop: sentence.vdop,
     possiblyMixed,
+    lastUpdatedMs: nowMs,
   };
   return {
     ...state,

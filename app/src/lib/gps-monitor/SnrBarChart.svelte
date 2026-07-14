@@ -10,7 +10,20 @@
   // wiring beyond mounting it.
   import { gpsSatellites } from '../../stores/gpsSatellites';
   import { describeConstellation } from '../../serial/monitor';
-  import { findMatchingGsa, withUsedInFix } from '../../serial/nmeaSatellites';
+  import { findMatchingGsa, isStale, withUsedInFix } from '../../serial/nmeaSatellites';
+
+  // Live clock tick for staleness only -- PLAN.md §6 phase 4's
+  // per-constellation aging (a constellation disabled mid-session should
+  // visibly age out rather than freeze forever looking live). Same local
+  // "own tiny tick, no props" pattern GpsMonitorPanel.svelte's own
+  // liveNowMs/STALE_MS already established for the Hz readout, duplicated
+  // here rather than shared (this component has no props by convention --
+  // see its own header comment) rather than threaded in from a parent.
+  let nowMs = $state(Date.now());
+  $effect(() => {
+    const interval = setInterval(() => (nowMs = Date.now()), 500);
+    return () => clearInterval(interval);
+  });
 
   // Real GNSS receivers essentially never report anywhere near NMEA's
   // nominal 0-99 dB-Hz ceiling -- scaling bars against 99 would make every
@@ -46,6 +59,7 @@
     prn: number;
     snrDb: number | null;
     usedInFix: boolean;
+    stale: boolean;
   }
   interface Group {
     talkerId: string;
@@ -77,6 +91,13 @@
     for (const constellation of Object.values($gpsSatellites.constellations)) {
       const matchingGsa = findMatchingGsa($gpsSatellites.gsaByKey, constellation.talkerId);
       const withUsage = withUsedInFix(constellation.satellites, matchingGsa?.usedPrns ?? []);
+      // Staleness is per SOURCE constellation entry (this specific
+      // talkerId+signalId group's own lastUpdatedMs), not per displayed
+      // talkerId-only Group -- a dual-frequency receiver could in
+      // principle have one signal go stale while the other keeps
+      // reporting, so each bar tracks its own origin's timestamp rather
+      // than one shared value per Group.
+      const stale = isStale(constellation.lastUpdatedMs, nowMs);
       const bars = byTalker.get(constellation.talkerId) ?? [];
       for (const sat of withUsage) {
         bars.push({
@@ -84,6 +105,7 @@
           prn: sat.prn,
           snrDb: sat.snrDb,
           usedInFix: sat.usedInFix,
+          stale,
         });
       }
       byTalker.set(constellation.talkerId, bars);
@@ -139,6 +161,7 @@
     barHeight: number;
     color: string;
     usedInFix: boolean;
+    stale: boolean;
   }
   interface PositionedGroup {
     talkerId: string;
@@ -166,6 +189,7 @@
           barHeight,
           color: b.snrDb === null ? 'var(--muted)' : g.color,
           usedInFix: b.usedInFix,
+          stale: b.stale,
         };
       });
       const groupStart = cursor - g.bars.length * SLOT_WIDTH;
@@ -200,15 +224,19 @@
           <rect
             class="bar"
             class:outline={!bar.usedInFix}
+            class:stale={bar.stale}
             x={bar.cx - BAR_WIDTH / 2}
             y={bar.barY}
             width={BAR_WIDTH}
             height={bar.barHeight}
             fill={bar.usedInFix ? bar.color : 'none'}
             stroke={bar.usedInFix ? 'none' : bar.color}
-          />
+          >
+            {#if bar.stale}<title>This constellation has stopped reporting recently -- SNR shown is its last known value.</title>{/if}
+          </rect>
           <text
             class="prnlabel"
+            class:stale={bar.stale}
             x={bar.cx}
             y={PRN_LABEL_Y}
             transform="rotate(-60 {bar.cx} {PRN_LABEL_Y})"
@@ -276,10 +304,20 @@
        sky-plot sibling's own .satdot rule uses for the same reason. */
     stroke-width: 1.3;
   }
+  /* PLAN.md §6 phase 4's per-constellation staleness/aging -- same
+     opacity-only treatment as the sky-plot sibling's .satdot.stale, so a
+     constellation that's stopped reporting reads consistently as "aging
+     out" across both panels. */
+  .bar.stale {
+    opacity: 0.35;
+  }
   .prnlabel {
     font-size: 8px;
     font-variant-numeric: tabular-nums;
     fill: var(--muted);
+  }
+  .prnlabel.stale {
+    opacity: 0.35;
   }
   .grouplabel {
     font-size: 10px;

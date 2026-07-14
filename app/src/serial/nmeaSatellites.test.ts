@@ -6,7 +6,9 @@ import {
   findMatchingGsa,
   gsaKey,
   initialSatellitesState,
+  isStale,
   satelliteGroupKey,
+  STALE_CONSTELLATION_MS,
   withUsedInFix,
   type GsaInfo,
   type SatelliteInView,
@@ -108,6 +110,7 @@ describe('applyGsvSentence', () => {
         { prn: 8, elevationDeg: 80, azimuthDeg: 160, snrDb: 0 },
         { prn: 9, elevationDeg: 90, azimuthDeg: 180, snrDb: 20 },
       ],
+      lastUpdatedMs: 200,
     });
   });
 
@@ -138,6 +141,7 @@ describe('applyGsvSentence', () => {
         { prn: 12, elevationDeg: 12, azimuthDeg: 12, snrDb: 12 },
         { prn: 13, elevationDeg: 13, azimuthDeg: 13, snrDb: 13 },
       ],
+      lastUpdatedMs: 300,
     });
   });
 
@@ -231,6 +235,7 @@ describe('applyGsvSentence', () => {
         { prn: 301, elevationDeg: 45, azimuthDeg: 90, snrDb: 40 },
         { prn: 302, elevationDeg: 50, azimuthDeg: 100, snrDb: 42 },
       ],
+      lastUpdatedMs: 0,
     });
   });
 
@@ -356,6 +361,7 @@ describe('applyGsaSentence', () => {
     const state = applyGsaSentence(
       initialSatellitesState,
       gsa('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'),
+      1000,
     );
 
     const key = gsaKey('GN', '1');
@@ -369,15 +375,17 @@ describe('applyGsaSentence', () => {
       hdop: 1.18,
       vdop: 1.54,
       possiblyMixed: false, // systemId is present ('1'), not the ambiguous shape
+      lastUpdatedMs: 1000,
     });
   });
 
-  it('updates in place when a second GSA arrives with the same key', () => {
+  it('updates in place when a second GSA arrives with the same key, stamping the newer timestamp', () => {
     let state = applyGsaSentence(
       initialSatellitesState,
       gsa('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'),
+      1000,
     );
-    state = applyGsaSentence(state, gsa('GNGSA,A,2,18,20,,,,,,,,,,,2.50,2.00,1.50,1'));
+    state = applyGsaSentence(state, gsa('GNGSA,A,2,18,20,,,,,,,,,,,2.50,2.00,1.50,1'), 2000);
 
     const key = gsaKey('GN', '1');
     expect(state.gsaByKey[key]).toMatchObject({
@@ -386,6 +394,7 @@ describe('applyGsaSentence', () => {
       pdop: 2.5,
       hdop: 2.0,
       vdop: 1.5,
+      lastUpdatedMs: 2000,
     });
     expect(Object.keys(state.gsaByKey)).toHaveLength(1);
   });
@@ -394,8 +403,9 @@ describe('applyGsaSentence', () => {
     let state = applyGsaSentence(
       initialSatellitesState,
       gsa('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'),
+      1000,
     );
-    state = applyGsaSentence(state, gsa('GNGSA,A,3,301,302,,,,,,,,,,,8.21,5.24,6.32,3'));
+    state = applyGsaSentence(state, gsa('GNGSA,A,3,301,302,,,,,,,,,,,8.21,5.24,6.32,3'), 1000);
 
     const gpsKey = gsaKey('GN', '1');
     const galileoKey = gsaKey('GN', '3');
@@ -408,7 +418,7 @@ describe('applyGsaSentence', () => {
     const before: SatellitesState = initialSatellitesState;
     const beforeSnapshot = structuredClone(before);
 
-    applyGsaSentence(before, gsa('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'));
+    applyGsaSentence(before, gsa('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'), 1000);
 
     expect(before).toEqual(beforeSnapshot);
     expect(before.gsaByKey).toEqual({});
@@ -425,10 +435,12 @@ describe('applyGsaSentence', () => {
     let state = applyGsaSentence(
       initialSatellitesState,
       gsa(gsaLine({ talkerId: 'GN', fixType: 3, prns: [5, 12], pdop: 1.5, hdop: 1.0, vdop: 1.2 })),
+      1000,
     );
     state = applyGsaSentence(
       state,
       gsa(gsaLine({ talkerId: 'GN', fixType: 3, prns: [20, 25], pdop: 2.0, hdop: 1.8, vdop: 1.6 })),
+      2000,
     );
 
     const key = gsaKey('GN', null);
@@ -452,10 +464,12 @@ describe('applyGsaSentence', () => {
     let state = applyGsaSentence(
       initialSatellitesState,
       gsa(gsaLine({ talkerId: 'GP', fixType: 3, prns: [1, 2], pdop: 1.0, hdop: 1.0, vdop: 1.0 })),
+      1000,
     );
     state = applyGsaSentence(
       state,
       gsa(gsaLine({ talkerId: 'GP', fixType: 3, prns: [3, 4], pdop: 2.0, hdop: 2.0, vdop: 2.0 })),
+      2000,
     );
 
     const key = gsaKey('GP', null);
@@ -503,6 +517,7 @@ describe('findMatchingGsa', () => {
       hdop: 1.18,
       vdop: 1.54,
       possiblyMixed: false, // talkerId is 'GP', not 'GN' -- not the ambiguous shape
+      lastUpdatedMs: 1000,
     };
     const gsaByKey: Record<string, GsaInfo> = { [gpGsa.key]: gpGsa };
 
@@ -520,6 +535,7 @@ describe('findMatchingGsa', () => {
       hdop: 5.24,
       vdop: 6.32,
       possiblyMixed: false, // systemId is present -- not the ambiguous shape
+      lastUpdatedMs: 1000,
     };
     const gsaByKey: Record<string, GsaInfo> = { [gnGsa.key]: gnGsa };
 
@@ -538,6 +554,7 @@ describe('findMatchingGsa', () => {
       hdop: 1.18,
       vdop: 1.54,
       possiblyMixed: true, // exactly the ambiguous shape -- talkerId 'GN', no systemId
+      lastUpdatedMs: 1000,
     };
     const gsaByKey: Record<string, GsaInfo> = { [gnGsa.key]: gnGsa };
 
@@ -569,9 +586,72 @@ describe('findMatchingGsa', () => {
       hdop: 1.18,
       vdop: 1.54,
       possiblyMixed: false, // systemId is present ('XX') -- not the ambiguous shape
+      lastUpdatedMs: 1000,
     };
     const gsaByKey: Record<string, GsaInfo> = { [gnGsa.key]: gnGsa };
 
     expect(findMatchingGsa(gsaByKey, 'XX')).toBeNull();
+  });
+});
+
+describe('isStale', () => {
+  it('is not stale exactly at the threshold', () => {
+    expect(isStale(1000, 1000 + STALE_CONSTELLATION_MS)).toBe(false);
+  });
+
+  it('is stale just past the threshold', () => {
+    expect(isStale(1000, 1000 + STALE_CONSTELLATION_MS + 1)).toBe(true);
+  });
+
+  it('is not stale for a recent update', () => {
+    expect(isStale(1000, 1500)).toBe(false);
+  });
+
+  it('is not stale when lastUpdatedMs is in the future (clock skew defensiveness)', () => {
+    expect(isStale(2000, 1000)).toBe(false);
+  });
+});
+
+describe('applyGsvSentence / applyGsaSentence staleness stamping (PLAN.md §6 phase 4)', () => {
+  it('stamps a completed GSV group with the nowMs of its completing sentence', () => {
+    let state = initialSatellitesState;
+    state = applyGsvSentence(state, gsv('GPGSV,1,1,02,01,10,020,30,02,20,040,35'), 5000);
+
+    const key = satelliteGroupKey('GP', null);
+    expect(state.constellations[key].lastUpdatedMs).toBe(5000);
+  });
+
+  it('bumps lastUpdatedMs forward each time a constellation completes a fresh run', () => {
+    let state = initialSatellitesState;
+    state = applyGsvSentence(state, gsv('GPGSV,1,1,02,01,10,020,30,02,20,040,35'), 5000);
+    state = applyGsvSentence(state, gsv('GPGSV,1,1,02,01,10,020,30,02,20,040,35'), 8000);
+
+    const key = satelliteGroupKey('GP', null);
+    expect(state.constellations[key].lastUpdatedMs).toBe(8000);
+  });
+
+  it('does NOT bump lastUpdatedMs while a run is still incomplete -- only a completed group is stamped', () => {
+    let state = initialSatellitesState;
+    // 5 satellites total, non-last message carries 4 (the NMEA GSV
+    // convention this file's own parser assumes -- see nmeaRich.ts's
+    // expectedSatCount comment), last message carries the 1 remaining.
+    state = applyGsvSentence(
+      state,
+      gsv('GPGSV,2,1,05,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,45'),
+      5000,
+    );
+    // Not complete yet at 5000 -- msgNum 2 hasn't landed.
+    const key = satelliteGroupKey('GP', null);
+    expect(state.constellations[key]).toBeUndefined();
+    state = applyGsvSentence(state, gsv('GPGSV,2,2,05,05,50,100,50'), 8000);
+    expect(state.constellations[key].lastUpdatedMs).toBe(8000);
+  });
+
+  it('stamps a GSA entry with the nowMs it was applied at', () => {
+    let state = initialSatellitesState;
+    state = applyGsaSentence(state, gsa('GPGSA,A,3,18,20,,,,,,,,,,,1.50,1.00,1.10'), 5000);
+
+    const key = gsaKey('GP', null);
+    expect(state.gsaByKey[key].lastUpdatedMs).toBe(5000);
   });
 });

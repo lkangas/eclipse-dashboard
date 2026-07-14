@@ -1,26 +1,43 @@
 # GPS NMEA Monitor — Expansion Plan
 
-Status: **Phases 1–3 (§6) implemented, tested, and wired end-to-end.**
-Landed: the `monitorActive` gating mechanism (§3) wired into
-`connection.ts`'s `applyLine()`/`openPort()`; GSV parsing (`nmeaRich.ts`)
-and multi-sentence reassembly (`nmeaSatellites.ts`, §5); full GSA parsing
-plus per-constellation GSA panels and the used-vs-visible sky-plot/
-SNR-chart encoding (Phase 2, §6); VTG/GLL/ZDA/HDG/GNS parsing plus a
-richer RMC-extras parse (speed/course/mag-variation/mode/nav-status) and
-their `ExtrasPanel.svelte` cards (Phase 3, §6); and the §10 addendum
-("Live rows" toggle for the raw NMEA stream, plus a fixed-priority row
-order and checksum-bounded garbage stripping added after real-hardware
-testing surfaced both a binary-protocol frame gluing onto adjacent
-sentences and a sliding-replay-window ordering bug — see `monitor.ts`'s
-own comments). Once real hardware was actually connected, this feature
-also drove two rounds of buffer-overrun fixes in `connection.ts`
-(throttle/buffer-size tuning, then automatic bounded retry-on-overrun) —
-the diagnostic monitor built here is what made those debuggable at all.
-218 tests passing, typecheck clean. Phases 1–2 and the §10 addendum are
-confirmed working against a real u-blox M10 receiver; Phase 3 is
-live-verified so far only with synthetic data injected directly into the
-stores, not yet against the real receiver. Phase 4 (optional polish)
-below is still just a plan, not started.
+Status: **Phases 1–4 (§6) implemented, tested, and wired end-to-end** (Phase
+4 partially: see its own note below). Landed: the `monitorActive` gating
+mechanism (§3) wired into `connection.ts`'s `applyLine()`/`openPort()`; GSV
+parsing (`nmeaRich.ts`) and multi-sentence reassembly (`nmeaSatellites.ts`,
+§5); full GSA parsing plus per-constellation GSA panels and the
+used-vs-visible sky-plot/SNR-chart encoding (Phase 2, §6); VTG/GLL/ZDA/HDG/
+GNS parsing plus a richer RMC-extras parse (speed/course/mag-variation/
+mode/nav-status) and their `ExtrasPanel.svelte` cards (Phase 3, §6);
+per-constellation/GSA staleness aging -- a constellation that stops
+reporting now visibly dims (opacity, plus a "stale" badge on its GSA card)
+instead of freezing forever looking live, across the sky-plot, SNR chart,
+and GSA panel (Phase 4's staleness item, §6; see `nmeaSatellites.ts`'s
+`isStale()`/`STALE_CONSTELLATION_MS`); and the §10 addendum ("Live rows"
+toggle for the raw NMEA stream, plus a fixed-priority row order and
+checksum-bounded garbage stripping added after real-hardware testing
+surfaced both a binary-protocol frame gluing onto adjacent sentences and a
+sliding-replay-window ordering bug, and a `.scrollarea` fix for content
+overflowing the fixed-position overlay with no way to scroll on narrow/
+short viewports -- see `monitor.ts`'s and `GpsMonitorPanel.svelte`'s own
+comments). Once real hardware was actually connected, this feature also
+drove two rounds of buffer-overrun fixes in `connection.ts` (throttle/
+buffer-size tuning, then automatic bounded retry-on-overrun) -- the
+diagnostic monitor built here is what made those debuggable at all.
+
+**Phase 4's other two items are NOT done, deliberately:** multi-signal-ID
+(L1/L5) display was investigated and dropped -- the user's actual receiver
+(u-blox M10) is confirmed L1-single-band, so it will never emit more than
+one signal ID per constellation, making this dead code for their hardware
+(the underlying data model already supports it via
+`satelliteGroupKey(talkerId, signalId)` if a future dual-band receiver
+makes it worth revisiting). The protocol-mode bottom bar was already
+recommended against in this doc's own §6 caveat (not derivable from parsed
+NMEA text) and stays out of scope.
+
+226 tests passing, typecheck clean. Phases 1–2 and the §10 addendum are
+confirmed working against a real u-blox M10 receiver; Phase 3 and the
+Phase 4 staleness work are live-verified so far only with synthetic data
+injected directly into the stores, not yet against the real receiver.
 
 No GPS source file was touched to produce the *original* version of this
 document below — it was a design document written after a read-through of
@@ -407,7 +424,7 @@ large PR:
 | **1** | Gating mechanism (§3) + GSV parsing/reassembly (§5) + satellite sky-plot (SVG) + SNR bar chart + `GpsMonitorPanel.svelte` layout restructuring from single-grid to multi-panel | Single most visually distinctive addition (a sky-plot is immediately "wow, I can see my satellites"), and it's also where the *answer to the user's own question* (the gating mechanism) has to land — no point building it separately from the first thing it actually gates. Layout restructuring has to happen here too, since a sky-plot + bar chart don't fit the current single fields-grid. |
 | **2** | Full GSA (PRN list actually used + PDOP/VDOP) + per-constellation GSA panels side by side, cross-referenced into phase 1's sky-plot/bars — consider reworking their visual encoding from phase 1's constellation-coloring placeholder toward a used-vs-visible distinction (see §2's "Corrections from an actual screenshot" — inspiration, not a spec to match exactly) | Builds directly on phase 1's per-constellation data structures; the "used in fix" highlight is the payoff that makes phase 1's sky-plot genuinely more informative, regardless of the exact visual treatment chosen. |
 | **3** | VTG, GLL, ZDA, HDG, GNS extra panels | Cheap (no reassembly, one sentence each) but lower value — the user's own read of the reference screenshot was that these panels "appeared sparser/less central." Good candidates for a single combined PR since each is a few fields with no shared complexity. |
-| **4 (optional/polish)** | Multi-signal-ID (L1/L5 dual-frequency) display nuance; per-constellation staleness/aging (a constellation disabled mid-session should visibly age out rather than freeze forever — same class of fix `GpsMonitorPanel.svelte` already applied to the Hz readout); protocol-mode bottom bar | See caveat below on protocol mode. |
+| **4 (optional/polish)** | ~~Multi-signal-ID (L1/L5 dual-frequency) display nuance~~ (dropped — the user's actual receiver is L1-single-band, so this would be dead code, see the status line above); **per-constellation staleness/aging — implemented** (a constellation disabled mid-session now visibly ages out via dimmed opacity + a "stale" badge, same class of fix `GpsMonitorPanel.svelte` already applied to the Hz readout); ~~protocol-mode bottom bar~~ (dropped, see caveat below) | See caveat below on protocol mode. |
 
 **Protocol-mode caveat**: the reference tool's bottom-bar "UBX-Binary" label
 reflects the *receiver's own* configured protocol mode, which isn't

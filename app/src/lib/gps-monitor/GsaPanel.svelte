@@ -14,6 +14,7 @@
   // convention (copied into this component's own style block, since
   // Svelte scoped styles don't cascade from one component into another).
   import { gpsSatellites } from '../../stores/gpsSatellites';
+  import { isStale } from '../../serial/nmeaSatellites';
   import { describeConstellation, describeFixType, describeSystemId } from '../../serial/monitor';
 
   interface GsaPanelEntry {
@@ -25,11 +26,25 @@
     vdopText: string;
     usedText: string;
     possiblyMixed: boolean;
+    stale: boolean;
   }
 
   function dopText(value: number | null): string {
     return value !== null ? value.toFixed(1) : '—';
   }
+
+  // Live clock tick for staleness only -- PLAN.md §6 phase 4's
+  // per-constellation aging (a constellation disabled mid-session should
+  // visibly age out rather than freeze forever looking live). Same local
+  // "own tiny tick, no props" pattern GpsMonitorPanel.svelte's own
+  // liveNowMs/STALE_MS already established for the Hz readout, duplicated
+  // here rather than shared (this component has no props by convention --
+  // see its own header comment) rather than threaded in from a parent.
+  let nowMs = $state(Date.now());
+  $effect(() => {
+    const interval = setInterval(() => (nowMs = Date.now()), 500);
+    return () => clearInterval(interval);
+  });
 
   // Sorted by key (not object insertion order, which isn't guaranteed
   // stable as gsaByKey gets upserted) so panels don't reshuffle position
@@ -47,6 +62,7 @@
         vdopText: dopText(info.vdop),
         usedText: info.usedPrns.length > 0 ? info.usedPrns.join(', ') : '—',
         possiblyMixed: info.possiblyMixed,
+        stale: isStale(info.lastUpdatedMs, nowMs),
       })),
   );
   const noData = $derived(entries.length === 0);
@@ -57,8 +73,13 @@
     <div class="hint">No GSA data yet.</div>
   {:else}
     {#each entries as entry (entry.key)}
-      <div class="panel">
-        <div class="panelheader">{entry.label}</div>
+      <div class="panel" class:stale={entry.stale}>
+        <div class="panelheader">
+          {entry.label}
+          {#if entry.stale}
+            <span class="stalebadge" title="No new GSA sentence for this system in a while -- it may have stopped reporting">stale</span>
+          {/if}
+        </div>
         {#if entry.possiblyMixed}
           <div class="mixedhint">May combine multiple systems — receiver doesn't distinguish them.</div>
         {/if}
@@ -99,6 +120,27 @@
     color: var(--ink);
     text-transform: uppercase;
     letter-spacing: 0.4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  /* Dims (not hides) a card whose constellation has stopped reporting --
+     PLAN.md §6 phase 4's staleness/aging item: same "freeze at last-known
+     rather than vanish" philosophy the rest of this app already applies
+     (nmeaFix.ts, the Hz readout), just made visually obvious instead of
+     silently looking as live as any other card. */
+  .panel.stale {
+    opacity: 0.5;
+  }
+  .stalebadge {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+    text-transform: none;
   }
   /* Flags a gsaByKey entry whose talker/systemId shape is structurally
      ambiguous (GsaInfo.possiblyMixed -- see nmeaSatellites.ts's own

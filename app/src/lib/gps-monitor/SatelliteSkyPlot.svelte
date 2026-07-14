@@ -37,7 +37,7 @@
   // used for the found case, not a separate code path.
   import { gpsSatellites } from '../../stores/gpsSatellites';
   import { describeConstellation } from '../../serial/monitor';
-  import { findMatchingGsa, withUsedInFix } from '../../serial/nmeaSatellites';
+  import { findMatchingGsa, isStale, withUsedInFix } from '../../serial/nmeaSatellites';
 
   const CX = 100;
   const CY = 100;
@@ -82,12 +82,26 @@
     y: number;
     color: string;
     usedInFix: boolean;
+    stale: boolean;
   }
 
   interface LegendEntry {
     name: string;
     color: string;
   }
+
+  // Live clock tick for staleness only -- PLAN.md §6 phase 4's
+  // per-constellation aging (a constellation disabled mid-session should
+  // visibly age out rather than freeze forever looking live). Same local
+  // "own tiny tick, no props" pattern GpsMonitorPanel.svelte's own
+  // liveNowMs/STALE_MS already established for the Hz readout, duplicated
+  // here rather than shared (this component has no props by convention --
+  // see its own header comment) rather than threaded in from a parent.
+  let nowMs = $state(Date.now());
+  $effect(() => {
+    const interval = setInterval(() => (nowMs = Date.now()), 500);
+    return () => clearInterval(interval);
+  });
 
   const groups = $derived(Object.values($gpsSatellites.constellations));
   const noData = $derived(groups.length === 0);
@@ -104,10 +118,11 @@
       // group as not-used, the safe default, without a separate branch.
       const gsaInfo = findMatchingGsa($gpsSatellites.gsaByKey, group.talkerId);
       const withUsed = withUsedInFix(group.satellites, gsaInfo?.usedPrns ?? []);
+      const stale = isStale(group.lastUpdatedMs, nowMs);
       for (const sat of withUsed) {
         if (sat.elevationDeg === null || sat.azimuthDeg === null) continue;
         const [x, y] = skyPos(sat.elevationDeg, sat.azimuthDeg);
-        list.push({ id: `${group.key}-${sat.prn}`, prn: sat.prn, x, y, color, usedInFix: sat.usedInFix });
+        list.push({ id: `${group.key}-${sat.prn}`, prn: sat.prn, x, y, color, usedInFix: sat.usedInFix, stale });
       }
     }
     return list;
@@ -155,13 +170,16 @@
         <circle
           class="satdot"
           class:outline={!sat.usedInFix}
+          class:stale={sat.stale}
           cx={sat.x}
           cy={sat.y}
           r={SAT_DOT_R}
           fill={sat.usedInFix ? sat.color : 'none'}
           stroke={sat.usedInFix ? 'none' : sat.color}
-        />
-        <text class="satlabel" x={sat.x} y={sat.y - SAT_DOT_R - 2}>{sat.prn}</text>
+        >
+          {#if sat.stale}<title>This constellation has stopped reporting recently -- position shown is its last known one.</title>{/if}
+        </circle>
+        <text class="satlabel" class:stale={sat.stale} x={sat.x} y={sat.y - SAT_DOT_R - 2}>{sat.prn}</text>
       {/each}
     </svg>
     {#if legendEntries.length > 0}
@@ -239,11 +257,22 @@
        thickness is a fixed, shared style. */
     stroke-width: 1.3;
   }
+  /* PLAN.md §6 phase 4's per-constellation staleness/aging -- a
+     constellation that's stopped reporting fades rather than sitting at
+     full opacity looking as live as any other satellite (opacity, not
+     fill/stroke, so it composes with the used-vs-visible encoding above
+     instead of fighting it). */
+  .satdot.stale {
+    opacity: 0.35;
+  }
   .satlabel {
     fill: var(--ink);
     font-size: 6px;
     font-weight: 600;
     text-anchor: middle;
+  }
+  .satlabel.stale {
+    opacity: 0.35;
   }
   .legend {
     flex: 0 0 auto;
