@@ -183,6 +183,20 @@ let lastPort: SerialPort | null = null;
 // that connect's open() finally resolved.
 let connectionGeneration = 0;
 
+// The baud rate the current/most-recent connection attempt opened at --
+// needed so a buffer-overrun auto-retry (readLoop's catch, below) can
+// reopen the same port without the caller having to thread it through.
+// Set at the same point openPort() commits to a successful open.
+let currentBaudRate: number | null = null;
+
+// How many consecutive buffer-overrun auto-retries have fired for the
+// CURRENT connection attempt -- bounded (see MAX_OVERRUN_RETRIES) so a
+// receiver that overruns no matter what doesn't retry forever. Reset to 0
+// on a genuinely fresh (non-retry) openPort() call and again once a real
+// GGA arrives (see applyLine) -- either signals "this is a new attempt or
+// a now-healthy connection," not a continuation of the same struggle.
+let overrunRetryCount = 0;
+
 // Cheap synchronous mirror of gpsMonitorOpen (stores/layout.ts), kept in
 // sync via subscribe() rather than a get()-per-line call -- gates the
 // "rich" GSV-and-beyond parsing (nmeaRich.ts/nmeaSatellites.ts, via
@@ -336,7 +350,12 @@ function preflight(): string | null {
   return null;
 }
 
-async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
+async function openPort(selected: SerialPort, baudRate: number, isOverrunRetry = false): Promise<void> {
+  // A genuinely fresh attempt (not readLoop's own auto-retry calling back
+  // in) starts with a clean overrun-retry budget -- see overrunRetryCount's
+  // own comment for why the auto-retry path itself must NOT reset this.
+  if (!isOverrunRetry) overrunRetryCount = 0;
+
   // Claims this attempt's generation FIRST (synchronously, before any
   // await) so any older attempt still in flight -- or an explicit
   // disconnectGps() that races with this one -- can tell it's been
@@ -407,6 +426,7 @@ async function openPort(selected: SerialPort, baudRate: number): Promise<void> {
   lastFlushMs = 0;
   clockOffsetMs = null;
   ggaTimestamps = [];
+  currentBaudRate = baudRate;
   // Same "fresh connect starts clean" convention as recentLines/fixRateHz
   // below -- NOT called from disconnectGps(), since satellite data should
   // freeze at its last-known state on disconnect for a post-mortem look,
@@ -548,12 +568,88 @@ async function readLoop(activePort: SerialPort): Promise<void> {
       }
       if (port === activePort) port = null;
       clockOffsetMs = null;
-      gpsConnection.update((s) => ({ ...s, status: 'error', error: describeError(err, 'Serial read error'), needsReload: false }));
+
+      // Bug report: "buffer overrun" on connect against a real receiver
+      // (a u-blox M10), reproducing on the first one or two attempts and
+      // then succeeding after manually hitting reconnect a few times --
+      // consistent with a receiver that was already streaming continuously
+      // handing the OS/driver a backlog larger than SERIAL_BUFFER_SIZE
+      // before this app's read loop ever gets a chance to drain it, not an
+      // ongoing per-line processing bottleneck (this app's own throttled
+      // setObserver cascade already accounts for that, see
+      // FLUSH_INTERVAL_MS's own comment). Since manually clicking
+      // reconnect repeatedly was already an effective (if tedious)
+      // workaround, do that automatically instead of making the user do
+      // it by hand: retry the SAME port/baud a bounded number of times
+      // before giving up and surfacing an error.
+      const overrun = isBufferOverrunError(err);
+      if (overrun && overrunRetryCount < MAX_OVERRUN_RETRIES && currentBaudRate !== null) {
+        overrunRetryCount++;
+        const retryBaud = currentBaudRate;
+        gpsConnection.update((s) => ({
+          ...s,
+          status: 'connecting',
+          error: `Buffer overrun -- retrying (${overrunRetryCount}/${MAX_OVERRUN_RETRIES})…`,
+          needsReload: false,
+        }));
+        // Deferred via setTimeout, not called directly here -- openPort()
+        // internally awaits teardownConnection(), which awaits
+        // readLoopPromise; calling it synchronously from inside THIS
+        // still-executing readLoop would mean awaiting this exact call's
+        // own not-yet-settled promise (a deadlock). Deferring to a new
+        // macrotask lets this readLoop() call finish first (finally
+        // block included, resolving readLoopPromise), same "escape the
+        // current call stack" technique flushFix() already uses for
+        // setObserver below.
+        setTimeout(() => {
+          void openPort(activePort, retryBaud, true);
+        }, OVERRUN_RETRY_DELAY_MS);
+      } else {
+        gpsConnection.update((s) => ({
+          ...s,
+          status: 'error',
+          error: overrun
+            ? `${describeError(err, 'Serial read error')} -- auto-retry exhausted after ${MAX_OVERRUN_RETRIES} attempts. Try reconnecting manually, or check whether the receiver is sending more than this app expects (e.g. a binary protocol like UBX interleaved with NMEA -- configuring the receiver for NMEA-only output would help).`
+            : describeError(err, 'Serial read error'),
+          needsReload: false,
+        }));
+      }
     }
   } finally {
     reader?.releaseLock();
     reader = null;
   }
+}
+
+// How many consecutive buffer-overrun auto-retries readLoop's catch will
+// attempt before giving up and surfacing an error -- bounded so a
+// receiver that overruns no matter what doesn't retry forever silently.
+// Chosen generously above what manual retrying needed in the bug report
+// ("a few times"), not tuned precisely -- there's no strong reason to
+// believe a specific number of retries is "correct" here, just that a
+// handful is cheap to attempt and matches what worked by hand.
+const MAX_OVERRUN_RETRIES = 5;
+
+// Short, fixed delay between an overrun and the automatic retry -- mostly
+// to avoid hammering the OS with instant back-to-back open() calls in a
+// tight loop, not because a specific wait is known to help drain any
+// backlog (closing the port during this delay doesn't itself drain
+// anything -- see isBufferOverrunError's own comment for what's actually
+// suspected to be happening).
+const OVERRUN_RETRY_DELAY_MS = 500;
+
+/** Whether a read() failure is (or looks like) the Web Serial spec's
+ * BufferOverrunError -- the OS/driver-level receive buffer filled with
+ * more data than SERIAL_BUFFER_SIZE before this app's read loop drained
+ * it. Checks err.message too, not just err.name, as a defensive fallback
+ * in case a given Chrome version surfaces this under a slightly different
+ * DOMException name -- the bug report's own error text contained "buffer
+ * overrun" directly, which the message check will always catch regardless
+ * of the exact name. */
+function isBufferOverrunError(err: unknown): boolean {
+  if (!(err instanceof DOMException)) return false;
+  if (err.name === 'BufferOverrunError') return true;
+  return /overrun/i.test(err.message);
 }
 
 function applyLine(rawLine: string): void {
@@ -578,6 +674,11 @@ function applyLine(rawLine: string): void {
   // epoch regardless of fix rate, so counting every line would just
   // measure "how chatty is this sentence mix," not the fix rate itself).
   if (sentence.type === 'GGA') {
+    // A real GGA means this connection is genuinely healthy now -- refill
+    // the overrun-auto-retry budget (see overrunRetryCount's own comment)
+    // so a much-later overrun in an otherwise-long-running session isn't
+    // penalized by however many retries the initial connection needed.
+    overrunRetryCount = 0;
     const now = Date.now();
     const { timestamps, hz } = recordFixEvent(ggaTimestamps, now, GGA_RATE_WINDOW_MS);
     ggaTimestamps = timestamps;
