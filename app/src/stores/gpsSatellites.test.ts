@@ -7,7 +7,7 @@
 // is that raw-line-in path, so the tests should exercise it.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { get } from 'svelte/store';
-import { satelliteGroupKey, initialSatellitesState } from '../serial/nmeaSatellites';
+import { satelliteGroupKey, gsaKey, initialSatellitesState } from '../serial/nmeaSatellites';
 import { applyRichNmeaLine, gpsSatellites, resetGpsSatellites } from './gpsSatellites';
 
 // Appends a correct checksum to a hand-built sentence body -- mirrors
@@ -100,6 +100,49 @@ describe('applyRichNmeaLine', () => {
       ],
     });
   });
+
+  it('folds a raw GSA line into gsaByKey (PLAN.md §6 phase 2)', () => {
+    applyRichNmeaLine(withChecksum('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'));
+
+    const key = gsaKey('GN', '1');
+    const state = get(gpsSatellites);
+    expect(state.gsaByKey[key]).toEqual({
+      key,
+      talkerId: 'GN',
+      systemId: '1',
+      fixType: 3,
+      usedPrns: [18, 20, 21, 26],
+      pdop: 1.94,
+      hdop: 1.18,
+      vdop: 1.54,
+    });
+  });
+
+  it('correctly reflects a GSV run and a GSA sentence interleaved in one snapshot', () => {
+    const gsvKey = satelliteGroupKey('GP', null);
+    const gsaKeyForGp = gsaKey('GP', null);
+
+    applyRichNmeaLine(withChecksum('GPGSV,2,1,05,01,10,020,30,02,20,040,35'));
+    applyRichNmeaLine(withChecksum('GPGSA,A,3,01,02,,,,,,,,,,,1.50,1.00,1.10'));
+    applyRichNmeaLine(withChecksum('GPGSV,2,2,05,03,30,060,40'));
+
+    const state = get(gpsSatellites);
+    expect(state.assemblies[gsvKey]).toBeUndefined();
+    expect(state.constellations[gsvKey]).toMatchObject({
+      talkerId: 'GP',
+      satellites: [
+        { prn: 1, elevationDeg: 10, azimuthDeg: 20, snrDb: 30 },
+        { prn: 2, elevationDeg: 20, azimuthDeg: 40, snrDb: 35 },
+        { prn: 3, elevationDeg: 30, azimuthDeg: 60, snrDb: 40 },
+      ],
+    });
+    expect(state.gsaByKey[gsaKeyForGp]).toMatchObject({
+      talkerId: 'GP',
+      systemId: null,
+      fixType: 3,
+      usedPrns: [1, 2],
+    });
+  });
 });
 
 describe('resetGpsSatellites', () => {
@@ -109,5 +152,18 @@ describe('resetGpsSatellites', () => {
 
     resetGpsSatellites();
     expect(get(gpsSatellites)).toEqual(initialSatellitesState);
+  });
+
+  it('clears both constellations and gsaByKey', () => {
+    applyRichNmeaLine(withChecksum('GPGSV,1,1,02,01,10,020,30,02,20,040,35'));
+    applyRichNmeaLine(withChecksum('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'));
+    const before = get(gpsSatellites);
+    expect(Object.keys(before.constellations).length).toBeGreaterThan(0);
+    expect(Object.keys(before.gsaByKey).length).toBeGreaterThan(0);
+
+    resetGpsSatellites();
+    const after = get(gpsSatellites);
+    expect(after.constellations).toEqual({});
+    expect(after.gsaByKey).toEqual({});
   });
 });

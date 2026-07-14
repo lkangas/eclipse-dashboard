@@ -13,7 +13,12 @@
 // surface stays small" comment for why *it* isn't).
 import { writable } from 'svelte/store';
 import { parseRichNmeaSentence } from '../serial/nmeaRich';
-import { applyGsvSentence, initialSatellitesState, type SatellitesState } from '../serial/nmeaSatellites';
+import {
+  applyGsaSentence,
+  applyGsvSentence,
+  initialSatellitesState,
+  type SatellitesState,
+} from '../serial/nmeaSatellites';
 
 export const gpsSatellites = writable<SatellitesState>(initialSatellitesState);
 
@@ -23,9 +28,10 @@ export const gpsSatellites = writable<SatellitesState>(initialSatellitesState);
 let state: SatellitesState = initialSatellitesState;
 
 /**
- * Feeds one raw NMEA line through the rich (GSV) parser + reducer,
- * updating the gpsSatellites store on a completed constellation group.
- * No-op if the line isn't a recognized rich sentence.
+ * Feeds one raw NMEA line through the rich (GSV/GSA) parser + reducer,
+ * updating the gpsSatellites store on a completed constellation group or
+ * a fresh full-GSA arrival. No-op if the line isn't a recognized rich
+ * sentence.
  *
  * NOT CALLED FROM ANYWHERE YET. This is intentionally inert until
  * connection.ts's applyLine() is wired to call it behind a
@@ -38,13 +44,17 @@ let state: SatellitesState = initialSatellitesState;
  */
 export function applyRichNmeaLine(rawLine: string): void {
   const sentence = parseRichNmeaSentence(rawLine);
-  // nmeaRich.ts's parser now also recognizes full GSA (PLAN.md §6 phase
-  // 2) -- this reducer is still GSV-only (the GSA -> usedInFix
-  // cross-reference is a later phase, see nmeaSatellites.ts's own header
-  // comment), so a non-GSV sentence is a no-op here rather than being fed
-  // into a reducer that doesn't know how to read it.
-  if (!sentence || sentence.type !== 'GSV') return;
-  state = applyGsvSentence(state, sentence, Date.now());
+  if (!sentence) return;
+  // nmeaRich.ts's parser recognizes both GSV (reassembled across a
+  // multi-sentence run, see applyGsvSentence) and full GSA (already
+  // complete on its own, see applyGsaSentence) -- dispatch on the
+  // sentence's own discriminant rather than assuming GSV, now that
+  // parseRichNmeaSentence can return either (PLAN.md §6 phase 2).
+  if (sentence.type === 'GSV') {
+    state = applyGsvSentence(state, sentence, Date.now());
+  } else {
+    state = applyGsaSentence(state, sentence);
+  }
   gpsSatellites.set(state);
 }
 
