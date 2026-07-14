@@ -11,14 +11,24 @@
 // -- nmea.ts ignores talker ID on purpose (one merged fix regardless of
 // constellation); this file is the opposite case.
 //
-// Phase 1 scope: GSV. Phase 2 (this file's current scope) adds full GSA
-// (PRN list actually used in the fix, PDOP/HDOP/VDOP, optional trailing
-// System ID) -- unlike nmea.ts's own GSA handling (which only ever reads
-// Mode 2/fixType and ignores everything else, since that's all the core
-// fix pipeline needs), this parser reads the whole sentence, talker-ID-
-// aware, for the rich monitor's per-constellation GSA panels (PLAN.md §4
-// and §6 phase 2). VTG, GLL, ZDA, HDG, GNS are still later phases (see
-// plan doc §6) and intentionally not stubbed out here.
+// Phase 1: GSV. Phase 2: full GSA (PRN list actually used in the fix,
+// PDOP/HDOP/VDOP, optional trailing System ID) -- unlike nmea.ts's own
+// GSA handling (which only ever reads Mode 2/fixType and ignores
+// everything else, since that's all the core fix pipeline needs), this
+// parser reads the whole sentence, talker-ID-aware, for the rich
+// monitor's per-constellation GSA panels (PLAN.md §4 and §6 phase 2).
+// Phase 3 (this file's current scope, PLAN.md §6): VTG, GLL, ZDA, HDG,
+// GNS -- each a single once-per-epoch sentence with no reassembly, plus
+// a richer RMC parse (speed/course/mag-variation/mode/nav-status) for the
+// fields nmea.ts's own minimal, safety-critical RmcSentence doesn't carry
+// (PLAN.md §2's "Corrections from an actual screenshot": "add to Phase
+// 3's RMC-extras scope"). Deliberately its own type (RmcExtrasSentence,
+// not nmea.ts's RmcSentence) even though it shares the 'RMC' tag -- same
+// zero-shared-surface reasoning as this file's header comment; nmea.ts's
+// RmcSentence and this file's RichNmeaSentence are never unioned
+// together, so the shared literal tag can't be ambiguous to the compiler,
+// only to a reader -- worth knowing if this ever gets confusing enough to
+// rename.
 
 export interface GsvSatelliteSlot {
   prn: number;
@@ -75,9 +85,111 @@ export interface FullGsaSentence {
   systemId: string | null;
 }
 
-// Widen with a union (VtgSentence | ...) as later phases add sentence
-// types -- see plan doc §6/§7.
-export type RichNmeaSentence = GsvSentence | FullGsaSentence;
+/** Duplicated shape of nmea.ts's own NmeaTimeOfDay -- see this file's
+ * header comment on why nothing is imported from nmea.ts. */
+export interface RichTimeOfDay {
+  hours: number;
+  minutes: number;
+  seconds: number;
+}
+
+export interface VtgSentence {
+  type: 'VTG';
+  talkerId: string;
+  courseTrueDeg: number | null;
+  courseMagDeg: number | null;
+  speedKnots: number | null;
+  speedKmh: number | null;
+  /** NMEA 2.3+ positioning-system mode indicator (A/D/E/M/S/F/R), null on
+   * older receivers that omit it -- see monitor.ts's describeModeIndicator(). */
+  mode: string | null;
+}
+
+export interface GllSentence {
+  type: 'GLL';
+  talkerId: string;
+  lat: number | null;
+  lon: number | null;
+  timeOfDay: RichTimeOfDay | null;
+  /** 'A' = valid/active, 'V' = void/invalid -- GLL's own fix-status field. */
+  status: string | null;
+  /** NMEA 2.3+ mode indicator, null on older receivers -- same codes as VtgSentence.mode. */
+  mode: string | null;
+}
+
+export interface ZdaSentence {
+  type: 'ZDA';
+  talkerId: string;
+  timeOfDay: RichTimeOfDay | null;
+  day: number | null;
+  month: number | null;
+  /** Full 4-digit year -- unlike nmea.ts's RmcSentence.date, ZDA reports
+   * this directly rather than a 2-digit year needing a pivot. */
+  year: number | null;
+  /** Local zone offset from UTC, -13..13. */
+  zoneHours: number | null;
+  zoneMinutes: number | null;
+}
+
+export interface HdgSentence {
+  type: 'HDG';
+  talkerId: string;
+  /** Magnetic sensor heading -- NOT corrected for deviation/variation;
+   * combine with the fields below for a true heading if needed. */
+  headingDeg: number | null;
+  deviationDeg: number | null;
+  deviationDir: 'E' | 'W' | null;
+  variationDeg: number | null;
+  variationDir: 'E' | 'W' | null;
+}
+
+export interface GnsSentence {
+  type: 'GNS';
+  talkerId: string;
+  timeOfDay: RichTimeOfDay | null;
+  lat: number | null;
+  lon: number | null;
+  /** One mode character per reporting constellation, e.g. "AAN" -- see
+   * monitor.ts's describeGnsModeIndicator() for the per-char breakdown. */
+  modeIndicator: string | null;
+  numSatellites: number | null;
+  hdop: number | null;
+  altitudeM: number | null;
+  geoidSepM: number | null;
+  /** NMEA 4.1+ trailing field (V/S/C/U), null on older receivers -- see
+   * monitor.ts's describeNavStatus(). */
+  navStatus: string | null;
+}
+
+/** A richer RMC parse than nmea.ts's own minimal, safety-critical
+ * RmcSentence -- the extra fields the monitor's "GNRMC panel" wants
+ * (PLAN.md §2's "Corrections from an actual screenshot") that the core
+ * fix pipeline has no use for: speed, course, magnetic variation, mode
+ * indicator, and (NMEA 4.1+) nav status. Deliberately does NOT duplicate
+ * lat/lon/status/date -- those are already on screen via gpsConnection.fix,
+ * sourced from nmea.ts's own RmcSentence; this type only adds what that
+ * one doesn't carry. */
+export interface RmcExtrasSentence {
+  type: 'RMC';
+  talkerId: string;
+  speedKnots: number | null;
+  courseDeg: number | null;
+  magVariationDeg: number | null;
+  magVariationDir: 'E' | 'W' | null;
+  mode: string | null;
+  navStatus: string | null;
+}
+
+// Widen with a union as later phases add sentence types -- see plan doc §6/§7.
+export type RichNmeaSentence =
+  | GsvSentence
+  | FullGsaSentence
+  | VtgSentence
+  | GllSentence
+  | ZdaSentence
+  | HdgSentence
+  | GnsSentence
+  | RmcExtrasSentence;
 
 // Same XOR-checksum logic as nmea.ts's own private checksumValid -- see
 // that file's comment for why rejecting bad checksums matters more on a
@@ -103,6 +215,35 @@ function toFloat(raw: string | undefined): number | null {
 function toInt(raw: string | undefined): number | null {
   const v = toFloat(raw);
   return v === null ? null : Math.trunc(v);
+}
+
+// Same ddmm.mmmm/dddmm.mmmm -> signed decimal degrees logic as nmea.ts's
+// own private toDecimalDegrees -- duplicated, not imported (see this
+// file's header comment).
+function toDecimalDegrees(raw: string | undefined, hemisphere: string | undefined): number | null {
+  if (!raw || !hemisphere) return null;
+  const dotIdx = raw.indexOf('.');
+  if (dotIdx < 2) return null;
+  const deg = Number(raw.slice(0, dotIdx - 2));
+  const min = Number(raw.slice(dotIdx - 2));
+  if (!Number.isFinite(deg) || !Number.isFinite(min)) return null;
+  const value = deg + min / 60;
+  return hemisphere === 'S' || hemisphere === 'W' ? -value : value;
+}
+
+// Same hhmmss.ss parsing as nmea.ts's own private parseTimeOfDay --
+// duplicated, not imported (see this file's header comment).
+function parseTimeOfDay(raw: string | undefined): RichTimeOfDay | null {
+  if (!raw || raw.length < 6) return null;
+  const hours = Number(raw.slice(0, 2));
+  const minutes = Number(raw.slice(2, 4));
+  const seconds = Number(raw.slice(4));
+  if (![hours, minutes, seconds].every(Number.isFinite)) return null;
+  return { hours, minutes, seconds };
+}
+
+function toEW(raw: string | undefined): 'E' | 'W' | null {
+  return raw === 'E' || raw === 'W' ? raw : null;
 }
 
 /** Parses GSA's fixed 12 SV sub-fields (fields[3]..fields[14] -- SV1..SV12)
@@ -155,11 +296,109 @@ function parseGsa(talkerId: string, fields: string[]): FullGsaSentence | null {
   return { type: 'GSA', talkerId, fixType, satellitePrns, pdop, hdop, vdop, systemId };
 }
 
+// The following six parsers (VTG/GLL/ZDA/HDG/GNS/RMC-extras, PLAN.md §6
+// phase 3) are all single, once-per-epoch sentences with no reassembly --
+// unlike GSA, they follow nmea.ts's own GGA/RMC precedent of destructuring
+// by fixed position without a strict overall field-count check: none of
+// them have GSA's specific hazard (a fixed run of optional middle slots
+// whose dropped commas shift every later field), so a lenient read (missing
+// trailing fields simply parse as null/undefined) is the right amount of
+// defensiveness here, not GSA's stricter reject-the-whole-sentence rule.
+
+function parseVtg(talkerId: string, fields: string[]): VtgSentence {
+  const [, cogt, , cogm, , sogn, , sogk, , mode] = fields;
+  return {
+    type: 'VTG',
+    talkerId,
+    courseTrueDeg: toFloat(cogt),
+    courseMagDeg: toFloat(cogm),
+    speedKnots: toFloat(sogn),
+    speedKmh: toFloat(sogk),
+    mode: mode || null,
+  };
+}
+
+function parseGll(talkerId: string, fields: string[]): GllSentence {
+  const [, lat, latHem, lon, lonHem, time, status, mode] = fields;
+  return {
+    type: 'GLL',
+    talkerId,
+    lat: toDecimalDegrees(lat, latHem),
+    lon: toDecimalDegrees(lon, lonHem),
+    timeOfDay: parseTimeOfDay(time),
+    status: status || null,
+    mode: mode || null,
+  };
+}
+
+function parseZda(talkerId: string, fields: string[]): ZdaSentence {
+  const [, time, day, month, year, zoneHours, zoneMinutes] = fields;
+  return {
+    type: 'ZDA',
+    talkerId,
+    timeOfDay: parseTimeOfDay(time),
+    day: toInt(day),
+    month: toInt(month),
+    year: toInt(year),
+    zoneHours: toInt(zoneHours),
+    zoneMinutes: toInt(zoneMinutes),
+  };
+}
+
+function parseHdg(talkerId: string, fields: string[]): HdgSentence {
+  const [, heading, deviation, deviationDir, variation, variationDir] = fields;
+  return {
+    type: 'HDG',
+    talkerId,
+    headingDeg: toFloat(heading),
+    deviationDeg: toFloat(deviation),
+    deviationDir: toEW(deviationDir),
+    variationDeg: toFloat(variation),
+    variationDir: toEW(variationDir),
+  };
+}
+
+function parseGns(talkerId: string, fields: string[]): GnsSentence {
+  const [, time, lat, latHem, lon, lonHem, modeIndicator, numSats, hdop, alt, geoidSep, , , navStatus] = fields;
+  return {
+    type: 'GNS',
+    talkerId,
+    timeOfDay: parseTimeOfDay(time),
+    lat: toDecimalDegrees(lat, latHem),
+    lon: toDecimalDegrees(lon, lonHem),
+    modeIndicator: modeIndicator || null,
+    numSatellites: toInt(numSats),
+    hdop: toFloat(hdop),
+    altitudeM: toFloat(alt),
+    geoidSepM: toFloat(geoidSep),
+    navStatus: navStatus || null,
+  };
+}
+
+/** RMC's extra fields beyond nmea.ts's own minimal RmcSentence -- see
+ * RmcExtrasSentence's own comment for why lat/lon/status/date aren't
+ * repeated here. Field layout: fields[0]=address, [1]=time, [2]=status,
+ * [3..6]=lat/latHem/lon/lonHem, [7]=speed(knots), [8]=course(true deg),
+ * [9]=date(ddmmyy), [10..11]=magVariation/magVariationDir,
+ * [12]=mode (NMEA 2.3+), [13]=navStatus (NMEA 4.1+). */
+function parseRmcExtras(talkerId: string, fields: string[]): RmcExtrasSentence {
+  const [, , , , , , , speed, course, , magVar, magVarDir, mode, navStatus] = fields;
+  return {
+    type: 'RMC',
+    talkerId,
+    speedKnots: toFloat(speed),
+    courseDeg: toFloat(course),
+    magVariationDeg: toFloat(magVar),
+    magVariationDir: toEW(magVarDir),
+    mode: mode || null,
+    navStatus: navStatus || null,
+  };
+}
+
 /** Parses one NMEA line (no trailing CR/LF expected -- same convention as
  * nmea.ts's parseNmeaSentence, the serial reader line-splits before
- * calling this) into a typed GSV or full-GSA sentence, or null for
- * anything else: a bad checksum, an unrecognized sentence type, or a
- * malformed run (bad totalMsgs/msgNum, or an unparseable GSA Mode 2).
+ * calling this) into a typed rich sentence, or null for anything else: a
+ * bad checksum, an unrecognized sentence type, or a malformed GSV/GSA run.
  * Unlike nmea.ts, the talker ID is kept -- it's the key the caller needs
  * for per-constellation reassembly/display. */
 export function parseRichNmeaSentence(line: string): RichNmeaSentence | null {
@@ -172,6 +411,12 @@ export function parseRichNmeaSentence(line: string): RichNmeaSentence | null {
   const talkerId = address.slice(0, -3);
   const sentenceId = address.slice(-3);
   if (sentenceId === 'GSA') return parseGsa(talkerId, fields);
+  if (sentenceId === 'VTG') return parseVtg(talkerId, fields);
+  if (sentenceId === 'GLL') return parseGll(talkerId, fields);
+  if (sentenceId === 'ZDA') return parseZda(talkerId, fields);
+  if (sentenceId === 'HDG') return parseHdg(talkerId, fields);
+  if (sentenceId === 'GNS') return parseGns(talkerId, fields);
+  if (sentenceId === 'RMC') return parseRmcExtras(talkerId, fields);
   if (sentenceId !== 'GSV') return null;
 
   const totalMsgs = toInt(fields[1]);

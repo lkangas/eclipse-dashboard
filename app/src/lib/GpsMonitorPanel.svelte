@@ -4,9 +4,9 @@
   // comprehensive as [a dedicated NMEA monitor tool] would be nice, but
   // we could start prototyping first with just a few fields"). Shows the
   // fields nmeaFix.ts tracks (fix quality, 2D/3D fix type, UTC, lat/lon,
-  // altitude, satellites, HDOP) plus an epoch-rate readout/pulse -- not
-  // the full GSV/VTG/GLL/ZDA breakdown a dedicated tool displays; parsing
-  // those too is future work, not needed for this first pass.
+  // altitude, satellites, HDOP) plus an epoch-rate readout/pulse, the
+  // satellite sky-plot/SNR bars/GSA panels (phases 1-2), and the cheap
+  // VTG/GLL/ZDA/HDG/GNS/RMC-extras panels (phase 3, ExtrasPanel below).
   //
   // Independent of the four main panels' fullscreenPanel/PanelId
   // mechanism (stores/layout.ts, App.svelte) -- this isn't one of the
@@ -16,15 +16,17 @@
   import { gpsMonitorOpen } from '../stores/layout';
   import { gpsConnection } from '../serial/connection';
   import { describeFixQuality, describeFixType, applyLineToRows, initialLiveRowsState } from '../serial/monitor';
-  // GPS-MONITOR-PLAN.md phase 1 (satellite sky-plot + SNR bar chart) and
-  // phase 2 (per-constellation GsaPanel). All three are self-contained (no
-  // props -- they subscribe to the gpsSatellites store directly, same
-  // convention as this panel's own direct gpsConnection import above) and
-  // render their own "No ... data yet." empty state, so nothing here needs
-  // to know or care about the state of connection.ts's monitorActive gate.
+  // GPS-MONITOR-PLAN.md phase 1 (satellite sky-plot + SNR bar chart),
+  // phase 2 (per-constellation GsaPanel), and phase 3 (ExtrasPanel). All
+  // four are self-contained (no props -- they subscribe to their own
+  // store directly, same convention as this panel's own direct
+  // gpsConnection import above) and render their own "No ... data yet."
+  // empty state, so nothing here needs to know or care about the state of
+  // connection.ts's monitorActive gate.
   import SatelliteSkyPlot from './gps-monitor/SatelliteSkyPlot.svelte';
   import SnrBarChart from './gps-monitor/SnrBarChart.svelte';
   import GsaPanel from './gps-monitor/GsaPanel.svelte';
+  import ExtrasPanel from './gps-monitor/ExtrasPanel.svelte';
 
   function close() {
     gpsMonitorOpen.set(false);
@@ -244,8 +246,19 @@
            .monitorbox below is still the one element that absorbs whatever
            vertical space is left over and scrolls internally, unchanged. -->
       <div class="streamhead">GSA (per constellation)</div>
-      <div class="gsasection">
+      <div class="monitorsection">
         <GsaPanel />
+      </div>
+
+      <!-- VTG/GLL/ZDA/HDG/GNS/RMC-extras (PLAN.md §6 phase 3) -- cheap,
+           lower-value panels compared to the satellite/GSA sections above
+           (each is a single once-per-epoch sentence, no reassembly), so
+           they go last. Same content-sized (flex: 0 0 auto), progressive-
+           reveal convention as .monitorsection above -- see ExtrasPanel's
+           own file-level comment. -->
+      <div class="streamhead">Extras (VTG / GLL / ZDA / HDG / GNS)</div>
+      <div class="monitorsection">
+        <ExtrasPanel />
       </div>
     {/if}
 
@@ -523,11 +536,12 @@
     padding: 12px 0;
     border-bottom: 1px solid var(--line);
   }
-  /* GSA section (see the markup's own comment above for why this is a
-     separate, content-sized section rather than a third .satpanels item):
-     flex: 0 0 auto, same non-growing convention as .fields/.satpanels
-     above it -- .monitorbox is still the only element that grows/scrolls. */
-  .gsasection {
+  /* Shared by the GSA and Extras sections (see the markup's own comments
+     above for why each is a separate, content-sized section rather than a
+     third .satpanels item): flex: 0 0 auto, same non-growing convention as
+     .fields/.satpanels above it -- .monitorbox is still the only element
+     that grows/scrolls. */
+  .monitorsection {
     flex: 0 0 auto;
     padding: 12px 0;
     border-bottom: 1px solid var(--line);

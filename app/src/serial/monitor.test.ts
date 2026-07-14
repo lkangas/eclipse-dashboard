@@ -5,8 +5,12 @@ import {
   describeConstellation,
   describeFixQuality,
   describeFixType,
+  describeGnsModeIndicator,
+  describeModeIndicator,
+  describeNavStatus,
   describePort,
   describeSystemId,
+  describeValidity,
   initialLiveRowsState,
   recordFixEvent,
 } from './monitor';
@@ -371,5 +375,66 @@ describe('describeSystemId', () => {
 
   it('falls back for an unrecognized code', () => {
     expect(describeSystemId('9')).toBe('Unknown systemId (9)');
+  });
+});
+
+describe('describeModeIndicator', () => {
+  it('labels the standard NMEA 2.3+ mode-indicator codes', () => {
+    expect(describeModeIndicator('A')).toBe('Autonomous');
+    expect(describeModeIndicator('D')).toBe('Differential');
+    expect(describeModeIndicator('E')).toBe('Estimated');
+    expect(describeModeIndicator('M')).toBe('Manual');
+    expect(describeModeIndicator('S')).toBe('Simulator');
+    expect(describeModeIndicator('N')).toBe('No fix');
+    expect(describeModeIndicator('F')).toBe('Float RTK');
+    expect(describeModeIndicator('R')).toBe('RTK fixed');
+  });
+
+  it('shows an em dash when the sentence predates this field', () => {
+    expect(describeModeIndicator(null)).toBe('—');
+  });
+
+  it('falls back for an unrecognized code', () => {
+    expect(describeModeIndicator('Z')).toBe('Unknown mode (Z)');
+  });
+});
+
+describe('describeGnsModeIndicator', () => {
+  it('maps each character of a multi-constellation mode string and joins them', () => {
+    expect(describeGnsModeIndicator('AAN')).toBe('Autonomous / Autonomous / No fix');
+  });
+
+  it('shows an em dash for null or an empty string', () => {
+    expect(describeGnsModeIndicator(null)).toBe('—');
+    expect(describeGnsModeIndicator('')).toBe('—');
+  });
+});
+
+describe('describeNavStatus', () => {
+  it('labels the standard NMEA 4.1+ nav-status codes', () => {
+    expect(describeNavStatus('V')).toBe('Not valid');
+    expect(describeNavStatus('S')).toBe('Safe');
+    expect(describeNavStatus('C')).toBe('Caution');
+    expect(describeNavStatus('U')).toBe('Unsafe');
+  });
+
+  it('shows an em dash when the sentence predates this field', () => {
+    expect(describeNavStatus(null)).toBe('—');
+  });
+
+  it('falls back for an unrecognized code', () => {
+    expect(describeNavStatus('Z')).toBe('Unknown status (Z)');
+  });
+});
+
+describe('describeValidity', () => {
+  it('labels GLL\'s A/V fix-validity codes', () => {
+    expect(describeValidity('A')).toBe('Valid');
+    expect(describeValidity('V')).toBe('Invalid');
+  });
+
+  it('shows an em dash for null or an unrecognized code', () => {
+    expect(describeValidity(null)).toBe('—');
+    expect(describeValidity('Z')).toBe('—');
   });
 });

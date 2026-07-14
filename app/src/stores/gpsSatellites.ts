@@ -31,37 +31,31 @@ let state: SatellitesState = initialSatellitesState;
  * Feeds one raw NMEA line through the rich (GSV/GSA) parser + reducer,
  * updating the gpsSatellites store on a completed constellation group or
  * a fresh full-GSA arrival. No-op if the line isn't a recognized rich
- * sentence.
- *
- * NOT CALLED FROM ANYWHERE YET. This is intentionally inert until
- * connection.ts's applyLine() is wired to call it behind a
- * gpsMonitorOpen-derived gate -- deferred to a separate follow-up (see
- * docs/GPS-MONITOR-PLAN.md §3 for the exact mechanism: a
- * gpsMonitorOpen.subscribe()-derived module boolean, checked cheaply
- * before doing any of this per-line work). Not wired in this change
- * because connection.ts is being actively edited elsewhere for an
- * unrelated reconnect-bug fix right now.
+ * sentence. Called from connection.ts's applyLine(), gated behind
+ * monitorActive (a gpsMonitorOpen-derived module boolean -- see
+ * docs/GPS-MONITOR-PLAN.md §3 for the mechanism).
  */
 export function applyRichNmeaLine(rawLine: string): void {
   const sentence = parseRichNmeaSentence(rawLine);
   if (!sentence) return;
-  // nmeaRich.ts's parser recognizes both GSV (reassembled across a
-  // multi-sentence run, see applyGsvSentence) and full GSA (already
-  // complete on its own, see applyGsaSentence) -- dispatch on the
-  // sentence's own discriminant rather than assuming GSV, now that
-  // parseRichNmeaSentence can return either (PLAN.md §6 phase 2).
+  // This module only cares about GSV (reassembled across a multi-sentence
+  // run, see applyGsvSentence) and full GSA (already complete on its own,
+  // see applyGsaSentence) -- parseRichNmeaSentence can now also return
+  // VTG/GLL/ZDA/HDG/GNS/RMC-extras (PLAN.md §6 phase 3, gpsExtras.ts's own
+  // concern), so this can no longer assume "anything not GSV is GSA".
   if (sentence.type === 'GSV') {
     state = applyGsvSentence(state, sentence, Date.now());
-  } else {
+  } else if (sentence.type === 'GSA') {
     state = applyGsaSentence(state, sentence);
+  } else {
+    return;
   }
   gpsSatellites.set(state);
 }
 
-/** Resets to empty -- intended for connection.ts to call on disconnect/
- * fresh connect, same "reset on fresh connect" convention as
- * gpsConnection's own recentLines/fixRateHz fields. Not called from
- * anywhere yet, same deferred-wiring reasoning as above. */
+/** Resets to empty -- called from connection.ts on disconnect/fresh
+ * connect, same "reset on fresh connect" convention as gpsConnection's own
+ * recentLines/fixRateHz fields. */
 export function resetGpsSatellites(): void {
   state = initialSatellitesState;
   gpsSatellites.set(state);

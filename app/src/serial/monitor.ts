@@ -346,3 +346,61 @@ const SYSTEM_ID_LABELS: Record<string, string> = {
 export function describeSystemId(systemId: string): string {
   return SYSTEM_ID_LABELS[systemId] ?? `Unknown systemId (${systemId})`;
 }
+
+const MODE_INDICATOR_LABELS: Record<string, string> = {
+  A: 'Autonomous',
+  D: 'Differential',
+  E: 'Estimated',
+  M: 'Manual',
+  S: 'Simulator',
+  N: 'No fix',
+  F: 'Float RTK',
+  R: 'RTK fixed',
+};
+
+/** NMEA 2.3+ single-character positioning-system mode indicator, shared
+ * across VTG/GLL/RMC/GNS's trailing "mode" field (PLAN.md §6 phase 3) --
+ * null (not just an unrecognized code) means the sentence predates this
+ * field entirely, which is common on older/simpler receivers. */
+export function describeModeIndicator(mode: string | null): string {
+  if (mode === null) return '—';
+  return MODE_INDICATOR_LABELS[mode] ?? `Unknown mode (${mode})`;
+}
+
+/** GNS's mode indicator is one MODE_INDICATOR_LABELS character PER
+ * reporting constellation (e.g. "AAN" -- GPS Autonomous, GLONASS
+ * Autonomous, Galileo No fix), unlike VTG/GLL/RMC's single shared
+ * character -- described here by mapping each character through
+ * describeModeIndicator and joining, rather than a separate lookup
+ * table, so the two stay in lockstep by construction. */
+export function describeGnsModeIndicator(modeIndicator: string | null): string {
+  if (modeIndicator === null || modeIndicator.length === 0) return '—';
+  return modeIndicator
+    .split('')
+    .map((c) => describeModeIndicator(c))
+    .join(' / ');
+}
+
+const NAV_STATUS_LABELS: Record<string, string> = {
+  V: 'Not valid',
+  S: 'Safe',
+  C: 'Caution',
+  U: 'Unsafe',
+};
+
+/** NMEA 4.1+ trailing nav-status field on RMC/GNS -- null means the
+ * sentence predates this field (common; it's a relatively recent
+ * addition), not that the receiver reported an actual unknown state. */
+export function describeNavStatus(status: string | null): string {
+  if (status === null) return '—';
+  return NAV_STATUS_LABELS[status] ?? `Unknown status (${status})`;
+}
+
+/** GLL's own fix-validity field ('A' = valid/active, 'V' = void/invalid)
+ * -- distinct from the mode-indicator codes above, which describe HOW a
+ * fix was obtained, not whether one exists at all. */
+export function describeValidity(status: string | null): string {
+  if (status === 'A') return 'Valid';
+  if (status === 'V') return 'Invalid';
+  return '—';
+}

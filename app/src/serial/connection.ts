@@ -11,6 +11,7 @@ import { applyNmeaSentence, initialNmeaFixState, type NmeaFixState } from './nme
 import { appendLine, recordFixEvent } from './monitor';
 import { setObserver } from '../stores/observer';
 import { applyRichNmeaLine, resetGpsSatellites } from '../stores/gpsSatellites';
+import { applyExtraNmeaLine, resetGpsExtras } from '../stores/gpsExtras';
 import { gpsMonitorOpen } from '../stores/layout';
 
 // 'disconnecting' exists so the UI (GpsRibbon's Connect/Connected button)
@@ -432,6 +433,7 @@ async function openPort(selected: SerialPort, baudRate: number, isOverrunRetry =
   // freeze at its last-known state on disconnect for a post-mortem look,
   // same philosophy as recentLines itself (see that field's own comment).
   resetGpsSatellites();
+  resetGpsExtras();
   gpsConnection.update((s) => ({
     ...s,
     status: 'connected',
@@ -660,9 +662,13 @@ function applyLine(rawLine: string): void {
   gpsConnection.update((s) => ({ ...s, recentLines: appendLine(s.recentLines, rawLine, RAW_LINE_HISTORY) }));
 
   // Gated on the monitor panel actually being open (see monitorActive's
-  // own comment) -- everything downstream of this (GSV reassembly into
-  // per-constellation satellite lists) is otherwise skipped entirely.
-  if (monitorActive) applyRichNmeaLine(rawLine);
+  // own comment) -- everything downstream of this (GSV/GSA reassembly and
+  // the cheap VTG/GLL/ZDA/HDG/GNS/RMC-extras panels, PLAN.md §6 phase 3)
+  // is otherwise skipped entirely.
+  if (monitorActive) {
+    applyRichNmeaLine(rawLine);
+    applyExtraNmeaLine(rawLine);
+  }
 
   const sentence = parseNmeaSentence(rawLine);
   if (!sentence) return;

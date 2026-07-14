@@ -1,19 +1,26 @@
 # GPS NMEA Monitor — Expansion Plan
 
-Status: **Phase 1 (§6) implemented, tested, and wired end-to-end.** Landed:
-the `monitorActive` gating mechanism (§3) wired into `connection.ts`'s
-`applyLine()`/`openPort()`; GSV parsing (`nmeaRich.ts`) and multi-sentence
-reassembly (`nmeaSatellites.ts`, §5) with two real bugs found and fixed by
-adversarial review (an epoch-splice bug in the reassembly reducer and a
-Signal-ID/truncated-satellite-group parsing ambiguity — see their own
-commit messages for details); the satellite sky-plot and SNR bar chart
-(`app/src/lib/gps-monitor/`); and the §10 addendum ("Live rows" toggle for
-the raw NMEA stream) as an unplanned but closely-related addition built in
-the same pass. 150 tests passing, typecheck clean, live-verified in a
-browser with synthetic data injected directly into the stores (real
-hardware not available in this environment — see §9 item 3, still
-unverified against a real receiver). Phases 2–4 below are still just a
-plan, not started.
+Status: **Phases 1–3 (§6) implemented, tested, and wired end-to-end.**
+Landed: the `monitorActive` gating mechanism (§3) wired into
+`connection.ts`'s `applyLine()`/`openPort()`; GSV parsing (`nmeaRich.ts`)
+and multi-sentence reassembly (`nmeaSatellites.ts`, §5); full GSA parsing
+plus per-constellation GSA panels and the used-vs-visible sky-plot/
+SNR-chart encoding (Phase 2, §6); VTG/GLL/ZDA/HDG/GNS parsing plus a
+richer RMC-extras parse (speed/course/mag-variation/mode/nav-status) and
+their `ExtrasPanel.svelte` cards (Phase 3, §6); and the §10 addendum
+("Live rows" toggle for the raw NMEA stream, plus a fixed-priority row
+order and checksum-bounded garbage stripping added after real-hardware
+testing surfaced both a binary-protocol frame gluing onto adjacent
+sentences and a sliding-replay-window ordering bug — see `monitor.ts`'s
+own comments). Once real hardware was actually connected, this feature
+also drove two rounds of buffer-overrun fixes in `connection.ts`
+(throttle/buffer-size tuning, then automatic bounded retry-on-overrun) —
+the diagnostic monitor built here is what made those debuggable at all.
+218 tests passing, typecheck clean. Phases 1–2 and the §10 addendum are
+confirmed working against a real u-blox M10 receiver; Phase 3 is
+live-verified so far only with synthetic data injected directly into the
+stores, not yet against the real receiver. Phase 4 (optional polish)
+below is still just a plan, not started.
 
 No GPS source file was touched to produce the *original* version of this
 document below — it was a design document written after a read-through of

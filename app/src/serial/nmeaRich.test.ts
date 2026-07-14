@@ -224,12 +224,8 @@ describe('parseRichNmeaSentence (GSA)', () => {
     ).toBeNull();
   });
 
-  it('rejects non-GSA/non-GSV sentence types (e.g. RMC)', () => {
-    expect(
-      parseRichNmeaSentence(
-        withChecksum('GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W'),
-      ),
-    ).toBeNull();
+  it('rejects a genuinely unrecognized sentence type', () => {
+    expect(parseRichNmeaSentence(withChecksum('GPXYZ,1,2,3'))).toBeNull();
   });
 
   it('preserves talker ID across GP/GN/GL variants', () => {
@@ -283,5 +279,141 @@ describe('parseRichNmeaSentence (GSA)', () => {
       vdop: 1.54,
       systemId: '1',
     });
+  });
+});
+
+describe('parseRichNmeaSentence (VTG)', () => {
+  it('parses course/speed with a mode indicator', () => {
+    const result = parseRichNmeaSentence(withChecksum('GPVTG,054.7,T,034.4,M,005.5,N,010.2,K,A'));
+    expect(result).toEqual({
+      type: 'VTG',
+      talkerId: 'GP',
+      courseTrueDeg: 54.7,
+      courseMagDeg: 34.4,
+      speedKnots: 5.5,
+      speedKmh: 10.2,
+      mode: 'A',
+    });
+  });
+
+  it('leaves mode null on an older (pre-NMEA-2.3) sentence that omits it', () => {
+    const result = parseRichNmeaSentence(withChecksum('GPVTG,054.7,T,034.4,M,005.5,N,010.2,K'));
+    expect(result).toMatchObject({ mode: null });
+  });
+});
+
+describe('parseRichNmeaSentence (GLL)', () => {
+  it('parses lat/lon/time/status/mode', () => {
+    const result = parseRichNmeaSentence(withChecksum('GPGLL,4916.45,N,12311.12,W,225444,A,A'));
+    expect(result).toEqual({
+      type: 'GLL',
+      talkerId: 'GP',
+      lat: 49 + 16.45 / 60,
+      lon: -(123 + 11.12 / 60),
+      timeOfDay: { hours: 22, minutes: 54, seconds: 44 },
+      status: 'A',
+      mode: 'A',
+    });
+  });
+
+  it('reports a void (invalid) fix status as-is, not rejected', () => {
+    const result = parseRichNmeaSentence(withChecksum('GPGLL,4916.45,N,12311.12,W,225444,V'));
+    expect(result).toMatchObject({ status: 'V' });
+  });
+});
+
+describe('parseRichNmeaSentence (ZDA)', () => {
+  it('parses the full 4-digit-year date and zone offset', () => {
+    const result = parseRichNmeaSentence(withChecksum('GPZDA,123519,12,08,2026,00,00'));
+    expect(result).toEqual({
+      type: 'ZDA',
+      talkerId: 'GP',
+      timeOfDay: { hours: 12, minutes: 35, seconds: 19 },
+      day: 12,
+      month: 8,
+      year: 2026,
+      zoneHours: 0,
+      zoneMinutes: 0,
+    });
+  });
+});
+
+describe('parseRichNmeaSentence (HDG)', () => {
+  it('parses heading, deviation, and variation with their E/W directions', () => {
+    const result = parseRichNmeaSentence(withChecksum('GPHDG,090.0,1.0,E,2.0,W'));
+    expect(result).toEqual({
+      type: 'HDG',
+      talkerId: 'GP',
+      headingDeg: 90,
+      deviationDeg: 1,
+      deviationDir: 'E',
+      variationDeg: 2,
+      variationDir: 'W',
+    });
+  });
+
+  it('leaves direction fields null when empty', () => {
+    const result = parseRichNmeaSentence(withChecksum('GPHDG,090.0,,,,'));
+    expect(result).toMatchObject({ deviationDir: null, variationDir: null });
+  });
+});
+
+describe('parseRichNmeaSentence (GNS)', () => {
+  it('parses a combined multi-constellation fix, mode indicator kept as a raw multi-char string', () => {
+    const result = parseRichNmeaSentence(
+      withChecksum('GNGNS,123519,4807.038,N,01131.000,E,AAN,12,0.9,545.4,46.9,,,S'),
+    );
+    expect(result).toEqual({
+      type: 'GNS',
+      talkerId: 'GN',
+      timeOfDay: { hours: 12, minutes: 35, seconds: 19 },
+      lat: 48 + 7.038 / 60,
+      lon: 11 + 31.0 / 60,
+      modeIndicator: 'AAN',
+      numSatellites: 12,
+      hdop: 0.9,
+      altitudeM: 545.4,
+      geoidSepM: 46.9,
+      navStatus: 'S',
+    });
+  });
+
+  it('leaves navStatus null on an older receiver that omits the trailing field', () => {
+    const result = parseRichNmeaSentence(
+      withChecksum('GNGNS,123519,4807.038,N,01131.000,E,AAN,12,0.9,545.4,46.9,,'),
+    );
+    expect(result).toMatchObject({ navStatus: null });
+  });
+});
+
+describe('parseRichNmeaSentence (RMC extras)', () => {
+  it('parses the extra fields (speed/course/mag-variation) from a well-known published RMC example -- same sentence/checksum nmea.test.ts uses for the core parser', () => {
+    const result = parseRichNmeaSentence('$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A');
+    expect(result).toEqual({
+      type: 'RMC',
+      talkerId: 'GP',
+      speedKnots: 22.4,
+      courseDeg: 84.4,
+      magVariationDeg: 3.1,
+      magVariationDir: 'W',
+      mode: null,
+      navStatus: null,
+    });
+  });
+
+  it('parses a modern sentence with both mode indicator and nav status', () => {
+    const result = parseRichNmeaSentence(
+      withChecksum('GNRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W,A,S'),
+    );
+    expect(result).toMatchObject({ mode: 'A', navStatus: 'S' });
+  });
+
+  it('preserves talker ID across GP/GN/GL variants', () => {
+    for (const talkerId of ['GP', 'GN', 'GL']) {
+      const result = parseRichNmeaSentence(
+        withChecksum(`${talkerId}RMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W`),
+      );
+      expect(result).toMatchObject({ type: 'RMC', talkerId });
+    }
   });
 });
