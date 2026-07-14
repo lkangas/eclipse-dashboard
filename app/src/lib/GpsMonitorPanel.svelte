@@ -204,61 +204,76 @@
     </div>
 
     {#if !streamVisible}
-      <div class="fields">
-        <div class="field"><span>Fix</span><b>{$gpsConnection.fix.hasFix ? describeFixQuality($gpsConnection.fix.fixQuality) : 'No fix'}</b></div>
-        <div class="field"><span>Fix type</span><b>{describeFixType($gpsConnection.fix.fixType)}</b></div>
-        <div class="field"><span>UTC</span><b>{$gpsConnection.fix.utc ? utcFmt.format($gpsConnection.fix.utc) : '—'}</b></div>
-        <div class="field"><span>Latitude</span><b>{$gpsConnection.fix.lat !== null ? $gpsConnection.fix.lat.toFixed(6) : '—'}</b></div>
-        <div class="field"><span>Longitude</span><b>{$gpsConnection.fix.lon !== null ? $gpsConnection.fix.lon.toFixed(6) : '—'}</b></div>
-        <div class="field"><span>Altitude</span><b>{$gpsConnection.fix.altitudeM !== null ? `${$gpsConnection.fix.altitudeM.toFixed(1)} m` : '—'}</b></div>
-        <div class="field"><span>Satellites</span><b>{$gpsConnection.fix.numSatellites ?? '—'}</b></div>
-        <div class="field"><span>HDOP</span><b>{$gpsConnection.fix.hdop !== null ? $gpsConnection.fix.hdop.toFixed(1) : '—'}</b></div>
-      </div>
+      <!-- Bug report: "the data monitor can't scroll, if content folds past
+           the bottom edge on narrow views." Every section below is
+           flex: 0 0 auto (fixed/content-sized, never shrinking) -- fine
+           individually, but .gpsmonitor itself has no overflow handling of
+           its own, and unlike the raw-stream view (where .monitorbox is a
+           flex: 1 1 auto element that absorbs leftover space and scrolls
+           internally), NOTHING in this view was ever the flexible,
+           scrolling element. That was invisible with only the .fields grid
+           here; it became a real, easy-to-hit bug once GsaPanel and then
+           ExtrasPanel (phase 2/3) added enough stacked content to
+           routinely exceed a short/narrow viewport's height. This wrapper
+           is that missing flexible element -- same flex: 1 1 auto;
+           min-height: 0; overflow-y: auto shape as .monitorbox, so this
+           whole section scrolls internally instead of overflowing the
+           fixed-position .gpsmonitor. The "Show raw NMEA stream" button
+           below stays OUTSIDE this wrapper (still flex: 0 0 auto directly
+           under .gpsmonitor) so it's always reachable without scrolling
+           down through every field first, same as .header staying pinned
+           above. -->
+      <div class="scrollarea">
+        <div class="fields">
+          <div class="field"><span>Fix</span><b>{$gpsConnection.fix.hasFix ? describeFixQuality($gpsConnection.fix.fixQuality) : 'No fix'}</b></div>
+          <div class="field"><span>Fix type</span><b>{describeFixType($gpsConnection.fix.fixType)}</b></div>
+          <div class="field"><span>UTC</span><b>{$gpsConnection.fix.utc ? utcFmt.format($gpsConnection.fix.utc) : '—'}</b></div>
+          <div class="field"><span>Latitude</span><b>{$gpsConnection.fix.lat !== null ? $gpsConnection.fix.lat.toFixed(6) : '—'}</b></div>
+          <div class="field"><span>Longitude</span><b>{$gpsConnection.fix.lon !== null ? $gpsConnection.fix.lon.toFixed(6) : '—'}</b></div>
+          <div class="field"><span>Altitude</span><b>{$gpsConnection.fix.altitudeM !== null ? `${$gpsConnection.fix.altitudeM.toFixed(1)} m` : '—'}</b></div>
+          <div class="field"><span>Satellites</span><b>{$gpsConnection.fix.numSatellites ?? '—'}</b></div>
+          <div class="field"><span>HDOP</span><b>{$gpsConnection.fix.hdop !== null ? $gpsConnection.fix.hdop.toFixed(1) : '—'}</b></div>
+        </div>
 
-      <!-- Satellite sky-plot + SNR bars, side by side on wide viewports and
-           stacked on narrow ones (repeat(auto-fit, ...), same responsive
-           pattern the .fields grid above already uses). Fixed height, not
-           sharing .monitorbox's flex-grow, so the raw NMEA stream below
-           keeps getting 100% of whatever vertical space is left over, same
-           as before this section existed -- see .satpanels's own CSS
-           comment for why. -->
-      <div class="streamhead">Satellites</div>
-      <div class="satpanels">
-        <SatelliteSkyPlot />
-        <SnrBarChart />
-      </div>
+        <!-- Satellite sky-plot + SNR bars, side by side (auto/1fr grid
+             columns, see .satpanels's own CSS comment). Fixed height --
+             not this row's job to grow/shrink, .scrollarea above is what
+             absorbs leftover space and scrolls when the whole stack
+             doesn't fit. -->
+        <div class="streamhead">Satellites</div>
+        <div class="satpanels">
+          <SatelliteSkyPlot />
+          <SnrBarChart />
+        </div>
 
-      <!-- Per-constellation GSA (PLAN.md §6 phase 2 / §2's "two GNGSA panels
-           side by side" reference idea) -- its own section below .satpanels
-           rather than a third item squeezed into that row. GsaPanel renders
-           a variable number of cards (one per constellation currently
-           reporting a full-GSA sentence: 0 with no data yet, more as a
-           multi-constellation receiver reports in) and, unlike
-           SatelliteSkyPlot/SnrBarChart, doesn't fill a `height: 100%` --
-           it's sized by its own content. Forcing that into .satpanels's
-           fixed 260px row would mean either clipping a multi-constellation
-           receiver's cards with no scroll affordance, or fighting the
-           auto-fit grid for a share of a row built for exactly two
-           fixed-height SVG panels. Content-sized instead (flex: 0 0 auto,
-           same non-growing convention as .fields/.satpanels/.streamhead
-           above), so it grows with however many constellations are
-           reporting and simply pushes the raw NMEA stream down --
-           .monitorbox below is still the one element that absorbs whatever
-           vertical space is left over and scrolls internally, unchanged. -->
-      <div class="streamhead">GSA (per constellation)</div>
-      <div class="monitorsection">
-        <GsaPanel />
-      </div>
+        <!-- Per-constellation GSA (PLAN.md §6 phase 2 / §2's "two GNGSA
+             panels side by side" reference idea) -- its own section below
+             .satpanels rather than a third item squeezed into that row.
+             GsaPanel renders a variable number of cards (one per
+             constellation currently reporting a full-GSA sentence: 0 with
+             no data yet, more as a multi-constellation receiver reports
+             in) and, unlike SatelliteSkyPlot/SnrBarChart, doesn't fill a
+             `height: 100%` -- it's sized by its own content. Content-sized
+             (flex: 0 0 auto, same non-growing convention as
+             .fields/.satpanels/.streamhead above), so it grows with
+             however many constellations are reporting -- .scrollarea is
+             still the one element that absorbs whatever vertical space is
+             left over/short and scrolls, not this section itself. -->
+        <div class="streamhead">GSA (per constellation)</div>
+        <div class="monitorsection">
+          <GsaPanel />
+        </div>
 
-      <!-- VTG/GLL/ZDA/HDG/GNS/RMC-extras (PLAN.md §6 phase 3) -- cheap,
-           lower-value panels compared to the satellite/GSA sections above
-           (each is a single once-per-epoch sentence, no reassembly), so
-           they go last. Same content-sized (flex: 0 0 auto), progressive-
-           reveal convention as .monitorsection above -- see ExtrasPanel's
-           own file-level comment. -->
-      <div class="streamhead">Extras (VTG / GLL / ZDA / HDG / GNS)</div>
-      <div class="monitorsection">
-        <ExtrasPanel />
+        <!-- VTG/GLL/ZDA/HDG/GNS/RMC-extras (PLAN.md §6 phase 3) -- cheap,
+             lower-value panels compared to the satellite/GSA sections above
+             (each is a single once-per-epoch sentence, no reassembly), so
+             they go last. Same content-sized (flex: 0 0 auto), progressive-
+             reveal convention as .monitorsection above -- see ExtrasPanel's
+             own file-level comment. -->
+        <div class="streamhead">Extras (VTG / GLL / ZDA / HDG / GNS)</div>
+        <div class="monitorsection">
+          <ExtrasPanel />
+        </div>
       </div>
     {/if}
 
@@ -426,6 +441,20 @@
   .closebtn:hover {
     border-color: var(--muted);
   }
+  /* The scrollable region for the fields/satellites/GSA/extras stack --
+     see the markup's own comment for why this exists. Same flex: 1 1 auto;
+     min-height: 0; overflow-y: auto shape as .monitorbox (the raw-stream
+     view's equivalent absorbing/scrolling element) -- display: flex;
+     flex-direction: column so its children keep stacking vertically
+     exactly as they did as direct children of .gpsmonitor before this
+     wrapper existed. */
+  .scrollarea {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
   .fields {
     flex: 0 0 auto;
     display: grid;
@@ -501,17 +530,14 @@
        which is what lets SatelliteSkyPlot/SnrBarChart's own internal
        `height: 100%` resolve to something real instead of chasing an
        indeterminate auto size through their nested flex layouts. Fixed
-       (flex-shrink: 0), not sharing growth with .monitorbox below, so the
-       raw NMEA stream keeps getting 100% of whatever vertical space is
-       left over, exactly as before this section existed -- same
-       non-growing convention .fields/.header/this .streamhead already
-       use, with .monitorbox as the one element that absorbs remaining
-       space and scrolls internally.
-       min-height: 0 (like .monitorbox) rather than the flex-item default
-       auto-min-size, so this row can still shrink below its content's
-       natural minimum on the rare very-short viewport instead of forcing
-       .gpsmonitor's fixed, non-scrolling container to overflow the
-       viewport.
+       (flex-shrink: 0), not sharing growth with anything else -- .scrollarea
+       (this row's parent) is the one element that absorbs leftover/short
+       space and scrolls internally, same non-growing convention
+       .fields/.header/this .streamhead already use.
+       min-height: 0 (like .scrollarea/.monitorbox) rather than the
+       flex-item default auto-min-size, so this row can still shrink below
+       its content's natural minimum on the rare very-short viewport
+       instead of forcing its own min-content size to win.
        grid-template-columns is `auto 1fr`, not two equal `1fr` tracks
        (direct request: "the sky plot is unnecessarily wide since the
        plot ever needs a square aspect ratio... more room for the bar
@@ -539,8 +565,8 @@
   /* Shared by the GSA and Extras sections (see the markup's own comments
      above for why each is a separate, content-sized section rather than a
      third .satpanels item): flex: 0 0 auto, same non-growing convention as
-     .fields/.satpanels above it -- .monitorbox is still the only element
-     that grows/scrolls. */
+     .fields/.satpanels above it -- .scrollarea (their shared parent) is
+     the one element that grows/scrolls. */
   .monitorsection {
     flex: 0 0 auto;
     padding: 12px 0;
