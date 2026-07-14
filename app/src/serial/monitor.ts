@@ -19,23 +19,33 @@ export function appendLine(buffer: readonly string[], line: string, capacity: nu
 
 /** One "live rows" display slot -- see `applyLineToRows` below. */
 export interface LiveRow {
-  key: string; // display key, e.g. "GNGGA #1" or "GNGSA #2"
+  key: string; // display key, e.g. "GNGGA" (singleton) or "GNGSA #2" (repeating)
   address: string; // raw sentence address, e.g. "GNGSA" (talkerId+sentenceId, no '$')
+  count: number; // occurrence ordinal within the epoch (always 1 for singleton types) -- sort tiebreak, see compareRows
   line: string; // the latest raw line for this slot
 }
 
 /** Accumulated state for the "live rows" raw-stream display mode --
  * PLAN.md §10's addendum. `epochCounts` resets on every GGA arrival (the
- * same once-per-epoch boundary the Hz tracker above already relies on);
- * `rows` persists across epochs so a row updates in place rather than
- * being recreated. `order` is NOT first-seen order -- see
- * `sentencePriority` below -- it's recomputed every call so a row's
- * FIXED, priority-based position never depends on which sentence
- * happened to arrive first (direct request: "I need the rows to stay in
- * their fixed places. Example RMC always in the same place."). */
+ * same once-per-epoch boundary the Hz tracker above already relies on)
+ * and is only consulted for REPEATING_TYPES (see below) -- singleton
+ * types never read or write it. `rows` persists across calls so a row
+ * updates in place rather than being recreated. `order` is a PURE
+ * function of `rows` (priority, then address, then count -- see
+ * `compareRows`), recomputed from scratch every call rather than carried
+ * forward from the previous `order` -- bug report: GpsMonitorPanel.svelte
+ * replays only the last 40 raw lines through this function from a fresh
+ * `initialLiveRowsState` every time the buffer changes (see its own
+ * comment), so any ordering rule that depended on "first key seen in
+ * THIS replay" silently reshuffled every time the 40-line window slid by
+ * one line, even though nothing about the receiver's actual behavior
+ * changed ("RMC and GGA still sometimes switch places... GSV rows jitter
+ * violently"). Deriving `order` purely from each row's own (address,
+ * count) means the result is identical no matter which subset of lines
+ * produced this exact set of rows. */
 export interface LiveRowsState {
-  epochCounts: Record<string, number>; // address -> occurrences seen since the last GGA (epoch boundary)
-  order: string[]; // priority-sorted key order -- see sentencePriority
+  epochCounts: Record<string, number>; // address -> occurrences seen since the last GGA (epoch boundary) -- REPEATING_TYPES only
+  order: string[]; // priority-sorted key order -- see compareRows
   rows: Record<string, LiveRow>;
 }
 
@@ -70,10 +80,74 @@ function sentencePriority(address: string): number {
   return SENTENCE_PRIORITY[address.slice(-3)] ?? DEFAULT_SENTENCE_PRIORITY;
 }
 
+// Sentence types that legitimately arrive more than once per epoch (up to
+// 3 GSA -- one per constellation -- and multiple GSV messages per
+// constellation once satellite counts exceed one message's worth) --
+// these are the only types that get an ordinal "#N" row of their own.
+// Every other type (RMC, VTG, GLL, ZDA, HDG, GNS, and any unrecognized
+// type) is a once-per-epoch "singleton": it always resolves to the SAME
+// key (the bare address, no ordinal), so it can only ever occupy exactly
+// one row. Bug report: "RMC always in the same place" -- previously RMC
+// used the same #N-counting scheme as GSA/GSV, so a dropped/corrupted GGA
+// (this receiver's flaky serial link has already shown both buffer
+// overruns and glued-on binary garbage) could let two RMC lines arrive
+// before the epoch counter reset, spawning a SECOND persistent "GNRMC #2"
+// row alongside the original -- exactly the kind of extra, unstable row
+// this singleton rule makes structurally impossible.
+const REPEATING_TYPES = new Set(['GSA', 'GSV']);
+
+function isRepeatingType(address: string): boolean {
+  return REPEATING_TYPES.has(address.slice(-3));
+}
+
+/** Deterministic row order: priority group first, then the row's own
+ * address (alphabetical, NOT first-seen -- see LiveRowsState's own
+ * comment on why first-seen breaks under a sliding replay window), then
+ * occurrence ordinal ascending (so "GNGSA #1/#2/#3" or a constellation's
+ * multi-message GSV stay in arrival order WITHIN their own address, the
+ * one place arrival order is still meaningful). */
+function compareRows(a: LiveRow, b: LiveRow): number {
+  const priorityDiff = sentencePriority(a.address) - sentencePriority(b.address);
+  if (priorityDiff !== 0) return priorityDiff;
+  if (a.address !== b.address) return a.address < b.address ? -1 : 1;
+  return a.count - b.count;
+}
+
+// A well-formed NMEA sentence: '$', then any run of characters that are
+// none of '$'/'*'/CR/LF, then a '*' and exactly two hex digits (the
+// checksum). Matching this (rather than just locating the last '$', see
+// below) bounds BOTH ends of the real sentence, not just its start.
+const SENTENCE_PATTERN = /\$[^$*\r\n]*\*[0-9A-Fa-f]{2}/g;
+
+/** Finds the real sentence bounded on both sides, for a raw line that may
+ * have binary noise glued onto it. Bug report: a receiver emitting a
+ * binary protocol (e.g. UBX) alongside NMEA can send a frame with no line
+ * terminator of its own, so it rides along glued onto whatever "line"
+ * connection.ts's newline-based splitting hands us next -- usually as a
+ * PREFIX ahead of the next real sentence (already handled by keying off
+ * the last '$', see below), but if the binary frame happens to contain a
+ * stray byte that IS a line terminator, the tail end of that same frame
+ * can instead land as a SUFFIX stuck onto the end of a valid sentence,
+ * trailing its checksum. A prefix-only search (last '$' onward) doesn't
+ * catch that, because it only ever bounds where the sentence STARTS, not
+ * where it ends -- bug report: "the binary garbage sometimes leaks
+ * through, this time on some other messages [not just RMC]," consistent
+ * with whichever sentence type happens to be adjacent to the noise, not
+ * RMC specifically. Returns the LAST such match (same "more than one in
+ * one line -> the last one is the real one" reasoning as the legacy
+ * fallback), or null if no fully-checksummed sentence is present at all
+ * (pure binary noise, or a malformed/checksum-less line) -- callers fall
+ * back to the older last-'$'-onward heuristic in that case. */
+function extractSentence(trimmed: string): string | null {
+  const matches = trimmed.match(SENTENCE_PATTERN);
+  return matches && matches.length > 0 ? matches[matches.length - 1] : null;
+}
+
 /** Folds one raw line into the "live rows" state: one row per distinct
- * sentence identity (address + per-epoch recurrence ordinal), updating
- * in place instead of appending -- a legible alternative to the
- * scrolling `appendLine` view above at a high fix rate (PLAN.md §10).
+ * sentence identity (address, plus a per-epoch ordinal for the handful of
+ * types that legitimately repeat -- see `isRepeatingType`), updating in
+ * place instead of appending -- a legible alternative to the scrolling
+ * `appendLine` view above at a high fix rate (PLAN.md §10).
  *
  * Same "raw stream display" reasoning as `appendLine`: no checksum
  * validation, no rejecting malformed lines -- garbled bytes from a wrong
@@ -88,36 +162,31 @@ export function applyLineToRows(state: LiveRowsState, rawLine: string): LiveRows
   // send a frame with no line terminator of its own -- connection.ts's
   // newline-based line-splitting doesn't cut it into its own "line" at
   // all, so it just rides along glued onto whatever real
-  // "$...*XX\r\n" sentence happens to follow next in the stream (always
-  // the SAME sentence content in the observed case -- an RMC void-fix
-  // sentence, which is naturally identical every epoch with no fix yet).
-  // Since the garbage prefix differs byte to byte, keying off whichever
-  // text happens to come before the address (previously: only stripped a
+  // "$...*XX\r\n" sentence happens to follow next in the stream. Since
+  // the garbage differs byte to byte, keying off whichever text happens
+  // to be adjacent to the real sentence (previously: only stripped a
   // LEADING '$', otherwise used the whole raw text) gave every such
   // hybrid line a different, ever-changing address -- flooding this view
   // with one-off rows that never repeat instead of the stable small set
-  // it's meant to show. Taking the LAST '$' in the line (not just
-  // checking whether it STARTS with one) finds the real sentence
-  // reliably regardless of what binary noise precedes it, so all these
-  // hybrids collapse back onto the one stable address they actually
-  // share. A line with no '$' anywhere at all (pure binary, no attached
-  // sentence) still falls back to the whole trimmed text for addressing.
+  // it's meant to show. extractSentence() bounds the real sentence on
+  // BOTH sides (prefix garbage AND trailing garbage, see its own
+  // comment); a line with no '$' anywhere falls back to the last-'$'
+  // heuristic, and a line with no '$' at all falls back to the whole
+  // trimmed text for addressing.
+  const extracted = extractSentence(trimmed);
   const lastDollarIdx = trimmed.lastIndexOf('$');
   const hasDollar = lastDollarIdx >= 0;
-  const afterDollar = hasDollar ? trimmed.slice(lastDollarIdx + 1) : trimmed;
+  // Displayed content: just the real sentence, not the whole raw line --
+  // bug report: "Monitor still shows the garbage in front of RMC" (and
+  // later, trailing garbage on other sentence types too). The Scrolling
+  // raw view, unchanged, is still there for anyone who wants the
+  // byte-for-byte unmodified stream.
+  const displayLine = extracted ?? (hasDollar ? trimmed.slice(lastDollarIdx) : rawLine);
+
+  const afterDollar = displayLine.startsWith('$') ? displayLine.slice(1) : displayLine;
   const commaIdx = afterDollar.indexOf(',');
   const rawAddress = commaIdx >= 0 ? afterDollar.slice(0, commaIdx) : afterDollar;
   const address = rawAddress.length > 0 ? rawAddress : '?';
-
-  // Displayed content: just the real sentence (from the last '$' onward),
-  // not the whole raw line -- bug report: "Monitor still shows the
-  // garbage in front of RMC." Once the address extraction above already
-  // knows where the real sentence starts, showing the garbage ahead of it
-  // is noise, not useful transparency (the Scrolling raw view, unchanged,
-  // is still there for anyone who wants the byte-for-byte unmodified
-  // stream). A line with no '$' anywhere still shows its full raw text --
-  // there's no "real sentence" to isolate it from.
-  const displayLine = hasDollar ? trimmed.slice(lastDollarIdx) : rawLine;
 
   // GGA marks the epoch boundary -- reset before processing this line so
   // the GGA itself is the new epoch's first occurrence, not the previous
@@ -125,26 +194,27 @@ export function applyLineToRows(state: LiveRowsState, rawLine: string): LiveRows
   // last-3-letters sentence-type check).
   const epochCounts = address.endsWith('GGA') ? {} : state.epochCounts;
 
-  const count = (epochCounts[address] ?? 0) + 1;
-  const key = `${address} #${count}`;
+  // Only GSA/GSV get a per-epoch ordinal -- every other type (including
+  // GGA itself) is a singleton, always keyed by its bare address, so it
+  // can only ever occupy ONE row. See REPEATING_TYPES's own comment for
+  // why this -- not an ordinal counter -- is what actually makes "RMC
+  // always in the same place" true regardless of what the serial link
+  // throws at it.
+  const repeating = isRepeatingType(address);
+  const count = repeating ? (epochCounts[address] ?? 0) + 1 : 1;
+  const key = repeating ? `${address} #${count}` : address;
+  const nextEpochCounts = repeating ? { ...epochCounts, [address]: count } : epochCounts;
 
-  const insertionOrder = state.order.includes(key) ? state.order : [...state.order, key];
-  const rows = { ...state.rows, [key]: { key, address, line: displayLine } };
+  const rows = { ...state.rows, [key]: { key, address, count, line: displayLine } };
 
-  // Re-sorted every call (cheap -- at most a handful of distinct keys),
-  // not just when a new key is inserted, so a row's FIXED priority
-  // position is correct even the first time it appears, regardless of
-  // what else has already arrived. Array.prototype.sort is a stable sort
-  // (guaranteed since ES2019), so rows sharing the same priority (e.g.
-  // three GSA lines within one epoch, or GGA/RMC's shared top priority)
-  // keep their original first-seen relative order among themselves --
-  // only the PRIORITY GROUPS are reordered, not the rows within one.
-  const order = insertionOrder
-    .slice()
-    .sort((a, b) => sentencePriority(rows[a].address) - sentencePriority(rows[b].address));
+  // Recomputed from `rows` alone every call -- see LiveRowsState's own
+  // comment on why threading forward the PREVIOUS `order` (first-seen
+  // position) broke under GpsMonitorPanel.svelte's sliding 40-line replay
+  // window.
+  const order = Object.keys(rows).sort((a, b) => compareRows(rows[a], rows[b]));
 
   return {
-    epochCounts: { ...epochCounts, [address]: count },
+    epochCounts: nextEpochCounts,
     order,
     rows,
   };

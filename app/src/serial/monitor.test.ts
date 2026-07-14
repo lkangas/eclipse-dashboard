@@ -146,24 +146,25 @@ describe('describeFixType', () => {
 });
 
 describe('applyLineToRows', () => {
-  it('produces one row keyed "GNGGA #1" for a single GGA line', () => {
+  it('produces one row keyed "GNGGA" (no ordinal -- GGA is a singleton) for a single GGA line', () => {
     const state = applyLineToRows(initialLiveRowsState, '$GNGGA,1*00');
-    expect(state.order).toEqual(['GNGGA #1']);
-    expect(state.rows['GNGGA #1']).toEqual({ key: 'GNGGA #1', address: 'GNGGA', line: '$GNGGA,1*00' });
+    expect(state.order).toEqual(['GNGGA']);
+    expect(state.rows['GNGGA']).toEqual({ key: 'GNGGA', address: 'GNGGA', count: 1, line: '$GNGGA,1*00' });
   });
 
-  it('updates the same GGA row key in place across epochs, while an earlier epoch\'s RMC row persists', () => {
+  it('updates the same GGA and RMC row keys in place across epochs -- no ordinal growth for singleton types', () => {
     let state = initialLiveRowsState;
     state = applyLineToRows(state, '$GNGGA,epoch1*00');
     state = applyLineToRows(state, '$GNRMC,epoch1*00');
     state = applyLineToRows(state, '$GNGGA,epoch2*00');
+    state = applyLineToRows(state, '$GNRMC,epoch2*00');
 
-    // Row order/position is stable: GGA first, then RMC -- unchanged by the second epoch.
-    expect(state.order).toEqual(['GNGGA #1', 'GNRMC #1']);
-    // The RMC row from the first epoch is untouched by the second GGA.
-    expect(state.rows['GNRMC #1']).toEqual({ key: 'GNRMC #1', address: 'GNRMC', line: '$GNRMC,epoch1*00' });
-    // The GGA row was updated in place -- same key, new line content.
-    expect(state.rows['GNGGA #1']).toEqual({ key: 'GNGGA #1', address: 'GNGGA', line: '$GNGGA,epoch2*00' });
+    // Row order/position is stable and, since neither is an ordinal-
+    // counted type, there is exactly one row per address, always -- no
+    // stray "#2" row can ever appear for RMC or GGA.
+    expect(state.order).toEqual(['GNGGA', 'GNRMC']);
+    expect(state.rows['GNRMC']).toEqual({ key: 'GNRMC', address: 'GNRMC', count: 1, line: '$GNRMC,epoch2*00' });
+    expect(state.rows['GNGGA']).toEqual({ key: 'GNGGA', address: 'GNGGA', count: 1, line: '$GNGGA,epoch2*00' });
   });
 
   it('gives three GSA lines within one epoch three distinct rows', () => {
@@ -204,30 +205,41 @@ describe('applyLineToRows', () => {
     state = applyLineToRows(state, '$GNGSA,b3*00');
 
     // order does not grow -- same 4 keys (GGA + 3 GSA), not 7. GGA sorts
-    // first regardless of arrival order (priority-based order, not
-    // first-seen -- see sentencePriority's own comment).
-    expect(state.order).toEqual(['GNGGA #1', 'GNGSA #1', 'GNGSA #2', 'GNGSA #3']);
+    // first regardless of arrival order (deterministic priority+address
+    // order, not first-seen -- see compareRows's own comment).
+    expect(state.order).toEqual(['GNGGA', 'GNGSA #1', 'GNGSA #2', 'GNGSA #3']);
     expect(state.rows['GNGSA #1'].line).toBe('$GNGSA,b1*00');
     expect(state.rows['GNGSA #2'].line).toBe('$GNGSA,b2*00');
     expect(state.rows['GNGSA #3'].line).toBe('$GNGSA,b3*00');
   });
 
+  it('never grows a second ordinal row for a singleton type even if it arrives twice before the next GGA reset (bug report: "RMC and GGA still sometimes switch places" -- traced to a stray extra RMC, e.g. from a dropped/corrupted GGA on this receiver\'s flaky serial link, spawning a persistent "GNRMC #2" under the old ordinal-counting scheme)', () => {
+    let state = initialLiveRowsState;
+    state = applyLineToRows(state, '$GNRMC,first*00');
+    state = applyLineToRows(state, '$GNRMC,second*00'); // a second RMC before any GGA -- must NOT create "GNRMC #2"
+    state = applyLineToRows(state, '$GNGGA,epoch1*00');
+
+    expect(state.order).toEqual(['GNGGA', 'GNRMC']);
+    expect(state.rows['GNRMC'].line).toBe('$GNRMC,second*00');
+    expect(state.rows['GNRMC #2']).toBeUndefined();
+  });
+
   it('still produces a row for a garbage line with no "$" and no comma', () => {
     const state = applyLineToRows(initialLiveRowsState, 'xyz garbage noise bytes');
-    expect(state.order).toEqual(['xyz garbage noise bytes #1']);
-    expect(state.rows['xyz garbage noise bytes #1'].line).toBe('xyz garbage noise bytes');
+    expect(state.order).toEqual(['xyz garbage noise bytes']);
+    expect(state.rows['xyz garbage noise bytes'].line).toBe('xyz garbage noise bytes');
   });
 
   it('keys off the real sentence AND strips the garbage glued onto its front from the displayed line (bug report: a binary protocol frame with no line terminator of its own rides along ahead of the next real NMEA line)', () => {
     const state = applyLineToRows(initialLiveRowsState, '��B$GNRMC,,V,,,,,,,,,,N,V*37');
-    expect(state.order).toEqual(['GNRMC #1']);
-    expect(state.rows['GNRMC #1'].address).toBe('GNRMC');
+    expect(state.order).toEqual(['GNRMC']);
+    expect(state.rows['GNRMC'].address).toBe('GNRMC');
     // The garbage prefix is stripped from the displayed line too, not just
     // the address -- bug report: "Monitor still shows the garbage in
     // front of RMC." Only the real sentence (from the last '$' onward) is
     // shown; the Scrolling raw view is unaffected and still shows the
     // byte-for-byte original.
-    expect(state.rows['GNRMC #1'].line).toBe('$GNRMC,,V,,,,,,,,,,N,V*37');
+    expect(state.rows['GNRMC'].line).toBe('$GNRMC,,V,,,,,,,,,,N,V*37');
   });
 
   it('collapses repeated hybrid lines with DIFFERENT garbage prefixes but the same real sentence onto the same stable row across epochs, instead of a new row every epoch', () => {
@@ -241,20 +253,38 @@ describe('applyLineToRows', () => {
     state = applyLineToRows(state, '$GNGGA,epoch3*00');
     state = applyLineToRows(state, '���$GNRMC,,V,,,,,,,,,,N,V*37');
     // Same address every epoch -> same key, updated in place, not a
-    // growing list of distinct garbage-keyed rows (the actual bug). RMC
-    // sorts before GGA here (both priority 0, tied) since RMC was the
-    // first of the two ever seen (first-seen breaks ties within a
-    // priority group -- see sentencePriority's own comment).
-    expect(state.order).toEqual(['GNRMC #1', 'GNGGA #1']);
+    // growing list of distinct garbage-keyed rows (the actual bug). GGA
+    // sorts before RMC deterministically (both priority 0, tied; "GNGGA" <
+    // "GNRMC" alphabetically -- see compareRows's own comment) regardless
+    // of which was seen first.
+    expect(state.order).toEqual(['GNGGA', 'GNRMC']);
     // Garbage prefix stripped from the displayed line, same as the single-line test above.
-    expect(state.rows['GNRMC #1'].line).toBe('$GNRMC,,V,,,,,,,,,,N,V*37');
+    expect(state.rows['GNRMC'].line).toBe('$GNRMC,,V,,,,,,,,,,N,V*37');
+  });
+
+  it('strips binary garbage glued onto the END of a valid sentence (trailing, past the checksum) -- bug report: "the binary garbage sometimes leaks through, this time on some other messages [not just RMC]"', () => {
+    // A stray byte inside the binary frame accidentally acting as connection.ts's
+    // line terminator can leave the frame's tail stuck onto a PRECEDING
+    // sentence instead of the front of the next one -- and it can land on
+    // any sentence type, not just RMC. Here: a GGA sentence with trailing
+    // noise (no further '$' or '*' in the noise itself).
+    const state = applyLineToRows(initialLiveRowsState, '$GNGGA,1,2,3*4A\x00\x01garbage-tail');
+    expect(state.order).toEqual(['GNGGA']);
+    expect(state.rows['GNGGA'].address).toBe('GNGGA');
+    expect(state.rows['GNGGA'].line).toBe('$GNGGA,1,2,3*4A');
+  });
+
+  it('strips trailing garbage on a GSV row too (same fix, a different sentence type)', () => {
+    const state = applyLineToRows(initialLiveRowsState, '$GPGSV,1,1,01,05*4B\x00trailingnoise');
+    expect(state.order).toEqual(['GPGSV #1']);
+    expect(state.rows['GPGSV #1'].line).toBe('$GPGSV,1,1,01,05*4B');
   });
 
   it('uses the LAST "$" when a line somehow contains more than one, not the first, and strips everything before it from the displayed line', () => {
     const state = applyLineToRows(initialLiveRowsState, '$garbage$GNGGA,1*00');
-    expect(state.order).toEqual(['GNGGA #1']);
-    expect(state.rows['GNGGA #1'].address).toBe('GNGGA');
-    expect(state.rows['GNGGA #1'].line).toBe('$GNGGA,1*00');
+    expect(state.order).toEqual(['GNGGA']);
+    expect(state.rows['GNGGA'].address).toBe('GNGGA');
+    expect(state.rows['GNGGA'].line).toBe('$GNGGA,1*00');
   });
 
   it('sorts rows by a fixed priority (RMC/GGA first, then other named types, then GSA/GSV last), NOT by first-seen arrival order', () => {
@@ -266,20 +296,41 @@ describe('applyLineToRows', () => {
     state = applyLineToRows(state, '$GNGNS,a*00');
     state = applyLineToRows(state, '$GNRMC,a*00');
     state = applyLineToRows(state, '$GNGGA,a*00');
-    // Fixed priority order wins regardless: RMC/GGA first (first-seen
-    // between the two of them: RMC arrived before GGA here), then GNS,
-    // then GSA, then GSV last.
-    expect(state.order).toEqual(['GNRMC #1', 'GNGGA #1', 'GNGNS #1', 'GNGSA #1', 'GPGSV #1']);
+    // Fixed priority order wins regardless: RMC/GGA first (GGA before RMC
+    // deterministically -- alphabetical tiebreak, not arrival order), then
+    // GNS, then GSA, then GSV last.
+    expect(state.order).toEqual(['GNGGA', 'GNRMC', 'GNGNS', 'GNGSA #1', 'GPGSV #1']);
   });
 
   it('keeps a row in its fixed priority place across further updates, not just on first arrival', () => {
     let state = initialLiveRowsState;
     state = applyLineToRows(state, '$GPGSV,1,1,00,0*00'); // GSV first -- lowest priority
     state = applyLineToRows(state, '$GNGGA,epoch1*00'); // GGA arrives second -- must still sort BEFORE the already-present GSV
-    expect(state.order).toEqual(['GNGGA #1', 'GPGSV #1']);
+    expect(state.order).toEqual(['GNGGA', 'GPGSV #1']);
     // A further GGA update (new epoch) keeps the same fixed order.
     state = applyLineToRows(state, '$GNGGA,epoch2*00');
-    expect(state.order).toEqual(['GNGGA #1', 'GPGSV #1']);
+    expect(state.order).toEqual(['GNGGA', 'GPGSV #1']);
+  });
+
+  it('sorts multiple constellations\' GSV rows in a FIXED deterministic order regardless of arrival order -- bug report: "GSV rows jitter around violently, since the second letter of the GxGSV changes"', () => {
+    // Two different arrival orders for the exact same set of sentences --
+    // the resulting row order must be identical either way, since
+    // GpsMonitorPanel.svelte recomputes this from scratch from whatever
+    // 40-line window happens to be current (see LiveRowsState's own
+    // comment), so arrival order is NOT something a real receiver holds
+    // constant from one recompute to the next.
+    let stateA = initialLiveRowsState;
+    stateA = applyLineToRows(stateA, '$GPGSV,1,1,01,05*4B');
+    stateA = applyLineToRows(stateA, '$GLGSV,1,1,01,06*4C');
+    stateA = applyLineToRows(stateA, '$GAGSV,1,1,01,07*4D');
+
+    let stateB = initialLiveRowsState;
+    stateB = applyLineToRows(stateB, '$GAGSV,1,1,01,07*4D');
+    stateB = applyLineToRows(stateB, '$GPGSV,1,1,01,05*4B');
+    stateB = applyLineToRows(stateB, '$GLGSV,1,1,01,06*4C');
+
+    expect(stateA.order).toEqual(['GAGSV #1', 'GLGSV #1', 'GPGSV #1']);
+    expect(stateB.order).toEqual(stateA.order);
   });
 
   it('does not mutate the previous state object', () => {
