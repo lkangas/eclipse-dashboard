@@ -185,6 +185,19 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    /* Grid/flex items default to min-height:auto -- "at least as tall as
+       my own content's natural size" -- which overrides even a `1fr`/
+       fixed-height parent row and forces it (and the whole .satpanels
+       grid row) to grow past its intended 260px budget once enough
+       constellations make the legend below wrap to more lines than a
+       2-constellation test ever exercised (confirmed live: a 4-
+       constellation receiver bloated this to 657px and spilled over the
+       GSA section below it, since the parent's `overflow: visible`
+       doesn't clip an oversized grid row). This 0 override is what lets
+       the SVG's own `flex: 1 1 auto; min-height: 0` below actually shrink
+       to fit, instead of the legend/caption pushing the whole column
+       (and its grid row) taller than the panel actually has room for. */
+    min-height: 0;
     gap: 6px;
   }
   .skyplot svg {

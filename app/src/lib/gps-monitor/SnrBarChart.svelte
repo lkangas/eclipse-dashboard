@@ -216,6 +216,11 @@
 <style>
   .snrchart {
     height: 100%;
+    /* See SatelliteSkyPlot.svelte's identical .skyplot rule for why this
+       is needed -- a grid item's default min-height:auto overrides even a
+       fixed-height parent row, letting content grow past .satpanels's
+       260px budget and spill into whatever follows it in the DOM. */
+    min-height: 0;
     display: flex;
     align-items: stretch;
     justify-content: stretch;
