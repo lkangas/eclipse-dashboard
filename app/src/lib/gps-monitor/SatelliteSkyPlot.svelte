@@ -185,6 +185,18 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    /* Square, not stretched to whatever width .satpanels's grid column
+       happens to hand it (direct request: "the sky plot is unnecessarily
+       wide since the plot ever needs a square aspect ratio... more room
+       for the bar chart on the right"). The plot itself (an SVG with a
+       200x200 viewBox) is inherently square -- a wider box just leaves
+       dead space on the sides. Combined with GpsMonitorPanel.svelte's
+       .satpanels using an `auto` (not `1fr`) column for this component,
+       this lets the browser derive that auto column's width FROM this
+       fixed height via the aspect ratio, so the column is exactly as
+       wide as the row is tall, no wider -- freeing the remaining width
+       for SnrBarChart's `1fr` column. */
+    aspect-ratio: 1 / 1;
     /* Grid/flex items default to min-height:auto -- "at least as tall as
        my own content's natural size" -- which overrides even a `1fr`/
        fixed-height parent row and forces it (and the whole .satpanels

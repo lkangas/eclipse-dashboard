@@ -92,7 +92,7 @@
   }
   $effect(() => {
     if (rawViewMode !== 'scrolling') return;
-    const lineCount = $gpsConnection.recentLines.length;
+    const lineCount = displayedLines.length;
     if ($gpsMonitorOpen && monitorEl && stickToBottom) {
       void lineCount; // establishes the reactive dependency
       monitorEl.scrollTop = monitorEl.scrollHeight;
@@ -113,6 +113,45 @@
   // never touches the toggle.
   let rawViewMode: 'scrolling' | 'live' = $state('scrolling');
 
+  // Raw stream visibility/fullscreen/pause (direct requests: "hidden by
+  // default and come out with a button, can be fullscreen then" + "a pause
+  // button so that i can inspect what's happening" -- a u-blox M10 can
+  // interleave binary UBX frames with NMEA text, which can garble the
+  // line-split display unpredictably; pausing doesn't fix that, it just
+  // lets the user freeze the view to inspect it).
+  let streamVisible = $state(false);
+  let streamFullscreen = $state(false);
+  let paused = $state(false);
+  let frozenLines: string[] | null = $state(null);
+
+  function togglePause() {
+    if (paused) {
+      paused = false;
+      frozenLines = null;
+    } else {
+      paused = true;
+      // Capturing the current array reference is sufficient to freeze the
+      // view -- recentLines is always replaced wholesale, never mutated in
+      // place, so this reference can't change out from under us.
+      frozenLines = $gpsConnection.recentLines;
+    }
+  }
+
+  function hideStream() {
+    streamVisible = false;
+    streamFullscreen = false;
+    // Collapsing starts fresh next time it's reopened -- same principle as
+    // the "every fresh open starts pinned to the newest line" comment above.
+    paused = false;
+    frozenLines = null;
+  }
+
+  // Only the raw stream/live-rows display reads through this -- the fix
+  // data, satellite panels, GSA panel, and Hz readout all keep reading
+  // $gpsConnection directly further up, so they keep updating live even
+  // while the stream itself is paused.
+  const displayedLines = $derived(frozenLines ?? $gpsConnection.recentLines);
+
   // Replays the existing recentLines ring buffer (already capped, no new
   // buffer needed) through applyLineToRows every time it changes. A full
   // recompute rather than incremental tracking -- recentLines is already
@@ -120,7 +159,7 @@
   // of sync with what's actually in the buffer.
   const liveRows = $derived.by(() => {
     let s = initialLiveRowsState;
-    for (const line of $gpsConnection.recentLines) s = applyLineToRows(s, line);
+    for (const line of displayedLines) s = applyLineToRows(s, line);
     return s;
   });
 </script>
@@ -159,89 +198,119 @@
       <button class="closebtn" onclick={close} title="Close (Esc)">✕</button>
     </div>
 
-    <div class="fields">
-      <div class="field"><span>Fix</span><b>{$gpsConnection.fix.hasFix ? describeFixQuality($gpsConnection.fix.fixQuality) : 'No fix'}</b></div>
-      <div class="field"><span>Fix type</span><b>{describeFixType($gpsConnection.fix.fixType)}</b></div>
-      <div class="field"><span>UTC</span><b>{$gpsConnection.fix.utc ? utcFmt.format($gpsConnection.fix.utc) : '—'}</b></div>
-      <div class="field"><span>Latitude</span><b>{$gpsConnection.fix.lat !== null ? $gpsConnection.fix.lat.toFixed(6) : '—'}</b></div>
-      <div class="field"><span>Longitude</span><b>{$gpsConnection.fix.lon !== null ? $gpsConnection.fix.lon.toFixed(6) : '—'}</b></div>
-      <div class="field"><span>Altitude</span><b>{$gpsConnection.fix.altitudeM !== null ? `${$gpsConnection.fix.altitudeM.toFixed(1)} m` : '—'}</b></div>
-      <div class="field"><span>Satellites</span><b>{$gpsConnection.fix.numSatellites ?? '—'}</b></div>
-      <div class="field"><span>HDOP</span><b>{$gpsConnection.fix.hdop !== null ? $gpsConnection.fix.hdop.toFixed(1) : '—'}</b></div>
-    </div>
+    {#if !streamFullscreen}
+      <div class="fields">
+        <div class="field"><span>Fix</span><b>{$gpsConnection.fix.hasFix ? describeFixQuality($gpsConnection.fix.fixQuality) : 'No fix'}</b></div>
+        <div class="field"><span>Fix type</span><b>{describeFixType($gpsConnection.fix.fixType)}</b></div>
+        <div class="field"><span>UTC</span><b>{$gpsConnection.fix.utc ? utcFmt.format($gpsConnection.fix.utc) : '—'}</b></div>
+        <div class="field"><span>Latitude</span><b>{$gpsConnection.fix.lat !== null ? $gpsConnection.fix.lat.toFixed(6) : '—'}</b></div>
+        <div class="field"><span>Longitude</span><b>{$gpsConnection.fix.lon !== null ? $gpsConnection.fix.lon.toFixed(6) : '—'}</b></div>
+        <div class="field"><span>Altitude</span><b>{$gpsConnection.fix.altitudeM !== null ? `${$gpsConnection.fix.altitudeM.toFixed(1)} m` : '—'}</b></div>
+        <div class="field"><span>Satellites</span><b>{$gpsConnection.fix.numSatellites ?? '—'}</b></div>
+        <div class="field"><span>HDOP</span><b>{$gpsConnection.fix.hdop !== null ? $gpsConnection.fix.hdop.toFixed(1) : '—'}</b></div>
+      </div>
 
-    <!-- Satellite sky-plot + SNR bars, side by side on wide viewports and
-         stacked on narrow ones (repeat(auto-fit, ...), same responsive
-         pattern the .fields grid above already uses). Fixed height, not
-         sharing .monitorbox's flex-grow, so the raw NMEA stream below
-         keeps getting 100% of whatever vertical space is left over, same
-         as before this section existed -- see .satpanels's own CSS
-         comment for why. -->
-    <div class="streamhead">Satellites</div>
-    <div class="satpanels">
-      <SatelliteSkyPlot />
-      <SnrBarChart />
-    </div>
+      <!-- Satellite sky-plot + SNR bars, side by side on wide viewports and
+           stacked on narrow ones (repeat(auto-fit, ...), same responsive
+           pattern the .fields grid above already uses). Fixed height, not
+           sharing .monitorbox's flex-grow, so the raw NMEA stream below
+           keeps getting 100% of whatever vertical space is left over, same
+           as before this section existed -- see .satpanels's own CSS
+           comment for why. -->
+      <div class="streamhead">Satellites</div>
+      <div class="satpanels">
+        <SatelliteSkyPlot />
+        <SnrBarChart />
+      </div>
 
-    <!-- Per-constellation GSA (PLAN.md §6 phase 2 / §2's "two GNGSA panels
-         side by side" reference idea) -- its own section below .satpanels
-         rather than a third item squeezed into that row. GsaPanel renders
-         a variable number of cards (one per constellation currently
-         reporting a full-GSA sentence: 0 with no data yet, more as a
-         multi-constellation receiver reports in) and, unlike
-         SatelliteSkyPlot/SnrBarChart, doesn't fill a `height: 100%` --
-         it's sized by its own content. Forcing that into .satpanels's
-         fixed 260px row would mean either clipping a multi-constellation
-         receiver's cards with no scroll affordance, or fighting the
-         auto-fit grid for a share of a row built for exactly two
-         fixed-height SVG panels. Content-sized instead (flex: 0 0 auto,
-         same non-growing convention as .fields/.satpanels/.streamhead
-         above), so it grows with however many constellations are
-         reporting and simply pushes the raw NMEA stream down --
-         .monitorbox below is still the one element that absorbs whatever
-         vertical space is left over and scrolls internally, unchanged. -->
-    <div class="streamhead">GSA (per constellation)</div>
-    <div class="gsasection">
-      <GsaPanel />
-    </div>
+      <!-- Per-constellation GSA (PLAN.md §6 phase 2 / §2's "two GNGSA panels
+           side by side" reference idea) -- its own section below .satpanels
+           rather than a third item squeezed into that row. GsaPanel renders
+           a variable number of cards (one per constellation currently
+           reporting a full-GSA sentence: 0 with no data yet, more as a
+           multi-constellation receiver reports in) and, unlike
+           SatelliteSkyPlot/SnrBarChart, doesn't fill a `height: 100%` --
+           it's sized by its own content. Forcing that into .satpanels's
+           fixed 260px row would mean either clipping a multi-constellation
+           receiver's cards with no scroll affordance, or fighting the
+           auto-fit grid for a share of a row built for exactly two
+           fixed-height SVG panels. Content-sized instead (flex: 0 0 auto,
+           same non-growing convention as .fields/.satpanels/.streamhead
+           above), so it grows with however many constellations are
+           reporting and simply pushes the raw NMEA stream down --
+           .monitorbox below is still the one element that absorbs whatever
+           vertical space is left over and scrolls internally, unchanged. -->
+      <div class="streamhead">GSA (per constellation)</div>
+      <div class="gsasection">
+        <GsaPanel />
+      </div>
+    {/if}
 
-    <div class="streamheadrow">
-      <div class="streamhead">Raw NMEA stream</div>
-      <div class="viewtoggle">
+    <!-- Raw NMEA stream: hidden by default (direct request -- it used to
+         permanently eat most of this panel's vertical space even for
+         someone who just wants to glance at the fields/satellite panels).
+         streamVisible false shows a compact one-line expand affordance
+         instead; once shown, its own header row carries Pause/Resume, a
+         fullscreen toggle (hides everything above except the top .header
+         row so .monitorbox gets nearly the whole panel body), and Hide. -->
+    {#if streamVisible}
+      <div class="streamheadrow">
+        <div class="streamhead">Raw NMEA stream</div>
+        <div class="viewtoggle">
+          <button
+            type="button"
+            class="modebtn"
+            class:on={rawViewMode === 'scrolling'}
+            onclick={() => (rawViewMode = 'scrolling')}
+          >Scrolling</button>
+          <button
+            type="button"
+            class="modebtn"
+            class:on={rawViewMode === 'live'}
+            onclick={() => (rawViewMode = 'live')}
+          >Live rows</button>
+        </div>
+        <span class="fill"></span>
         <button
           type="button"
           class="modebtn"
-          class:on={rawViewMode === 'scrolling'}
-          onclick={() => (rawViewMode = 'scrolling')}
-        >Scrolling</button>
+          class:on={paused}
+          onclick={togglePause}
+          title="Freeze the stream display to inspect it -- fix data, satellite panels, and Hz readout keep updating live"
+        >{paused ? '▶ Resume' : '⏸ Pause'}</button>
         <button
           type="button"
           class="modebtn"
-          class:on={rawViewMode === 'live'}
-          onclick={() => (rawViewMode = 'live')}
-        >Live rows</button>
+          class:on={streamFullscreen}
+          onclick={() => (streamFullscreen = !streamFullscreen)}
+        >{streamFullscreen ? '⛶ Exit' : '⛶ Fullscreen'}</button>
+        <button type="button" class="modebtn" onclick={hideStream}>Hide</button>
       </div>
-    </div>
-    {#if rawViewMode === 'scrolling'}
-      <div class="monitorbox" bind:this={monitorEl} onscroll={onMonitorScroll}>
-        {#each $gpsConnection.recentLines as line, i (i)}
-          <div class="monitorline">{line}</div>
-        {/each}
-        {#if $gpsConnection.recentLines.length === 0}
-          <div class="monitorline hint">No data yet.</div>
-        {/if}
-      </div>
+      {#if rawViewMode === 'scrolling'}
+        <div class="monitorbox" bind:this={monitorEl} onscroll={onMonitorScroll}>
+          {#each displayedLines as line, i (i)}
+            <div class="monitorline">{line}</div>
+          {/each}
+          {#if displayedLines.length === 0}
+            <div class="monitorline hint">No data yet.</div>
+          {/if}
+        </div>
+      {:else}
+        <div class="monitorbox">
+          {#each liveRows.order as key (key)}
+            {@const row = liveRows.rows[key]}
+            <div class="monitorline liverow">
+              <span class="liverowkey">{key}</span>{#key row.line}<span class="liverowline">{row.line}</span>{/key}
+            </div>
+          {/each}
+          {#if liveRows.order.length === 0}
+            <div class="monitorline hint">No data yet.</div>
+          {/if}
+        </div>
+      {/if}
     {:else}
-      <div class="monitorbox">
-        {#each liveRows.order as key (key)}
-          {@const row = liveRows.rows[key]}
-          <div class="monitorline liverow">
-            <span class="liverowkey">{key}</span>{#key row.line}<span class="liverowline">{row.line}</span>{/key}
-          </div>
-        {/each}
-        {#if liveRows.order.length === 0}
-          <div class="monitorline hint">No data yet.</div>
-        {/if}
+      <div class="streamcollapsed">
+        <button type="button" class="modebtn" onclick={() => (streamVisible = true)}>▸ Show raw NMEA stream</button>
       </div>
     {/if}
   </div>
@@ -383,7 +452,6 @@
     flex: 0 0 auto;
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
   }
   .viewtoggle {
@@ -406,6 +474,14 @@
     background: var(--accent-bg);
     color: var(--accent-ink);
   }
+  /* Compact stand-in shown instead of the whole raw-stream section while
+     streamVisible is false -- same non-growing convention as the other
+     top-level sections (flex: 0 0 auto), just a single expand affordance
+     rather than the full header row + monitorbox. */
+  .streamcollapsed {
+    flex: 0 0 auto;
+    padding: 12px 0 0;
+  }
   .satpanels {
     /* flex: 0 0 auto with an explicit height (rather than a content-based
        auto flex-basis) is deliberate: flex-basis:auto defers to the
@@ -424,12 +500,27 @@
        auto-min-size, so this row can still shrink below its content's
        natural minimum on the rare very-short viewport instead of forcing
        .gpsmonitor's fixed, non-scrolling container to overflow the
-       viewport. */
+       viewport.
+       grid-template-columns is `auto 1fr`, not two equal `1fr` tracks
+       (direct request: "the sky plot is unnecessarily wide since the
+       plot ever needs a square aspect ratio... more room for the bar
+       chart on the right"). SatelliteSkyPlot's own root element is
+       `aspect-ratio: 1/1` with this row's fixed height, so the `auto`
+       track sizes itself to exactly that square width instead of
+       splitting evenly with SnrBarChart -- which no longer needs the
+       spare width anyway, now that it scrolls horizontally on its own
+       (see its own .snrchart CSS) rather than shrinking bars to fit.
+       This drops the old auto-fit-driven narrow-viewport stacking
+       (both panels always sit side by side now), which is fine: the
+       sky-plot's square width never shrinks below its own row height
+       regardless of viewport width, and the SNR chart degrades
+       gracefully via its own scrollbar rather than needing to stack
+       underneath. */
     flex: 0 0 auto;
     height: 260px;
     min-height: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: auto 1fr;
     gap: 12px;
     padding: 12px 0;
     border-bottom: 1px solid var(--line);

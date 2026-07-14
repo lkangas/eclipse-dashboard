@@ -100,12 +100,19 @@
 
   const totalBars = $derived(groups.reduce((n, g) => n + g.bars.length, 0));
 
-  // Fixed viewBox -- the chart's own footprint stays constant regardless
-  // of how many satellites are currently tracked; only the bar/gap widths
-  // shrink as the count grows (up to ~20-30 bars per the direct request),
-  // via preserveAspectRatio scaling the whole thing to fit its container
-  // same as the sky-plot sibling's own svg elements.
-  const VB_WIDTH = 640;
+  // Bars and their slots are FIXED width -- content width grows with the
+  // satellite count instead of every bar shrinking to squeeze into a fixed
+  // pixel budget. That shrink-to-fit approach (deriving barWidth from
+  // availableWidth / totalBars) was the direct cause of the reported bug:
+  // bars would visibly "dance"/resize whenever the total satellite count
+  // changed (one satellite appearing or disappearing resized ALL bars),
+  // even though most tracked satellites hadn't changed at all. Do not
+  // reintroduce a dynamic/shrink-to-fit bar width -- see this chart's own
+  // outer .snrchart wrapper (CSS below) for the horizontal-scroll
+  // counterpart that makes a variable-width chart work in a fixed-size
+  // panel.
+  const BAR_WIDTH = 14;
+  const SLOT_WIDTH = 22; // fixed center-to-center spacing within a group
   const VB_HEIGHT = 214;
   const MARGIN_X = 14;
   const GROUP_GAP = 14; // extra horizontal gap between constellation clusters
@@ -115,11 +122,14 @@
   const PRN_LABEL_Y = BASELINE_Y + 9;
   const GROUP_LABEL_Y = VB_HEIGHT - 6;
   const MIN_STUB_H = 2; // "tracked but no signal" bars -- still a visible slot, not omitted
-  const MAX_BAR_W = 20;
+  const MIN_VB_WIDTH = 300; // keep a near-empty chart (1-2 sats) from looking absurdly cramped
 
-  const availableWidth = $derived(VB_WIDTH - 2 * MARGIN_X - Math.max(0, groups.length - 1) * GROUP_GAP);
-  const slotWidth = $derived(totalBars > 0 ? availableWidth / totalBars : 0);
-  const barWidth = $derived(Math.max(2, Math.min(MAX_BAR_W, slotWidth * 0.6)));
+  // Content-driven width: margins + one slot per bar + a gap between each
+  // pair of adjacent constellation groups. This replaces the old fixed
+  // VB_WIDTH constant -- see the comment on BAR_WIDTH/SLOT_WIDTH above.
+  const VB_WIDTH = $derived(
+    Math.max(MIN_VB_WIDTH, 2 * MARGIN_X + totalBars * SLOT_WIDTH + Math.max(0, groups.length - 1) * GROUP_GAP),
+  );
 
   interface PositionedBar {
     barKey: string;
@@ -142,8 +152,8 @@
     let cursor = MARGIN_X;
     return groups.map((g) => {
       const bars: PositionedBar[] = g.bars.map((b) => {
-        const cx = cursor + slotWidth / 2;
-        cursor += slotWidth;
+        const cx = cursor + SLOT_WIDTH / 2;
+        cursor += SLOT_WIDTH;
         const barHeight =
           b.snrDb === null
             ? MIN_STUB_H
@@ -158,7 +168,7 @@
           usedInFix: b.usedInFix,
         };
       });
-      const groupStart = cursor - g.bars.length * slotWidth;
+      const groupStart = cursor - g.bars.length * SLOT_WIDTH;
       const groupEnd = cursor;
       cursor += GROUP_GAP;
       return { talkerId: g.talkerId, label: g.label, color: g.color, labelX: (groupStart + groupEnd) / 2, bars };
@@ -170,7 +180,7 @@
   {#if totalBars === 0}
     <div class="hint">No satellite data yet.</div>
   {:else}
-    <svg viewBox="0 0 {VB_WIDTH} {VB_HEIGHT}" preserveAspectRatio="xMidYMid meet">
+    <svg viewBox="0 0 {VB_WIDTH} {VB_HEIGHT}" width={VB_WIDTH} height={VB_HEIGHT}>
       <line class="ceiling" x1={MARGIN_X} y1={TOP_MARGIN} x2={VB_WIDTH - MARGIN_X} y2={TOP_MARGIN} />
       <text class="ceilinglabel" x={MARGIN_X} y={TOP_MARGIN - 6}>{CHART_MAX_DB} dB-Hz</text>
       <line class="baseline" x1={MARGIN_X} y1={BASELINE_Y} x2={VB_WIDTH - MARGIN_X} y2={BASELINE_Y} />
@@ -190,9 +200,9 @@
           <rect
             class="bar"
             class:outline={!bar.usedInFix}
-            x={bar.cx - barWidth / 2}
+            x={bar.cx - BAR_WIDTH / 2}
             y={bar.barY}
-            width={barWidth}
+            width={BAR_WIDTH}
             height={bar.barHeight}
             fill={bar.usedInFix ? bar.color : 'none'}
             stroke={bar.usedInFix ? 'none' : bar.color}
@@ -221,14 +231,18 @@
        fixed-height parent row, letting content grow past .satpanels's
        260px budget and spill into whatever follows it in the DOM. */
     min-height: 0;
+    /* The chart's content width now varies with the satellite count (fixed
+       bar/slot widths, see BAR_WIDTH/SLOT_WIDTH above) instead of being
+       squeezed to fit a fixed viewBox, so the wrapper scrolls horizontally
+       rather than stretching the svg to fill it. */
+    overflow-x: auto;
+    overflow-y: hidden;
     display: flex;
-    align-items: stretch;
-    justify-content: stretch;
+    align-items: center; /* vertically center the fixed-height chart if the panel gives it more room than VB_HEIGHT needs */
   }
   .snrchart svg {
     display: block;
-    width: 100%;
-    height: 100%;
+    flex: 0 0 auto; /* render at its own natural width/height, don't stretch or shrink */
   }
   .hint {
     margin: auto;
