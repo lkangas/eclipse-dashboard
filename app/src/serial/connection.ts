@@ -258,9 +258,17 @@ async function teardownConnection(): Promise<void> {
 // the hardware buffer once JS stops draining reader.read() promptly).
 // Losing/gaining lock can now lag up to FLUSH_INTERVAL_MS in the status
 // line -- an acceptable trade for the connection actually staying up.
+//
+// Bumped 500ms -> 1000ms (bug report: "buffer overrun" on connect against
+// a real receiver -- a u-blox M10 -- the first hardware this throttle had
+// actually been tested against; the original value was reasoned from a
+// mocked SerialPort, not measured, per this file's own git history).
+// Doubling the interval halves how often the expensive setObserver
+// cascade can possibly fire, directly per HANDOFF-2026-07-13.md's own
+// first-listed remediation step for exactly this symptom.
 let latestFix: NmeaFixState = initialNmeaFixState;
 let lastFlushMs = 0;
-const FLUSH_INTERVAL_MS = 500;
+const FLUSH_INTERVAL_MS = 1000;
 
 // GGA arrival timestamps feeding the Hz readout/pulse (monitor.ts's
 // recordFixEvent) -- unthrottled and independent of the flush above,
@@ -268,12 +276,25 @@ const FLUSH_INTERVAL_MS = 500;
 // observer, so there's no expensive cascade to rate-limit.
 let ggaTimestamps: number[] = [];
 
-// Generous defense-in-depth margin on top of the throttle above (at
-// 115200 baud, still under 1.5s of continuous data) -- Chrome's own
-// default is a stingy 255 bytes, nowhere near enough for a 10Hz
-// multi-constellation receiver's GGA+RMC+GSA+several GSV blocks+VTG+GLL
-// per epoch even without any read-loop stall at all.
-const SERIAL_BUFFER_SIZE = 16384;
+// Defense-in-depth margin on top of the throttle above (at 115200 baud,
+// still under 6s of continuous data) -- Chrome's own default is a stingy
+// 255 bytes, nowhere near enough for a 10Hz multi-constellation
+// receiver's GGA+RMC+GSA+several GSV blocks+VTG+GLL per epoch even
+// without any read-loop stall at all.
+//
+// Bumped 16384 -> 65536 (bug report: "buffer overrun" on connect against
+// a real u-blox M10 -- see FLUSH_INTERVAL_MS's own comment for the fuller
+// story; this is HANDOFF-2026-07-13.md's second-listed remediation step,
+// paired with the FLUSH_INTERVAL_MS bump rather than instead of it, since
+// neither alone was confirmed sufficient against real hardware before
+// now). A receiver that also emits binary UBX frames interleaved with
+// NMEA (which a u-blox M10 can, if not configured NMEA-only) inflates the
+// real byte volume beyond a pure-NMEA-text estimate, which this margin is
+// now sized to tolerate too -- though disabling UBX output on the
+// receiver itself (NMEA-only) remains the more fundamental fix for that
+// specific case, not something this buffer size alone can fully paper
+// over.
+const SERIAL_BUFFER_SIZE = 65536;
 
 // Plain module variable, not a store field -- read directly by
 // clock.ts's effectiveTime on its own pre-existing 1Hz tick (see
