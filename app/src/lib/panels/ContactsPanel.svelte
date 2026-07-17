@@ -17,6 +17,7 @@
   import { skyView, sunAltAzAt } from '../../stores/skyView';
   import { horizonObstruction } from '../../stores/horizonObstruction';
   import { formatCountdown, formatDurationSeconds, formatCest } from '../format';
+  import { buildTimesJson, downloadTimesJson } from '../exportTimes';
   import eclipseTimesData from '../../data/eclipse-times.json';
 
   function formatAlt(altitude: number): string {
@@ -156,6 +157,23 @@
       : 'no totality here',
   );
 
+  // Export as the JSON schema third-party eclipse-photography tooling
+  // expects (direct request) -- see lib/exportTimes.ts's own comment.
+  // Needs a real totality here (C1/C2/C3/C4 all present): the schema has
+  // no slot for "partial only", and a half-populated file would be worse
+  // than none for whatever downstream tool consumes it.
+  const canExportTimes = $derived(
+    $localCircumstances.c1 !== null &&
+      $localCircumstances.c2 !== null &&
+      $localCircumstances.c3 !== null &&
+      $localCircumstances.c4 !== null,
+  );
+  function exportTimes() {
+    const lc = $localCircumstances;
+    if (!lc.c1 || !lc.c2 || !lc.c3 || !lc.c4) return;
+    downloadTimesJson(buildTimesJson(lc.c1, lc.c2, lc.max, lc.c3, lc.c4));
+  }
+
   // Live, not a per-event snapshot -- both update continuously with
   // effectiveTime (PLAN.md §4/§14 #6), derived from the same L1/L2/m
   // the contact-time root-finder above already uses (see
@@ -212,6 +230,16 @@
     <div><span>Obsc. (area)</span><b>{areaObscurationText}</b></div>
     <div><span>Sun alt</span><b>{sunAltText}</b></div>
     <div><span>Sun az</span><b>{sunAzText}</b></div>
+    <button
+      class="exportbtn"
+      disabled={!canExportTimes}
+      onclick={exportTimes}
+      title={canExportTimes
+        ? 'Save this observer\'s C1/C2/Max/C3/C4 as times.json (komakallio/eclipse2024 schema)'
+        : 'No totality visible from this location -- nothing to export'}
+    >
+      Save JSON
+    </button>
     <button class="globaltoggle" class:on={showGlobal} onclick={() => (showGlobal = !showGlobal)}>
       Global
     </button>
@@ -329,14 +357,15 @@
     padding: 0 0 calc(4px * var(--tscale));
     cursor: help;
   }
-  /* Pinned to the ribbon's right edge via margin-left: auto -- the only
-     item in .circ that isn't a Duration/Obsc./Sun-alt-az stat, so it
-     reads as a separate control rather than another value in the row.
-     No specificity fight with .circ div below despite both applying
-     margin/layout here: that selector only matches <div> children, and
-     this is a <button>. */
+  /* Both pinned to the ribbon's right edge as one group -- margin-left:
+     auto on the FIRST of the two (exportbtn) pushes both it and its
+     sibling globaltoggle rightward, so they read as separate controls
+     from the Duration/Obsc./Sun-alt-az stats rather than another value in
+     the row. No specificity fight with .circ div below despite both
+     applying margin/layout here: that selector only matches <div>
+     children, and these are <button>s. */
+  .exportbtn,
   .globaltoggle {
-    margin-left: auto;
     background: none;
     border: 1px solid var(--line);
     border-radius: 6px;
@@ -345,6 +374,13 @@
     font-weight: 500;
     color: var(--muted);
     cursor: pointer;
+  }
+  .exportbtn {
+    margin-left: auto;
+  }
+  .exportbtn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   .globaltoggle.on {
     border-color: var(--accent);

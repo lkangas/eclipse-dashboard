@@ -44,3 +44,18 @@ const cestClockFmt = new Intl.DateTimeFormat('en-GB', {
 export function formatCest(date: Date): string {
   return cestClockFmt.format(date);
 }
+
+/** ISO 8601 UTC timestamp with one decimal of sub-second precision, e.g.
+ * "2024-04-08T17:22:44.8Z" -- the format third-party eclipse-photography
+ * tooling expects (see lib/exportTimes.ts), not this app's own 3-decimal
+ * Date#toISOString() default. */
+export function formatIsoTenths(date: Date): string {
+  const ms = date.getUTCMilliseconds();
+  const tenths = Math.round(ms / 100);
+  if (tenths === 10) {
+    // Rounds up into the next second -- recurse on the bumped instant
+    // rather than hand-rolling second/minute/hour/day/month/year carry.
+    return formatIsoTenths(new Date(date.getTime() + (1000 - ms)));
+  }
+  return `${date.toISOString().slice(0, 19)}.${tenths}Z`;
+}
