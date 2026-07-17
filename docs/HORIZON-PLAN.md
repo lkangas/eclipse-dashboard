@@ -103,21 +103,68 @@ bundled grid is ~4.6 km/cell. A "hill 3 km away" — exactly the kind of
 feature most likely to matter at a 2–5° Sun altitude — can fall entirely
 between two grid points, or get smeared away by the bilinear interpolation
 that's perfectly fine for a location picker's elevation display but wrong for
-this purpose. Options, cheapest first:
+this purpose.
 
-| Tier | Source / change | Resulting resolution | Bundle size (whole current bbox) | Effort | What it actually buys |
-|---|---|---|---|---|---|
-| **0 — current** | ETOPO 2022, resampled to 1/24° (existing `elevation.json`) | ~4.6 km | 432 KB (already shipped) | none | Catches only genuinely large, distant mountain ranges. Misses almost everything actually relevant at this event's Sun altitudes. |
-| **0.5 — near-free** | Same ETOPO 2022 source already fetched by `generate_elevation.py`, just resample less aggressively — its **native** resolution is ~60 arc-sec (~1.4 km) | ~1.4 km | ~6× the cells ≈ ~2.6 MB raw (likely well under 1 MB gzipped — highly repetitive small integers) | Trivial — change one constant (`STEP`) in the existing script, same download, same license, no new attribution | A real ~3× linear density gain for free. Still can't see a single close hill, but starts to resolve real local ridgelines. |
-| **1 — meaningful upgrade** | Swap source to **Copernicus DEM GLO-30** (ESA/Copernicus, TanDEM-X-derived, ~30 m, free with attribution — verify exact license text before shipping) or **EU-DEM v1.1** (Copernicus Land Monitoring Service, 25 m, Europe-specific, SRTM+ASTER-derived), bundled over a **narrower corridor** (e.g. ±40–50 km around `shadow-frames.json`'s central line, not the whole existing Iberia+Balearics bbox) | 25–30 m | Depends heavily on corridor width and encoding (see below) — whole-bbox at this resolution is ~200M+ cells (infeasible); a tight path corridor at a coarser resample (e.g. 200–500 m) is a few MB; a denser encoding (packed `Int16Array`/binary blob or a PNG-encoded heightmap instead of a JSON number array) could push this further for the same byte budget | Moderate — new source, new fetch/reprojection step in `tools/build-data`, needs its own license verification and `NOTICE.md` entry | Genuinely resolves nearby ridges/hills along the actual path where people will stand. Still one bundled asset, still supports arbitrary click-anywhere *within the corridor*. |
-| **2 — best fidelity, narrowest coverage** | **Precompute horizon profiles only** (§2.1's tiny output, not raw terrain) for a fixed set of candidate sites — the 11 existing presets, plus optionally a denser sampling grid along the corridor — from a high-res source used **only inside the generation script, never bundled**: Spain's own **IGN MDT05/MDT02** (5 m / locally 2 m, LIDAR-derived, via the CNIG download center — confirm current license terms before use) or Copernicus GLO-30 | 5–30 m at the source, but the *bundled* output is just per-site azimuth→angle arrays | Tiny — each profile is ~60–90 floats, a few hundred bytes per site; even hundreds of sites would be well under 100 KB total | Higher — per-sheet tile mosaicking/reprojection (ETRS89/UTM→WGS84 lat-lon) for the Spanish source, comparable in kind to the reprojection/winding-order work `basemap-global.mjs` already does | Best possible accuracy at the specific sites people actually observe from. Doesn't cover a literally-arbitrary map click with full precision — falls back to whichever whole-area tier (0.5 or 1) is in place elsewhere, or shows "nearest precomputed profile is N km away." |
+**Coverage must be the whole reachable area, not a fixed list of sites or a
+narrow path corridor.** Clear-weather chasing on the day means driving to
+wherever the sky actually cooperates, which can't be predicted in advance —
+so anything that only works at pre-selected points (named presets, or a
+precomputed profile for a short list of candidate spots) is the wrong shape
+for this feature, no matter how accurate those points are. That rules out an
+earlier draft of this plan that considered precomputing horizon profiles for
+just the 11 preset sites — dropped entirely, not revised, since no fixed list
+solves "wherever I end up."
 
-**Recommendation:** do **Tier 0.5 immediately** (it's free) regardless of
-what else happens, as the new baseline. Then **Tier 1** for real
-coverage along the actual path corridor. **Tier 2 is a good stretch
-addition later** for the preset sites specifically (where people are most
-likely to actually stand), not a blocker for shipping something useful —
-it can layer on top of whichever whole-area tier is already in place.
+**The real lever is encoding, not area.** `elevation.json` today stores each
+cell as decimal text in a JSON array (~4.6 bytes/cell average) — fine at
+93,661 cells, wasteful at millions. Switching to a compact binary encoding
+(a flat `Int16Array` of meters — elevation values everywhere in and around
+Spain fit comfortably in a 16-bit signed range — served as a raw `.bin`
+fetched/imported as an `ArrayBuffer`) cuts per-cell cost roughly in half
+and removes JSON's text-formatting overhead entirely, which changes what's
+feasible over the *entire* existing bbox (same 35–44.5°N / -10.5–6.5°E area
+the app already covers end to end):
+
+| Resolution | Cells (whole existing bbox) | Raw size (Int16 binary) | Gzipped (est.) |
+|---|---|---|---|
+| Current (~4.6 km, JSON text) | 93,661 | — | 432 KB (shipped today) |
+| ~1.4 km (ETOPO native, Tier 0.5) | ~583,000 | ~1.2 MB | ~0.4–0.6 MB |
+| **~1 km** | ~1.6M | ~3.2 MB | **~1–1.5 MB** |
+| ~500 m | ~6.5M | ~13 MB | ~4–6 MB |
+| ~250 m | ~25.8M | ~52 MB | ~15–25 MB (likely overkill — see §2.3, close obstructions matter most within a few km, and terrain this side of ~1 km rarely changes meaningfully over 250 m of lateral distance) |
+
+~1 km or ~500 m over the **entire current bbox** — i.e. anywhere across Spain
+and its surroundings you could plausibly chase weather to — is a perfectly
+reasonable one-time download for an offline field app, once stored as
+binary instead of JSON text. No snapping to nearest precomputed point, no
+"only works near a preset" limitation: the observer store already carries an
+arbitrary lat/lon from any source (manual, map click, GPS, serial), and
+`terrainHorizonProfile` (§2.1) just reads whatever's under it.
+
+Where a higher-res source (Copernicus DEM GLO-30, EU-DEM 25 m, or Spain's own
+IGN MDT05/MDT02 LIDAR data, ~5 m) fits in: as the **input** to generating
+this whole-area grid, resampled down to the target resolution — the same
+"fetch dense, resample down, bundle only the resampled result" pattern
+`generate_elevation.py` already uses with ETOPO, not a reason to restrict
+*coverage*. A plausible refinement later: use IGN's data (more
+authoritative within Spain) for the Spain portion of the resample and fall
+back to Copernicus/ETOPO for the slivers outside it (French border,
+Portugal edge, open sea) — still one whole-area grid, still no fixed-site
+restriction, just a better-sourced input in the region that matters most.
+
+**Recommendation:** do the **free ETOPO-native (~1.4 km) swap immediately**
+(§3, "Tier 0.5" below) as the new baseline regardless of what else happens.
+Then move straight to a **binary-encoded whole-bbox grid at ~1 km (or 500 m
+if the larger download is acceptable)**, sourced from a denser DEM than
+ETOPO if one's worth the integration effort — this replaces both the old
+"narrow corridor" and "fixed preset sites" ideas with a single design that
+actually covers wherever you might end up driving.
+
+| Tier | Source / change | Resulting resolution | Bundle size (whole bbox) | Effort |
+|---|---|---|---|---|
+| **0 — current** | ETOPO 2022, resampled to 1/24° (existing `elevation.json`) | ~4.6 km | 432 KB (shipped) | none |
+| **0.5 — near-free** | Same ETOPO 2022 source already fetched by `generate_elevation.py`, resampled less aggressively to its native ~60 arc-sec | ~1.4 km | ~1.2 MB raw / ~0.5 MB gzipped | Trivial — change one constant (`STEP`), same download, same license |
+| **1 — the real target** | Binary (`Int16`) encoding of a denser source (ETOPO itself goes no denser than native; Copernicus GLO-30/EU-DEM would need reprojection/resampling work) over the **whole existing bbox** | ~1 km (or 500 m) | ~1–1.5 MB (1 km) or ~4–6 MB (500 m) gzipped | Moderate — new binary-serialization step in the build script, `elevation.ts`'s reader updated to parse an `ArrayBuffer` instead of a JSON array (interface to callers — `elevationAt`/`isWithinElevationBounds` — unchanged) |
 
 ### 3.1 What no DEM tier will ever solve
 
@@ -136,17 +183,20 @@ final answer always requires looking at the actual horizon on site.
 - `tools/build-data/generate_elevation.py`: for Tier 0.5, change `STEP` (and
   re-fetch the same two ERDDAP chunks at native resolution if the current
   request already truncates to 1/24° server-side — needs checking against
-  the actual ERDDAP query). For Tier 1, this becomes closer to a new sibling
-  script (`generate_horizon_dem.mjs`/`.py`) given the different source/format
-  and the corridor-clipping logic (reuse `shadow-frames.json`'s central line
-  the same way `basemap-global.mjs` reuses precomputed geometry elsewhere).
+  the actual ERDDAP query).
+- For Tier 1 (binary whole-bbox grid): either extend this same script to
+  write a second, denser binary output, or a new sibling script if the
+  source changes (e.g. Copernicus GLO-30 needs a different fetch/reprojection
+  path than ERDDAP). Either way the **output format changes** — a flat
+  `Int16` binary blob (e.g. `elevation-fine.bin`) instead of a JSON number
+  array, imported/fetched as an `ArrayBuffer` at runtime. `elevation.ts`'s
+  public interface (`elevationAt`, `isWithinElevationBounds`) stays the same;
+  only its internal `cellValue`/lookup needs to read from a typed array
+  instead of `elevationData.elevationsM`. Whole existing bbox, no corridor
+  clipping, no per-site restriction (§3).
 - `NOTICE.md`: new entry for whichever Tier-1 source is chosen, following the
   existing per-file convention exactly (provenance, license, attribution
   requirement if any, regeneration command).
-- Tier 2 (if pursued): a new `src/data/horizon-profiles.json`, generated by a
-  script that downloads/uses the high-res source **only in `.cache/`
-  (gitignored)**, same pattern as `generate_elevation.py`'s own
-  `.cache/etopo2022/`.
 
 ## 5. Runtime module & store
 
@@ -204,13 +254,13 @@ final answer always requires looking at the actual horizon on site.
 
 ## 8. Open questions to confirm before implementing
 
-1. **Which DEM tier to start with?** Recommendation is 0.5 now, 1 as the real
-   target, 2 deferred — confirm that's the right pace, or whether Tier 1
-   should be scoped in from the start.
-2. **Corridor width for Tier 1**, if pursued — how far off the central line
-   should the bundled dense DEM extend? Needs to cover realistic candidate
-   sites (the existing 11 presets already span a fair spread), not just the
-   mathematical centerline.
+1. **Which DEM tier to start with?** Recommendation is 0.5 immediately, Tier 1
+   (binary whole-bbox grid) as the real target — confirm that pace, or
+   whether it's worth skipping straight to Tier 1.
+2. **Target resolution for Tier 1** — ~1 km (smaller download, ~1–1.5 MB
+   gzipped) vs. ~500 m (noticeably better, ~4–6 MB gzipped). Both cover the
+   whole existing bbox with no site restriction; this is purely a
+   download-size-vs-fidelity call.
 3. **Refraction correction** — include it (matches how the Sun's own altitude
    is presumably computed) or skip it for simplicity? Effect is small
    (~34′ at the true horizon, less above it) but non-zero at these low
@@ -233,5 +283,4 @@ final answer always requires looking at the actual horizon on site.
 |---|---|
 | **1** | Tier 0.5 DEM swap (free) + `horizon.ts`/`horizonObstruction.ts` core logic + unit tests (§7) against the existing (denser) grid — no UI yet, provable correctness first. |
 | **2** | SkyPanel Wide-view terrain silhouette overlay + the Contacts/location warning, wired to Phase 1's store. |
-| **3** | Tier 1 DEM (corridor-clipped, higher-res source) replacing Tier 0.5 under the same interface — UI/logic from Phase 2 shouldn't need to change, only the data underneath it gets better. |
-| **4 (optional/stretch)** | Tier 2 precomputed per-site profiles for the preset sites, layered on top for extra fidelity where it matters most. |
+| **3** | Tier 1: binary-encoded, whole-bbox ~1 km (or 500 m) grid replacing Tier 0.5 under the same `elevation.ts` interface — UI/logic from Phase 2 shouldn't need to change, only the data underneath it gets better, and coverage stays everywhere the app already covers (no site restriction at any phase). |
