@@ -27,14 +27,19 @@ already there for other build steps, netCDF4 may need
 
     cd tools/build-data && python generate_elevation.py
 
-Resamples the native ~60 arc-sec (~1.4km) source grid onto a coarser
-1/24-degree (~0.04167 deg, ~4.2-4.6km at this latitude) lat/lon grid via
-bilinear interpolation, to keep the bundled JSON small (a few hundred KB)
-without sacrificing real accuracy -- the native grid is already fine enough
-that this resampling is just a size optimization, not a resolution
-compromise that matters for a picker UI. 1/24 deg divides the bbox's 9.5x17
-degree span evenly (228x408 intervals), so the grid's edges land exactly on
-the bbox boundary with no extrapolation needed.
+Resamples onto the source's own native ~60 arc-sec (1/60 deg, ~1.4-1.9km at
+this latitude) lat/lon grid via bilinear interpolation -- i.e. essentially a
+regrid/reformat rather than a real downsample (docs/HORIZON-PLAN.md's "Tier
+0.5": free, since it's the same already-fetched source at its own native
+resolution, just not thrown away as aggressively as the original 1/24 deg
+choice did). That original 1/24 deg (~4.2-4.6km) grid was sized for a
+location-picker's elevation display, where the native ~1.4km grid was
+"already fine enough that resampling further down is just a size
+optimization" -- but the horizon-obstruction check (HORIZON-PLAN.md) needs
+real nearby terrain, where 1/24 deg was demonstrably too coarse (a hill a
+few km away could fall entirely between grid points). 1/60 deg divides the
+bbox's 9.5x17 degree span evenly (570x1020 intervals), so the grid's edges
+still land exactly on the bbox boundary with no extrapolation needed.
 
 elevationsM is row-major: row 0 = latMin (south edge), increasing north;
 within each row, col 0 = lonMin (west edge), increasing east. Sea cells are
@@ -63,7 +68,7 @@ OUTPUT = HERE.parent.parent / "app" / "src" / "data" / "elevation.json"
 # Same bbox as basemap.mjs (PLAN.md Sec14 #3): west, south, east, north.
 LON_MIN, LAT_MIN, LON_MAX, LAT_MAX = -10.5, 35.0, 6.5, 44.5
 
-STEP = 1 / 24  # ~0.041667 deg; divides the bbox span evenly on both axes
+STEP = 1 / 60  # ~0.016667 deg (ETOPO 2022's own native ~60 arc-sec); divides the bbox span evenly on both axes
 
 
 def load_chunk(path, lon_offset=0.0):

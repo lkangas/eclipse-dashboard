@@ -30,6 +30,7 @@
   import { localCircumstances } from '../../stores/localCircumstances';
   import { observer } from '../../stores/observer';
   import { effectiveTime } from '../../stores/clock';
+  import { horizonObstruction } from '../../stores/horizonObstruction';
 
   let tab: 'wide' | 'allsky' = $state('wide');
 
@@ -219,6 +220,41 @@
   const horizonY = $derived(wideCy + boresight.altitude * WIDE_PX_PER_DEG);
   const GROUND_EXTENT = 1000;
 
+  // Real terrain-horizon silhouette (docs/HORIZON-PLAN.md), replacing the
+  // flat assumption above with the actual computed profile for this
+  // observer -- the same shared store also drives the Contacts panel's
+  // obstruction warning, so the two can never disagree. Usually near-
+  // indistinguishable from flat (most candidate sites have no nearby
+  // obstruction), but shows a real bump wherever the bundled DEM finds
+  // one. Falls back to the flat horizonY line (both here and in
+  // terrainGroundPoints below) if the profile ever comes back empty (e.g.
+  // no contacts at all for this observer).
+  const terrainSilhouetteXY = $derived(
+    $horizonObstruction.profile.map(
+      (p): [number, number] => widePos(p.terrainAltitudeDeg, p.azimuthDeg),
+    ),
+  );
+  const terrainGroundPoints: [number, number][] = $derived.by(() => {
+    const pts = terrainSilhouetteXY;
+    if (pts.length === 0) {
+      return [
+        [-GROUND_EXTENT, horizonY],
+        [wideVW + GROUND_EXTENT, horizonY],
+        [wideVW + GROUND_EXTENT, wideVH + GROUND_EXTENT],
+        [-GROUND_EXTENT, wideVH + GROUND_EXTENT],
+      ];
+    }
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    return [
+      [-GROUND_EXTENT, first[1]],
+      ...pts,
+      [wideVW + GROUND_EXTENT, last[1]],
+      [wideVW + GROUND_EXTENT, wideVH + GROUND_EXTENT],
+      [-GROUND_EXTENT, wideVH + GROUND_EXTENT],
+    ];
+  });
+
   // The Sun's real path from C1 to sunset -- a STATIC reference path for
   // the whole event (like the map's precomputed central line), not a
   // "from now" live line, so it doesn't depend on effectiveTime at all.
@@ -391,21 +427,20 @@
       <rect class="fovbox" x={fovBoxX} y={fovBoxY} width={fovBoxW} height={fovBoxH} />
       <!-- Ground painted over everything above (not behind it) -- same
            convention as CountdownPanel's ground rect, so anything below
-           the horizon dims through rather than vanishing abruptly. -->
-      <rect
-        class="ground"
-        x={-GROUND_EXTENT}
-        y={horizonY}
-        width={wideVW + 2 * GROUND_EXTENT}
-        height={Math.max(0, wideVH - horizonY + GROUND_EXTENT)}
-      />
-      <line
-        class="horizon"
-        x1={-GROUND_EXTENT}
-        y1={horizonY}
-        x2={wideVW + GROUND_EXTENT}
-        y2={horizonY}
-      />
+           the horizon dims through rather than vanishing abruptly. Follows
+           the real terrain silhouette computed above, not a flat rect. -->
+      <polygon class="ground" points={terrainGroundPoints.map((p) => p.join(',')).join(' ')} />
+      {#if terrainSilhouetteXY.length > 1}
+        <polyline class="horizon" points={terrainSilhouetteXY.map((p) => p.join(',')).join(' ')} />
+      {:else}
+        <line
+          class="horizon"
+          x1={-GROUND_EXTENT}
+          y1={horizonY}
+          x2={wideVW + GROUND_EXTENT}
+          y2={horizonY}
+        />
+      {/if}
     </svg>
     <svg
       viewBox="0 0 200 200"
@@ -502,6 +537,7 @@
     height: 100%;
   }
   .horizon {
+    fill: none;
     stroke: #dce4f2;
     stroke-width: 1.5;
   }

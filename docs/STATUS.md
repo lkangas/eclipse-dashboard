@@ -1,7 +1,7 @@
 # Status — Eclipse Dashboard
 
-**Updated:** 2026-07-13 · **T−30 days** to the eclipse (2026-08-12, ~18:26–18:33 UT,
-Spain) · `main` @ current HEAD · `npm run test`: 107/107 · `npm run check`: 0 errors
+**Updated:** 2026-07-17 · **T−26 days** to the eclipse (2026-08-12, ~18:26–18:33 UT,
+Spain) · `main` @ current HEAD · `npm run test`: 242/242 · `npm run check`: 0 errors
 
 Markers: ✅ done · 🟡 partial · ⬜ not started. Update this file when a
 feature's state actually changes, not per-commit — `git log` is the
@@ -57,10 +57,16 @@ changelog. See `docs/PLAN.md` §1–§12/§14–§15 for the frozen spec/archite
 
 - ⬜ **Sound warnings** — zero code. The single largest remaining gap for
   actual field use; nobody's reading a screen during totality.
-- ⬜ **Horizon obstruction check** — zero code. A plan exists
-  (`docs/HORIZON-PLAN.md`): terrain-horizon profile from the bundled DEM,
-  cross-referenced against the Sun's real track; also covers denser-DEM
-  options since the current ~4.6km grid is too coarse for this purpose.
+- 🟡 **Horizon obstruction check** (`docs/HORIZON-PLAN.md`) — Phases 1-2
+  done: real terrain-horizon profile from the bundled DEM (now regenerated
+  at ETOPO's native ~1.4-1.9km resolution, up from ~4.6km), cross-referenced
+  against each contact's actual Sun position; SkyPanel's Wide-view horizon
+  now follows the real silhouette, and ContactsPanel flags any predicted-
+  obstructed contact. Phase 3 (a genuinely denser whole-bbox DEM, binary-
+  encoded) not started — the current DEM only catches large/moderately-
+  distant terrain, not close-in obstructions like trees or buildings, which
+  no DEM tier will ever see (always needs on-site verification, and the UI
+  says so).
 - 🟡 **Licensing** — `constellation-lines.json` (Stellarium/HYG-derived)
   still has no `NOTICE.md` entry, no in-app credits screen exists, and the
   root `README.md` license line is still "TBD."
@@ -76,10 +82,6 @@ changelog. See `docs/PLAN.md` §1–§12/§14–§15 for the frozen spec/archite
 ## Housekeeping
 
 - ✅ Empty stray `app/.cache_test/` removed.
-- 🟡 An orphaned pre-existing worktree (`.claude/worktrees/agent-a861cfdb1a408d777`)
-  and its fully-merged branch (`worktree-agent-a861cfdb1a408d777`) are confirmed
-  safe to delete but weren't — an auto-mode safety policy blocked the
-  removal since it wasn't created this session and its working-tree state
-  (not just its commit history) was never independently checked. Needs a
-  manual `git worktree remove` + `git branch -d` from you, or explicit
-  permission to retry.
+- ✅ The orphaned worktree (`.claude/worktrees/agent-a861cfdb1a408d777`) and
+  its fully-merged branch, flagged above as safe-but-blocked, are removed
+  (2026-07-17).

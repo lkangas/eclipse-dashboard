@@ -1,9 +1,41 @@
 # Horizon Obstruction Check — Plan
 
-Status: **not started, zero code** (tracked as a known gap in `docs/STATUS.md`).
-This is a plan only, written before implementation the same way
-`docs/GPS-MONITOR-PLAN.md` was — meant to be confirmed/adjusted, not a
-finished spec.
+Status: **Phases 1-2 (§9) implemented, tested, and live-verified.** Landed:
+Tier 0.5 DEM swap (`elevation.json` regenerated at ETOPO's native ~1.4-1.9km
+resolution instead of the old 1/24deg ~4.6km downsample, 582,991 cells,
+2.7MB); `src/eclipse/horizon.ts` (`terrainHorizonProfile` ray-marches the
+DEM with Earth curvature + standard terrestrial refraction via the 7/6
+effective-radius approximation -- deliberately a DIFFERENT correction from
+the Sun's own astronomical refraction, see the module's own comment;
+`checkHorizonObstruction` checks each named contact's already-known Sun
+position directly against the profile, rather than sampling a continuous
+track and searching for a crossing as originally sketched in Sec2.2 below --
+simpler and all the UI actually needs); `stores/horizonObstruction.ts` (one
+shared derived store feeding both consumers so they can't disagree);
+SkyPanel's Wide-view horizon line/ground fill now follow the real computed
+terrain silhouette instead of a flat assumption; ContactsPanel flags any
+predicted-obstructed contact both per-row and with a summary warning
+(`#c22`, the same color TopBar's own elevation-out-of-bounds flag already
+uses). 16 new unit tests (curvature/refraction vs. the independent 1.76'*sqrt(h)
+reference, synthetic flat-plane and ring-wall fixtures, azimuth-window
+handling, obstruction-check clear/blocked cases) plus live-verified against
+a real steep-terrain location (Torla/Ordesa, Pyrenees) showing genuinely
+different, larger terrain-silhouette variation and a real obstruction
+result, confirmed against the unaffected Calamocha default afterward.
+242/242 tests passing, typecheck clean.
+
+**One characteristic worth knowing, not a bug**: the "Sunset" contact
+trips the obstruction flag almost everywhere, including the Calamocha
+default -- it's checked against a threshold within a fraction of a degree
+of the idealized flat-horizon 0°, and real terrain (even gentle, distant
+hills) almost always sits at least that high in the real world. C1-C4
+require genuinely significant nearby terrain to trigger, and are the more
+discriminating/useful signal; Sunset itself is rarely the actual eclipse
+event anyway (usually well after C3/C4 -- see each site's own margin in
+PLAN.md Sec1).
+
+Phase 3 (denser Tier-1 DEM) and Phase 4 (real-hardware/field validation,
+not applicable here the way it was for the GPS monitor) not started.
 
 ---
 

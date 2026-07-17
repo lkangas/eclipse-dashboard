@@ -15,6 +15,7 @@
   import { obscuration } from '../../stores/obscuration';
   import { observer } from '../../stores/observer';
   import { skyView, sunAltAzAt } from '../../stores/skyView';
+  import { horizonObstruction } from '../../stores/horizonObstruction';
   import { formatCountdown, formatDurationSeconds, formatCest } from '../format';
   import eclipseTimesData from '../../data/eclipse-times.json';
 
@@ -51,6 +52,7 @@
       .sort((a, b) => a.date.getTime() - b.date.getTime())
       .map((r) => {
         const altAz = sunAltAzAt(r.date, $observer.lat, $observer.lon, $observer.elevationM);
+        const obstruction = $horizonObstruction.contacts.find((c) => c.key === r.key);
         return {
           key: r.key,
           label: r.label,
@@ -59,9 +61,20 @@
           alt: formatAlt(altAz.altitude),
           az: formatAz(altAz.azimuth),
           offset: formatCountdown((r.date.getTime() - $effectiveTime.getTime()) / 1000),
+          obstructedByTerrain: obstruction?.obstructed ?? false,
         };
       });
   });
+  // Horizon-obstruction warning (docs/HORIZON-PLAN.md): derived from `rows`
+  // (already sunset-filtered) rather than horizonObstruction's own raw
+  // contact list directly, so a contact that's already dropped for being
+  // non-observable after sunset never also shows up here as "blocked by
+  // terrain" -- redundant and confusing, since it's already not shown at
+  // all for a different reason.
+  const obstructedLabels = $derived(
+    rows.filter((r) => r.obstructedByTerrain).map((r) => r.label).join(', '),
+  );
+  const anyObstructed = $derived(rows.some((r) => r.obstructedByTerrain));
   // Global circumstances (PLAN.md §9 "global circumstances toggle") --
   // the eclipse's whole-Earth timeline (first/last penumbral & umbral
   // contact, central line begin/end, extreme N/S limits, greatest
@@ -163,6 +176,14 @@
 </script>
 
 <div class="contacts">
+  {#if anyObstructed}
+    <div
+      class="obstructionwarning"
+      title="Distant-terrain estimate from the bundled elevation grid only -- it can't see nearby trees, buildings, or small local terrain. Always verify the real horizon on site."
+    >
+      ⚠ Terrain may block {obstructedLabels}
+    </div>
+  {/if}
   <div class="tablewrap" class:crowded={showGlobal} style="--natural-h: {naturalTableH}px">
     <table>
       <tbody>
@@ -171,6 +192,7 @@
             class:next={row.key === nextKey}
             class:past={row.key !== nextKey && row.date.getTime() < $effectiveTime.getTime()}
             class:global={!row.isLocal}
+            class:obstructed={row.isLocal && row.obstructedByTerrain}
           >
             <td>
               <span title={row.fullLabel}>{row.label}</span>
@@ -285,6 +307,27 @@
   }
   tr.global td.num {
     font-size: calc(12px * var(--tscale-table));
+  }
+  /* Terrain-obstruction flag (docs/HORIZON-PLAN.md) -- same #c22 warning
+     color TopBar's own elevation-out-of-bounds flag uses, for one
+     consistent "coarse/uncertain data, pay attention" visual language
+     across the app rather than a second ad-hoc warning color. Overrides
+     the plain local-row accent border above (placed after it, same
+     specificity) since an obstructed row needs the warning to read first. */
+  tr.obstructed td:first-child {
+    border-left-color: #c22;
+  }
+  tr.obstructed td:first-child span {
+    color: #c22;
+    font-weight: 600;
+  }
+  .obstructionwarning {
+    flex-shrink: 0;
+    font-size: calc(12px * var(--tscale));
+    font-weight: 600;
+    color: #c22;
+    padding: 0 0 calc(4px * var(--tscale));
+    cursor: help;
   }
   /* Pinned to the ribbon's right edge via margin-left: auto -- the only
      item in .circ that isn't a Duration/Obsc./Sun-alt-az stat, so it
