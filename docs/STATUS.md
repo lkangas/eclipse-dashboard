@@ -57,7 +57,10 @@ changelog. See `docs/PLAN.md` §1–§12/§14–§15 for the frozen spec/archite
 
 - ⬜ **Sound warnings** — zero code. The single largest remaining gap for
   actual field use; nobody's reading a screen during totality.
-- ⬜ **Horizon obstruction check** — zero code.
+- ⬜ **Horizon obstruction check** — zero code. A plan exists
+  (`docs/HORIZON-PLAN.md`): terrain-horizon profile from the bundled DEM,
+  cross-referenced against the Sun's real track; also covers denser-DEM
+  options since the current ~4.6km grid is too coarse for this purpose.
 - 🟡 **Licensing** — `constellation-lines.json` (Stellarium/HYG-derived)
   still has no `NOTICE.md` entry, no in-app credits screen exists, and the
   root `README.md` license line is still "TBD."
