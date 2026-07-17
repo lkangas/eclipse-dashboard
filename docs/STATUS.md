@@ -64,8 +64,10 @@ changelog. See `docs/PLAN.md` §1–§12/§14–§15 for the frozen spec/archite
 - ⬜ Sunset-filtering/"next observable event" logic is still triplicated
   across `ContactsPanel`/`CountdownPanel`/`TimeBar` with no shared tested
   function; no test pins the ΔT-override installation either.
-- ⬜ `eclipse-times.json`'s ΔT (69.2s) vs. the app's own (69.1s) — small,
-  documented, unreconciled.
+- ✅ `eclipse-times.json`'s ΔT (69.2s, its ytliu cross-check source) vs. the
+  app's own locked 69.1s — accepted as-is (user decision, 2026-07-17); the
+  69.1s lock is independently corroborated (real IERS data: 69.17s), so this
+  is a validation-tolerance footnote, not a bug to reconcile further.
 - ⬜ No CI.
 
 ## Housekeeping
