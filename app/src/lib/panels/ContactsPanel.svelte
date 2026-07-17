@@ -159,19 +159,16 @@
 
   // Export as the JSON schema third-party eclipse-photography tooling
   // expects (direct request) -- see lib/exportTimes.ts's own comment.
-  // Needs a real totality here (C1/C2/C3/C4 all present): the schema has
-  // no slot for "partial only", and a half-populated file would be worse
-  // than none for whatever downstream tool consumes it.
+  // Only needs C1/C4 (any partial eclipse's own start/end) -- totality
+  // (C2/C3) is exported as null when this observer sees no totality,
+  // rather than blocking the export entirely on it existing.
   const canExportTimes = $derived(
-    $localCircumstances.c1 !== null &&
-      $localCircumstances.c2 !== null &&
-      $localCircumstances.c3 !== null &&
-      $localCircumstances.c4 !== null,
+    $localCircumstances.c1 !== null && $localCircumstances.c4 !== null,
   );
   function exportTimes() {
     const lc = $localCircumstances;
-    if (!lc.c1 || !lc.c2 || !lc.c3 || !lc.c4) return;
-    downloadTimesJson(buildTimesJson(lc.c1, lc.c2, lc.max, lc.c3, lc.c4));
+    if (!lc.c1 || !lc.c4) return;
+    void downloadTimesJson(buildTimesJson(lc.c1, lc.c2, lc.max, lc.c3, lc.c4));
   }
 
   // Live, not a per-event snapshot -- both update continuously with
@@ -235,8 +232,8 @@
       disabled={!canExportTimes}
       onclick={exportTimes}
       title={canExportTimes
-        ? 'Save this observer\'s C1/C2/Max/C3/C4 as times.json (komakallio/eclipse2024 schema)'
-        : 'No totality visible from this location -- nothing to export'}
+        ? 'Save this observer\'s C1/C2/Max/C3/C4 as times.json (komakallio/eclipse2024 schema) -- C2/C3 null if no totality here'
+        : 'No eclipse visible from this location -- nothing to export'}
     >
       Save JSON
     </button>

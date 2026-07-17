@@ -44,4 +44,23 @@ describe('buildTimesJson', () => {
       },
     });
   });
+
+  it('exports C2/C3 as null for a partial-only observer, C1/C4/MAX still present', () => {
+    const json = buildTimesJson(
+      new Date('2024-04-08T17:22:44.8Z'),
+      null,
+      new Date('2024-04-08T18:42:15.3Z'),
+      null,
+      new Date('2024-04-08T20:02:28.6Z'),
+    );
+    expect(json).toEqual({
+      times: {
+        C1: '2024-04-08T17:22:44.8Z',
+        C2: null,
+        MAX: '2024-04-08T18:42:15.3Z',
+        C3: null,
+        C4: '2024-04-08T20:02:28.6Z',
+      },
+    });
+  });
 });
