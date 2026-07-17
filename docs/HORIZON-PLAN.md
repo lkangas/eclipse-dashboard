@@ -160,6 +160,43 @@ ETOPO if one's worth the integration effort — this replaces both the old
 "narrow corridor" and "fixed preset sites" ideas with a single design that
 actually covers wherever you might end up driving.
 
+### 3.0 Real-world precedent: PeakFinder
+
+Worth checking against, since PeakFinder (the mountain-panorama app/API)
+solves this exact class of problem — what terrain is visible/blocking from
+an arbitrary point — at global scale, and confirms the direction above
+rather than the earlier fixed-site draft:
+
+- **Global base + regional override, the same pattern already recommended
+  here.** Per PeakFinder's own resources page: a global base of NASADEM +
+  SRTM (3-arcsec/~90m and 1-arcsec/~30m, via the "Viewfinder Panoramas"
+  project — Jonathan de Ferranti's long-running DEM cleanup/void-filling
+  effort, purpose-built for horizon rendering, not a general-purpose DEM
+  repurposed for it), layered with a **higher-quality LiDAR compilation for
+  Europe specifically** ("collected and resampled by Sonny," the same
+  project). Directly analogous to this plan's "global source + Spain's IGN
+  data as a regional override" idea (§3) — real precedent, not just a guess.
+- **Rendered live from arbitrary lat/lon, not precomputed per fixed site.**
+  PeakFinder's own description ("same technology as in computer games") and
+  its public API (arbitrary lat/lon + azimuth + FOV + a visibility-range
+  parameter) confirm it ray-casts on demand against real terrain data for
+  whatever point it's given — not a fixed list of precomputed panoramas.
+  Working confirmation that abandoning the fixed-site draft (§3 above) was
+  the right call, not a fallback compromise.
+- **Their problem is actually wider than ours in one dimension**: visibility
+  range up to 320km, because a scenic panorama needs to show genuinely
+  distant tall mountains. This event's horizon check only cares about
+  terrain close enough to block a 2–12° Sun — §2.3's own math already caps
+  that at ~30–50km, so this app's version of the problem is narrower, not
+  harder.
+- Viewfinder Panoramas' own Europe LiDAR compilation (free, purpose-built
+  for this) is worth investigating as a candidate source alongside Copernicus
+  DEM/EU-DEM/IGN in §3's Tier 1 — same license-verification caveat as the
+  others applies before committing to it.
+- No public detail found on PeakFinder's actual tiling scheme, offline
+  package sizes, or file format — kept proprietary, unsurprisingly, so
+  nothing to borrow there directly.
+
 | Tier | Source / change | Resulting resolution | Bundle size (whole bbox) | Effort |
 |---|---|---|---|---|
 | **0 — current** | ETOPO 2022, resampled to 1/24° (existing `elevation.json`) | ~4.6 km | 432 KB (shipped) | none |
