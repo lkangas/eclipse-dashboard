@@ -33,6 +33,11 @@
   import { horizonObstruction } from '../../stores/horizonObstruction';
 
   let tab: 'wide' | 'allsky' = $state('wide');
+  // Real DEM terrain silhouette is toggleable (direct request) -- the
+  // idealized flat 0deg horizon below is always shown regardless, as a
+  // fixed reference to compare the (usually subtle) real terrain line
+  // against, rather than the two ever being mutually exclusive.
+  let showDemHorizon = $state(true);
 
   const PLANET_MAG_LIMIT = 3;
 
@@ -220,22 +225,22 @@
   const horizonY = $derived(wideCy + boresight.altitude * WIDE_PX_PER_DEG);
   const GROUND_EXTENT = 1000;
 
-  // Real terrain-horizon silhouette (docs/HORIZON-PLAN.md), replacing the
-  // flat assumption above with the actual computed profile for this
-  // observer -- the same shared store also drives the Contacts panel's
-  // obstruction warning, so the two can never disagree. Usually near-
-  // indistinguishable from flat (most candidate sites have no nearby
-  // obstruction), but shows a real bump wherever the bundled DEM finds
-  // one. Falls back to the flat horizonY line (both here and in
-  // terrainGroundPoints below) if the profile ever comes back empty (e.g.
-  // no contacts at all for this observer).
+  // Real terrain-horizon silhouette (docs/HORIZON-PLAN.md), toggleable via
+  // showDemHorizon above -- the same shared store also drives the Contacts
+  // panel's obstruction warning, so the two can never disagree. Usually
+  // near-indistinguishable from flat (most candidate sites have no nearby
+  // obstruction), but shows a real bump wherever the bundled DEM finds one.
   const terrainSilhouetteXY = $derived(
     $horizonObstruction.profile.map(
       (p): [number, number] => widePos(p.terrainAltitudeDeg, p.azimuthDeg),
     ),
   );
+  // Ground fill follows the real terrain only while showDemHorizon is on
+  // (and a real profile exists) -- falls back to the flat horizonY line
+  // either way it isn't, so the fill is never lumpy without the stroked
+  // terrain line above it to explain why.
   const terrainGroundPoints: [number, number][] = $derived.by(() => {
-    const pts = terrainSilhouetteXY;
+    const pts = showDemHorizon ? terrainSilhouetteXY : [];
     if (pts.length === 0) {
       return [
         [-GROUND_EXTENT, horizonY],
@@ -398,6 +403,16 @@
   <div class="tabs">
     <button class:on={tab === 'wide'} onclick={() => (tab = 'wide')}>Wide</button>
     <button class:on={tab === 'allsky'} onclick={() => (tab = 'allsky')}>All-sky</button>
+    {#if tab === 'wide'}
+      <button
+        class="dembtn"
+        class:on={showDemHorizon}
+        onclick={() => (showDemHorizon = !showDemHorizon)}
+        title="Toggle the real DEM-derived terrain horizon (the flat 0° reference line always shows)"
+      >
+        DEM horizon
+      </button>
+    {/if}
   </div>
   <div class="skyzone">
     <svg
@@ -428,18 +443,21 @@
       <!-- Ground painted over everything above (not behind it) -- same
            convention as CountdownPanel's ground rect, so anything below
            the horizon dims through rather than vanishing abruptly. Follows
-           the real terrain silhouette computed above, not a flat rect. -->
+           the real terrain silhouette when showDemHorizon is on, a flat
+           rect otherwise (see terrainGroundPoints). -->
       <polygon class="ground" points={terrainGroundPoints.map((p) => p.join(',')).join(' ')} />
-      {#if terrainSilhouetteXY.length > 1}
+      <!-- Idealized flat 0deg horizon -- ALWAYS shown (direct request), a
+           fixed reference to compare the real DEM terrain line against,
+           not replaced by it. -->
+      <line
+        class="zerohorizon"
+        x1={-GROUND_EXTENT}
+        y1={horizonY}
+        x2={wideVW + GROUND_EXTENT}
+        y2={horizonY}
+      />
+      {#if showDemHorizon && terrainSilhouetteXY.length > 1}
         <polyline class="horizon" points={terrainSilhouetteXY.map((p) => p.join(',')).join(' ')} />
-      {:else}
-        <line
-          class="horizon"
-          x1={-GROUND_EXTENT}
-          y1={horizonY}
-          x2={wideVW + GROUND_EXTENT}
-          y2={horizonY}
-        />
       {/if}
     </svg>
     <svg
@@ -519,6 +537,11 @@
     color: var(--ink);
     border-bottom-color: var(--accent);
   }
+  /* Pinned to the tab row's right edge, same convention as ContactsPanel's
+     .globaltoggle -- reads as a separate control, not a third tab. */
+  .tabs button.dembtn {
+    margin-left: auto;
+  }
   /* Dark night-sky backdrop (was var(--zone), the app's plain light
      panel color) -- matches CountdownPanel's own background, since both
      now share the same filled-Sun/filled-Moon visual language and need
@@ -540,6 +563,16 @@
     fill: none;
     stroke: #dce4f2;
     stroke-width: 1.5;
+  }
+  /* Idealized flat 0deg reference (direct request: always shown, never
+     replaced by the real DEM line above) -- dashed and dimmer than
+     .horizon so the two read as "reference vs. real" rather than
+     competing solid lines when both are visible at once. */
+  .zerohorizon {
+    stroke: #dce4f2;
+    stroke-opacity: 0.45;
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
   }
   .ground {
     fill: #05070d;
