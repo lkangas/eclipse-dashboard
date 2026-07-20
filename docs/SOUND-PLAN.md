@@ -8,10 +8,16 @@ reading a screen during totality." This document was originally the
 synthesis of three independently-written design candidates (pure synthesized
 tones, speech-first via Web Speech API, and a deliberate tone+speech hybrid)
 into one implementation-ready plan; §1-§2's event/message content was then
-**revised 2026-07-21 per direct instruction**, replacing that synthesis's
-original single-T−30s-pre-warning design with a richer per-event countdown
-ladder (§2.1) — the underlying architecture (hybrid tone+speech split,
-scheduler, voice-filtering guardrail) is unchanged and still applies. Every
+**revised 2026-07-21 per direct instruction, in two passes** — first
+replacing the synthesis's original single-T−30s-pre-warning design with a
+richer per-event countdown ladder (§2.1), then a follow-up settling what
+that first pass had left open (§2.4): C4/Sunset get no sound at all, Max's
+announcement is unconditional (no more totality-redundancy suppression),
+the Filters off!/on! calls are folded into C2's own 15s rung and a new
+standalone C3+15s event rather than two separate not-yet-timed events, and
+C1/C2/C3's tones are deliberately identical for now, to be differentiated
+later. The underlying architecture (hybrid tone+speech split, scheduler,
+voice-filtering guardrail) is unchanged and still applies throughout. Every
 claim about this app's own architecture below (`localCircumstances`,
 `effectiveTime`/`now`, `horizonObstruction`, and the actual triplicated "next
 observable event" logic) was checked directly against the current source,
@@ -114,10 +120,11 @@ no overlap:
   .currentTime + delta)` is honored by the browser's own audio-rate clock,
   immune to main-thread jank, GC pauses, or `setInterval`/`setTimeout`
   throttling.
-- **Max (conditionally) and terminal-Sunset (conditionally)** — see §2 for
-  exactly when — are informational: "here's how much of the disk is
-  covered," "it's over here." Neither has a hard deadline measured in
-  fractions of a second, so spoken, not toned.
+- **Max** — unconditional per §2.3 Rule 3 — is informational: "here's how
+  much of the disk is covered." No hard deadline measured in fractions of a
+  second, so spoken, not toned. (**C4 and Sunset get no sound treatment at
+  all**, per §2.3 Rule 1 — they're not part of this "spoken, not toned"
+  bucket or any other; they simply produce no `SoundEvent`.)
 - **The countdown ladders for C1/C2/C3 themselves** (§2.1) are also
   informational ("something precise is coming soon") rather than the
   precise cue itself — so every rung is spoken, not toned, and naming what
@@ -186,56 +193,83 @@ app's own track record of `file://`-specific surprises.
 
 ### 2.1 The events, and which channel(s) they get
 
-**Revised 2026-07-21, per direct instruction — replaces this section's
-original single-T−30s-pre-warning design.** All keys come directly from
-`LocalCircumstances` (`app/src/stores/localCircumstances.ts`): `c1, c2, max,
-c3, c4, sunset`, all independently nullable except `max`. No event in this
-design ever reads a `Date` field without checking it for `null` first —
-every rung below is gated by the eligibility rules in §2.2 before it's ever
-considered "armed."
+**Revised 2026-07-21, per direct instruction (twice — the countdown-ladder
+revision, then a second pass settling the items §2.4 had left open).** All
+keys come from `LocalCircumstances`
+(`app/src/stores/localCircumstances.ts`): `c1, c2, max, c3, c4, sunset`, all
+independently nullable except `max` — but as of this second revision, only
+`c1, c2, max, c3` ever get any sound at all (see C4/Sunset below). No event
+in this design ever reads a `Date` field without checking it for `null`
+first — every rung below is gated by the eligibility rules in §2.2/§2.3
+before it's ever considered "armed."
 
-**C1 — partial eclipse begins** (solar filter must already be on):
-- Spoken countdown: 5 min, 1 min, 30s, 10s, 5s before C1 (e.g. *"Five
-  minutes to C1."* ... *"Five seconds to C1."*)
+**C1 — partial eclipse begins** (solar filter must already be on). Spoken
+countdown, exact wording per rung — **a deliberate choice, not an
+inconsistency**: the "to C1"/context framing drops on the last two rungs,
+but "seconds" itself is kept on all of C1's sub-minute rungs (contrast
+C2/C3 below, where "seconds" itself drops too, further in):
+  - 5 min: *"Five minutes to C1."*
+  - 1 min: *"One minute to C1."*
+  - 30s: *"Thirty seconds to C1."*
+  - 10s: *"Ten seconds."*
+  - 5s: *"Five seconds."*
 - At C1: **Tone** only — no separate spoken confirmation; the ladder above
-  already named what's coming, so the tone is purely the precise click,
-  same reasoning as C2/C3 below
+  already named what's coming, so the tone is purely the precise click
 
-**C2 — totality begins** (filter comes off):
-- Spoken countdown: 10 min, 5 min, 2 min, 1 min, 30s, 15s, 10s, 5s before C2
-- Separate spoken safety call: *"Filters off!"* at C2 − *X* seconds — **X
-  not yet decided** (§2.4)
-- At C2: **Tone** (rising sweep) only
+**C2 — totality begins** (filter comes off). Spoken countdown — here both
+the "to C2" framing *and* the word "seconds" itself drop on the closest
+rungs, a tighter progression than C1's:
+  - 10 min: *"Ten minutes to C2."*
+  - 5 min: *"Five minutes to C2."*
+  - 2 min: *"Two minutes to C2."*
+  - 1 min: *"One minute to C2."*
+  - 30s: *"Thirty seconds."*
+  - 15s: *"Fifteen, filters off!"* — folds the filter-safety instruction
+    directly into this rung instead of a separate event (settled
+    2026-07-21, replacing the original "separate `Filters off!` call at
+    C2 − *X*, X TBD" design — there is no separate event any more, X is
+    simply 15 and it *is* this existing rung, reworded)
+  - 10s: *"Ten."*
+  - 5s: *"Five."*
+- At C2: **Tone** only
 
 **Max — greatest eclipse**:
 - No pre-warning (nothing actionable to prepare for)
-- At Max: Spoken *"Maximum."* — carrying forward this document's original
-  suppression rule (§2.3) unless told otherwise: silent when C2 *and* C3
-  both survive `observableEvents()` (a normal, fully-observable totality
-  already has its own C2/C3 cues saying "this is the big moment"), fires
-  otherwise (partial-only sites, or sites where sunset cuts off before
-  Max even though C2 was observable)
+- At Max: Spoken *"Maximum."* — **unconditional, settled 2026-07-21**,
+  repealing this document's original suppression rule (§2.3's former
+  Judgment call 3, which silenced Max whenever C2/C3 were both observable)
+  — Max now announces even during an otherwise-fully-observable totality
 
-**C3 — totality ends** (filter goes back on):
-- Spoken countdown: 50s, 30s, 15s, 10s, 5s before C3 — starts closer in
-  than C1/C2's ladders, since totality itself is only ~1-2 minutes long; a
-  5-minute-out warning for C3 would be warning about an instant that
-  hasn't even had its own C2 tone yet at most sites
-- Separate spoken safety call: *"Filters on!"* at C3 + *X* seconds — **X
-  not yet decided** (§2.4), and note the sign: *after* C3, not before,
-  unlike C2's filters-off call
-- At C3: **Tone** (falling, faster/more urgent sweep) only
+**C3 — totality ends** (filter goes back on). Spoken countdown — same
+tight, "seconds"-dropping progression as C2's closest rungs, just starting
+later since totality itself is only ~1-2 minutes long (a 5-minute-out
+warning for C3 would be warning about an instant that hasn't even had its
+own C2 tone yet at most sites):
+  - 50s: *"Fifty seconds."*
+  - 30s: *"Thirty seconds."*
+  - 15s: *"Fifteen."*
+  - 10s: *"Ten."*
+  - 5s: *"Five."*
+- At C3: **Tone** only
+- **New, additional event, settled 2026-07-21**: at C3 **+ 15s** (after,
+  not before), Spoken *"Filters on!"* alone — no countdown number, since
+  there's nothing left to count down to at that point; a genuinely separate
+  `SoundEvent`, not a reworded rung the way C2's 15s rung is (C3's own
+  countdown wording above is unchanged, plain)
 
-**C4 — partial eclipse ends** and **Sunset (terminal only)** — **carried
-forward unchanged from this document's original design pending explicit
-confirmation**, since neither was mentioned in the revision: no pre-warning
-(no hard deadline to prepare for), spoken-only at-instant (*"Eclipse has
-ended."* / *"Sun has set. Eclipse viewing has ended."*), no tone.
+**C4 — partial eclipse ends** and **Sunset** — **no sound at all, settled
+2026-07-21** (repealing this section's original carried-forward "spoken-only
+at-instant" treatment for both). Neither gets a `SoundEvent` of any kind,
+regardless of nullability/observability — `sound/eligibility.ts` excludes
+both keys outright, unconditionally, before any other rule runs.
 
-Tone is now reserved for the three hard-deadline eye-safety instants —
-C1, C2, C3 — not C2/C3 exclusively as originally designed; still no event
-outside those three ever gets a tone, in any phase, keeping the "Timing
-tones" UI toggle (§4.3) a well-defined control over exactly three sounds.
+Tone is reserved for the three hard-deadline eye-safety instants — C1, C2,
+C3 — no event outside those three ever gets a tone, in any phase, keeping
+the "Timing tones" UI toggle (§4.3) a well-defined control over exactly
+three sounds. **All three tones are deliberately identical for now** (a
+single simple placeholder shape, not the distinct rising/falling sweeps
+this document originally sketched for C2/C3) — differentiating them is
+explicit future iteration, not part of this plan's Phase 1 scope (§6).
 
 ### 2.2 Nullability — the exact gating rule, ported from real existing code
 
@@ -288,74 +322,60 @@ export interface ScheduledEvent {
 export function observableEvents(lc: LocalCircumstances): ScheduledEvent[];
 ```
 
-### 2.3 Sound-specific layering on top of `observableEvents()` — the three judgment calls the brief asks for, made explicit
+### 2.3 Sound-specific layering on top of `observableEvents()`
 
 `observableEvents()` above is a faithful port of what the three existing
 UI consumers *already* do — it is not sound-specific. Sound warnings need
-two additional, sound-specific filters layered on top, in a new
-**`app/src/sound/eligibility.ts`**:
+sound-specific filtering on top, in a new **`app/src/sound/eligibility.ts`**.
+This section originally made three judgment calls here; **two of the three
+were superseded 2026-07-21** by simpler, explicit rules — kept below with
+the repeal noted rather than silently deleted, since the reasoning that led
+to the original calls is still worth having on record.
 
-**Judgment call 1 — sunset only gets a warning when it's actually terminal
-for this observer.** `ContactsPanel.svelte`'s table always shows a `sunset`
-row when non-null, whether or not it ends up mattering (a table row costs
-nothing to ignore). An *audible* warning is not free to ignore the same
-way, so the bar is higher: **only warn about sunset when `lc.c4 === null ||
-lc.sunset!.getTime() < lc.c4.getTime()`** — i.e., only when the sun actually
-sets before the partial phase would otherwise have finished. When sunset
-falls comfortably after C4 (the common case away from the sunset-limited
-fringe — most of interior Spain), the eclipse is already fully over from
-that observer's perspective by the time the ordinary evening sunset comes
-around; announcing an unrelated daily event as if it were part of the
-eclipse is pure noise, and this design explicitly does not do it. When it
-*is* terminal — including the unlucky edge case where sunset falls before
-C2 and the observer never sees totality at all — the sunset warning becomes
-the single most informative thing this feature tells that observer ("this
-is over for you"), not a footnote, and both its pre-warning and at-moment
-lines fire per §2.1's table.
+**Rule 1 — C4 and Sunset get no sound at all, unconditionally (settled
+2026-07-21, repeals the original "sunset only gets a warning when terminal"
+judgment call).** Neither key ever produces a `SoundEvent`, regardless of
+nullability or `observableEvents()`'s own output — `soundEligibleEvents()`
+excludes both outright, before any other rule runs. *(The original,
+superseded rule reasoned about a "sunset only when it actually ends the
+event" cutoff, mirroring `ContactsPanel.svelte`'s own table logic — no
+longer applicable now that sunset gets no sound treatment in any
+circumstance. That original rule was also explicitly a different "sunset is
+special" carve-out from the unrelated one already in `horizonObstruction.ts`
+— that store's `CONTACT_KEYS` computation excludes `'sunset'` from its own
+obstruction flag because the near-0° threshold trips almost everywhere and
+isn't an actionable terrain signal, per `docs/HORIZON-PLAN.md`. Worth
+remembering these were always two independent carve-outs, not the same
+rule twice, in case either is revisited later.)*
 
-*(Note this is a different "sunset is special" rule from the one already
-in `horizonObstruction.ts`: that store's `CONTACT_KEYS` computation
-deliberately excludes `'sunset'` from its own obstruction flag, for an
-unrelated reason — the near-0° threshold trips almost everywhere and isn't
-an actionable terrain signal, per `docs/HORIZON-PLAN.md`. The two "sunset is
-special" carve-outs are independent of each other; don't conflate them.)*
+**Rule 2 — terrain obstruction never suppresses a sound warning, for any
+event, ever (unchanged).** Unanimous across all three original input
+candidates, and correct for two independent reasons: first,
+`horizonObstruction`'s `ContactObstruction.obstructed` flag is a DEM-based
+*prediction*, not a certainty — `docs/HORIZON-PLAN.md` §3.1 already states
+plainly that no bare-earth DEM sees trees, buildings, or the exact hillock
+the observer ends up standing behind, so silently withholding the most
+safety-critical warning (C3) on a possibly-wrong prediction is a bad trade
+even before considering the second reason. Second, and more fundamental:
+the entire premise of an audible warning is that the user *isn't* looking
+at the sky to personally judge visibility right now — so
+visibility-to-the-eye and relevance-to-the-ear are orthogonal properties,
+and a user might still care about exact timing (photography, narrating to
+a group, other instruments) regardless of whether the Sun itself happens to
+be behind a ridge at that moment. **Concretely: `soundEligibleEvents()`
+never reads `horizonObstruction` at all** — it has no input from that
+store, by construction, so there is no code path by which it could
+accidentally suppress a warning based on a terrain prediction.
 
-**Judgment call 2 — terrain obstruction never suppresses a sound warning,
-for any event, ever.** Unanimous across all three input candidates, and
-correct for two independent reasons: first, `horizonObstruction`'s
-`ContactObstruction.obstructed` flag is a DEM-based *prediction*, not a
-certainty — `docs/HORIZON-PLAN.md` §3.1 already states plainly that no bare-
-earth DEM sees trees, buildings, or the exact hillock the observer ends up
-standing behind, so silently withholding the most safety-critical warning
-(C3) on a possibly-wrong prediction is a bad trade even before considering
-the second reason. Second, and more fundamental: the entire premise of an
-audible warning is that the user *isn't* looking at the sky to personally
-judge visibility right now — so visibility-to-the-eye and relevance-to-the-
-ear are orthogonal properties, and a user might still care about exact
-timing (photography, narrating to a group, other instruments) regardless of
-whether the Sun itself happens to be behind a ridge at that moment.
-**Concretely: `soundEligibleEvents()` never reads `horizonObstruction` at
-all** — it has no input from that store, by construction, so there is no
-code path by which it could accidentally suppress a warning based on a
-terrain prediction.
-
-**Judgment call 3 — Max only gets a spoken announcement when it's the
-climactic moment for this observer, not a redundant one.** This
-refinement (Candidate C's, and the sharpest of the three candidates' Max
-treatments) does more work than either "Max off by default" (A) or "Max
-opt-in, off by default" (B): **suppress Max's announcement whenever both
-`c2` and `c3` survive `observableEvents()`'s filter** (i.e., a normal,
-fully-observable totality is happening here) — because C2's and C3's own
-cues already carry "this is the big moment," and a mid-totality "maximum
-eclipse now" would be competing noise for someone who should be looking up,
-not listening to a redundant status update. **Fire it otherwise** — a
-partial-only site (outside the umbral corridor, or at its very edge, where
-`c2`/`c3` are null), or a site where sunset cuts off before Max is reached
-even though C2 was observable. In those cases Max genuinely is the peak
-moment of the whole event for that observer, and nothing else announces it.
-Because this condition already removes the redundant case entirely, Max
-defaults **on** rather than opt-in — there's no leftover "annoying
-duplicate chatter" risk left to guard against with an extra toggle.
+**Rule 3 — Max always gets its spoken announcement, unconditionally
+(settled 2026-07-21, repeals the original "suppress Max when C2/C3 are both
+observable" judgment call).** The original rule suppressed Max whenever a
+normal, fully-observable totality was happening, reasoning C2/C3's own cues
+already said "this is the big moment" and a mid-totality "maximum eclipse
+now" would be redundant competing noise. Direct instruction overrides that
+reasoning: Max is wanted even during an otherwise-fully-observable totality.
+No condition left to encode here — every non-null `max` (which is to say,
+every `max`, since it's never null) gets the announcement.
 
 ```ts
 export interface SoundEvent extends ScheduledEvent {
@@ -363,35 +383,37 @@ export interface SoundEvent extends ScheduledEvent {
   prewarn: boolean; // false = at-instant
 }
 
-/** Layers the sunset-terminal-only and max-suppression rules on top of
- * observableEvents(); assigns each surviving event its channel(s) per
- * §2.1's table. Never reads horizonObstruction (Judgment call 2). */
+/** Layers the sound-specific rules above on top of observableEvents():
+ * excludes c4/sunset outright (Rule 1), never reads horizonObstruction
+ * (Rule 2), and no longer suppresses max under any condition (Rule 3).
+ * Assigns each surviving event its channel(s) per §2.1's table. */
 export function soundEligibleEvents(lc: LocalCircumstances): SoundEvent[];
 ```
 
-(Per §2.1's revised table: C1/C2/C3 each expand to multiple `SoundEvent`
-entries in the real implementation — one per countdown-ladder rung
+(Per §2.1's revised table: C1 expands to five countdown-rung `SoundEvent`s
 (`channel: 'speech'`, `prewarn: true`) plus one at-instant tone entry
-(`channel: 'tone'`, `prewarn: false`); C2/C3 additionally get a separate
-`'Filters off!'`/`'Filters on!'` speech entry once §2.4's *X* timing is
-settled — rather than a single event trying to carry every channel; kept
-as one conceptual row in §2.1's table for readability.)
+(`channel: 'tone'`, `prewarn: false`). C2 follows the same ladder-plus-tone
+pattern but with eight countdown rungs, not five — its 15s rung carries the
+folded-in "Fifteen, filters off!" wording rather than a plain countdown
+line, still one `SoundEvent`, just with different text, not a separate
+event. C3 expands to its own five countdown rungs plus its tone,
+**plus one further, genuinely separate `SoundEvent`** at C3+15s for the
+standalone "Filters on!" call. Max is a single at-instant speech entry, no
+ladder. C4/Sunset produce no entries at all, per Rule 1.)
 
-### 2.4 Open items from this revision, not yet resolved
+### 2.4 Open items
 
-- **The *X* lead/lag times for "Filters off!"/"Filters on!"** — genuinely
-  undecided. `sound/eligibility.ts` cannot construct these two
-  `SoundEvent`s without a concrete number; blocks that module specifically,
-  not the rest of Phase 1 (§6). Whatever *X* is chosen also needs a check
-  against landing too close to an adjacent countdown rung (the same
-  category of collision §3.4 already guards against between C2's tone and
-  C3's ladder) — not yet analyzed since *X* itself isn't picked.
-- **C4/Sunset's treatment** — assumed unchanged above; flagged for explicit
-  confirmation rather than silently decided, since the revision instruction
-  didn't mention either.
-- **Max's suppression rule** — assumed still in force above (this
-  document's own original design, §2.3); flagged for explicit confirmation
-  for the same reason.
+**Resolved by the 2026-07-21 follow-up (kept here briefly for the record,
+since this section was cited by name elsewhere while these were still
+open):** the Filters off!/on! lead/lag times (§2.1: folded into C2's own
+15s rung, and a new standalone C3+15s event — no separate *X* to solve
+any more), C4/Sunset's treatment (§2.1/§2.3 Rule 1: no sound at all), Max's
+suppression rule (§2.3 Rule 3: repealed, always fires), and the tone-shape
+question for all three of C1/C2/C3 (§2.1: deliberately identical for now,
+differentiation deferred to a later iteration, not a blocking unknown).
+
+**Still genuinely open:**
+
 - **Countdown-ladder queueing risk** (§1.3's closing paragraph) — adjacent
   rungs as close as 5s apart is a real `SpeechSynthesis` overlap risk on a
   slow engine; mitigation identified (`cancel()` before each new rung) but
@@ -399,9 +421,6 @@ as one conceptual row in §2.1's table for readability.)
 - **`GUARD_BUFFER_S`'s exact value** (§3.4's generalized short-totality
   guard) — 10s carried forward from the original design as a placeholder,
   not confirmed against the new multi-rung ladder.
-- **C1's tone shape** (§6's Phase 1 bullet list) — C2 (rising sweep) and C3
-  (falling, faster sweep) are specified; C1 needs its own distinct third
-  shape, not yet designed.
 
 ---
 
@@ -503,24 +522,30 @@ acquires/loses a fix) is just another `curMs` discontinuity, handled by the
 identical forward/backward branches above with no special-casing.
 
 **Implementation refinement (found during `scheduler.ts`'s own adversarial
-review):** the "more than one crossed" collapse above must key off the
-most-recently-passed **time**, not the most-recently-passed **event** —
-defensive design for the case where two `SoundEvent`s ever land on one
-exact instant (e.g. if §2.4's still-undecided Filters-off!/Filters-on! lead
-time *X* is ever chosen as 0, landing exactly on C2/C3's own tone), which
-is not the "skipped through a rehearsal" case the collapse rule exists for.
-`scheduler.ts` fires every crossed event **at** the latest crossed time
-(usually one, occasionally a same-instant pair), and only silently
-swallows anything strictly **earlier** than that.
+review, before §2.1's Filters off!/on! timing was resolved):** the "more
+than one crossed" collapse above must key off the most-recently-passed
+**time**, not the most-recently-passed **event** — defensive design for
+the case where two `SoundEvent`s ever land on one exact instant. As
+currently resolved (§2.1), no two `SoundEvent`s actually share an instant
+any more (Filters off! is folded into C2's own 15s rung rather than a
+separate same-instant event, and Filters on! sits at C3+15s, distinct from
+everything else) — but the fix stays as general robustness against any
+future same-instant pairing, since it's not the "skipped through a
+rehearsal" case the collapse rule otherwise exists for. `scheduler.ts`
+fires every crossed event **at** the latest crossed time (usually one,
+occasionally a same-instant pair if one is ever introduced), and only
+silently swallows anything strictly **earlier** than that.
 
 ### 3.3 What the tone channel does differently once "fire now" is decided
 
 Speech firing is simple: when the reducer says "fire `c1`'s 30-second
-countdown rung now" (any ladder rung, on any of C1/C2/C3, or the Filters
-off!/Filters on! calls once §2.4's *X* is settled), call
-`speechSynthesis.speak(...)` directly from the tick handler — its own onset
-latency (tens to a few hundred ms) is irrelevant against a spoken cue
-that's already several seconds loose by design.
+countdown rung now" (any ladder rung on any of C1/C2/C3 — including C2's
+own reworded 15s "Fifteen, filters off!" rung, which is just a rung with
+different text, nothing special about its firing — or C3's standalone
+Filters-on! event at C3+15s), call `speechSynthesis.speak(...)` directly
+from the tick handler — its own onset latency (tens to a few hundred ms)
+is irrelevant against a spoken cue that's already several seconds loose by
+design.
 
 Each of **C1/C2/C3's own tone** needs the audio-clock precision from §3.1,
 which means it can't simply fire "now" from inside a tick that only runs
@@ -753,18 +778,17 @@ plan needs to change if it happens.
 Aug 12):**
 
 - `app/src/eclipse/schedule.ts` (`observableEvents`) and
-  `app/src/sound/eligibility.ts` (`soundEligibleEvents`, layering the
-  sunset-terminal and Max-suppression rules, §2.3) — both pure, both fully
-  unit-tested against fixtures (§7) before anything else is built on them.
+  `app/src/sound/eligibility.ts` (`soundEligibleEvents`, layering §2.3's
+  rules — C4/Sunset excluded outright, terrain obstruction never consulted,
+  Max unconditional) — both pure, both fully unit-tested against fixtures
+  (§7) before anything else is built on them.
 - `app/src/sound/scheduler.ts` — the pure crossing-detection reducer
   (§3.2), unit-tested against synthetic tick sequences covering forward,
   backward, and multi-event-jump cases.
-- `app/src/sound/tones.ts` — C2 (rising sweep) and C3 (falling, faster/
-  more urgent sweep) envelope specs as plain data, per §1.1's frequency
-  reasoning. **C1's own tone shape is not yet designed** (§2.1's revision
-  added a tone to C1 but didn't specify its character) — needs a third
-  shape distinct from both C2's and C3's, added to §2.4's open items;
-  `app/src/sound/audioEngine.ts` — the thin, deliberately
+- `app/src/sound/tones.ts` — one shared envelope spec as plain data, reused
+  identically for C1/C2/C3 (§2.1: deliberately undifferentiated for Phase
+  1, per direct instruction — distinguishing them is later iteration, not
+  built now); `app/src/sound/audioEngine.ts` — the thin, deliberately
   untested `AudioContext`/`oscillator`/`resume()` glue (same "keep it
   thin, untested surface stays small" convention `connection.ts` already
   established for this codebase's other real-hardware-facing glue).
@@ -788,11 +812,11 @@ Aug 12):**
   every other part of this design at once, and the API is cheap and
   well-supported enough (Chrome/Edge; partial on Safari 16.4+) that there's
   no good reason to wait.
-- All six events from §2.1's table, fully wired — the marginal cost of
-  wiring C1/Max/C4/Sunset once the shared eligibility function and the
-  speech wrapper both exist is small (each is one more data-driven table
-  row, not new mechanism), so there's no reason to hold any of them back
-  to a later phase once the core exists.
+- All four sound-eligible events from §2.1's table (C1, C2, Max, C3 — C4
+  and Sunset get none, per Rule 1), fully wired — the marginal cost of
+  wiring Max once the shared eligibility function and the speech wrapper
+  both exist is small (one more data-driven entry, not new mechanism), so
+  there's no reason to hold it back to a later phase once the core exists.
 
 **Phase 2 (only if time remains after Phase 1 is field-verified):**
 
@@ -853,15 +877,20 @@ already draws for `connection.ts`'s `navigator.serial` glue.
   would each independently produce for the same fixtures, as a regression
   guard that the extraction is actually faithful before anything else
   depends on it.
-- **`sound/eligibility.ts`'s `soundEligibleEvents()`**: the sunset-
-  terminal-only rule (`sunset` well after `c4` → dropped; `sunset` before
-  `c4` → kept with both tiers; `sunset` before `c2` → kept, `c2`/`c3`/`c4`
-  entries themselves absent per `observableEvents()`) and the Max-
-  suppression rule (both `c2`/`c3` observable → `max` dropped; either null
-  or past sunset → `max` kept) as explicit, separately-named test cases —
-  each is exactly the kind of edge case this document made a deliberate,
-  reasoned call on (§2.3), so each deserves its own named test rather than
-  incidental coverage.
+- **`sound/eligibility.ts`'s `soundEligibleEvents()`**: `c4`/`sunset` never
+  produce a `SoundEvent` under any fixture, including ones where they'd be
+  fully observable per `observableEvents()` (Rule 1) — a direct,
+  easy-to-miss-in-a-refactor invariant worth its own explicit test rather
+  than incidental coverage. `max` always produces exactly one at-instant
+  `SoundEvent`, including the fully-observable-totality case that used to
+  suppress it (Rule 3) — equally worth pinning explicitly, precisely
+  because it's the kind of "obviously should be conditional" case a future
+  edit might reintroduce a condition for without realizing it was
+  deliberately removed. `c2`'s 15s rung carries the folded-in
+  `"Fifteen, filters off!"` text, distinct from every other rung's plain
+  countdown wording. `c3` produces its own extra, separate `SoundEvent` at
+  `c3.getTime() + 15_000` for the standalone `"Filters on!"` call, with no
+  countdown number.
 - **`sound/scheduler.ts`'s pure reducer**: feed synthetic `curMs` sequences
   directly, no real timer — forward single-crossing (fires exactly the one
   event), forward multi-crossing in one step (fires only the most-recent,
