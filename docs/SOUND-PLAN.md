@@ -449,6 +449,19 @@ landing mid-session (`getGpsClockOffsetMs()` changing as a receiver
 acquires/loses a fix) is just another `curMs` discontinuity, handled by the
 identical forward/backward branches above with no special-casing.
 
+**Implementation refinement (found during `scheduler.ts`'s own adversarial
+review, before `sound/eligibility.ts` existed to expose it live):** the
+"more than one crossed" collapse above must key off the most-recently-
+passed **time**, not the most-recently-passed **event** — §2.3's C2/C3
+tone+speech companion pair shares one exact instant, so an ordinary single
+live-mode tick can cross *both* of them at once, which is not the "skipped
+through a rehearsal" case the collapse rule exists for. `scheduler.ts`
+fires every crossed event **at** the latest crossed time (usually one,
+occasionally a same-instant pair), and only silently swallows anything
+strictly **earlier** than that. Caught by constructing the exact
+same-timestamp case directly, not by the multi-crossing test that happened
+to already use a chronologically-sorted fixture.
+
 ### 3.3 What the tone channel does differently once "fire now" is decided
 
 Speech firing is simple: when the reducer says "fire `c1`'s prewarn now,"
