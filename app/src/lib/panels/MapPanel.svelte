@@ -24,6 +24,8 @@
   import shadowFramesGlobal from '../../data/shadow-frames-global.json';
   import { coefficients, dateToTtHours } from '../../data/besselian-2026';
   import { shadowOutlineAt } from '../../eclipse/shadowOutline';
+  import { destinationPoint } from '../../eclipse/horizon';
+  import { sunAltAzAt, moonAltAzAt } from '../../stores/skyView';
 
   let tab: 'spain' | 'global' = $state('spain');
 
@@ -47,10 +49,8 @@
   // (very near the sunset cusp) are simply absent from the regular grid
   // -- each line then gets ONE extra point snapped to the day/night
   // terminator itself (generate_shadow_frames.py), appended here so the
-  // line visually reaches it. DIAGNOSTIC: rendered as points-and-lines
-  // (like matplotlib's `.-` style), not a smooth curve, specifically so
-  // gaps near the terminator are visible while judging whether finer
-  // time steps are needed there (PLAN.md) -- not the final polish.
+  // rendered polyline visually extends all the way to it rather than
+  // stopping short at the last point the solver actually converged on.
   function withTerminator(
     points: { lat: number; lon: number }[],
     terminator: { lat: number; lon: number } | null,
@@ -200,13 +200,6 @@
     shadowFramesGlobal.southLimitTerminatorEnd,
   );
   const GLOBAL_BAND = GLOBAL_PATH_NORTH.concat(GLOBAL_PATH_SOUTH.slice().reverse());
-  const TERMINATOR_POINTS: { lat: number; lon: number }[] = [
-    shadowFrames.centralLineTerminator,
-    shadowFrames.northLimitTerminator,
-    shadowFrames.southLimitTerminator,
-  ]
-    .filter((p) => p !== null)
-    .map((p) => ({ lat: p.lat, lon: p.lon }));
 
   // The shadow marker's position is driven by effectiveTime (live "now",
   // or the sim clock -- PLAN.md §6), interpolated over the real central-
@@ -226,6 +219,60 @@
   const shadowPos = $derived(shadowPosAtMs($effectiveTime.getTime()));
   const shadowXY = $derived(shadowPos ? project(shadowPos[0], shadowPos[1]) : null);
   const obsXY = $derived(project($observer.lat, $observer.lon));
+
+  // Short (~200km) directional indicators for the Sun's and Moon's current
+  // azimuth from the observer, drawn on both tabs -- reuses horizon.ts's
+  // destinationPoint (bearing+distance -> lat/lon) and skyView.ts's
+  // sunAltAzAt/moonAltAzAt (this instant's real azimuth) rather than
+  // reimplementing either. The lat/lon destination point itself doesn't
+  // depend on either tab's projection, so it's computed once here; each
+  // tab below projects it through its own projection.
+  const AZ_LINE_DISTANCE_M = 600_000;
+  const sunAzPoint = $derived.by(() => {
+    const az = sunAltAzAt(
+      $effectiveTime,
+      $observer.lat,
+      $observer.lon,
+      $observer.elevationM,
+    ).azimuth;
+    return destinationPoint($observer.lat, $observer.lon, az, AZ_LINE_DISTANCE_M);
+  });
+  const moonAzPoint = $derived.by(() => {
+    const az = moonAltAzAt(
+      $effectiveTime,
+      $observer.lat,
+      $observer.lon,
+      $observer.elevationM,
+    ).azimuth;
+    return destinationPoint($observer.lat, $observer.lon, az, AZ_LINE_DISTANCE_M);
+  });
+  const sunAzSpainXY = $derived(project(sunAzPoint.lat, sunAzPoint.lon));
+  const moonAzSpainXY = $derived(project(moonAzPoint.lat, moonAzPoint.lon));
+
+  // Faint dashed lat/lon crosshair through the observer's current position,
+  // Spain tab only. spainProjection is a ROTATED Mercator
+  // (SPAIN_ROTATION_DEG), so a line of constant latitude/longitude isn't a
+  // straight screen line once projected -- both are real sampled-and-
+  // projected polylines (the same projectPts()-style technique PATH_CENTER
+  // etc. already use), not a naive <line>. +-8 degrees is comfortably wider
+  // than the visible viewport at this tab's fixed zoom -- the .mapzone's
+  // own overflow:hidden handles the overrun -- and ~0.2deg steps keep each
+  // line's point count modest (~80 points).
+  const CROSSHAIR_SPAN_DEG = 8;
+  const CROSSHAIR_STEP_DEG = 0.2;
+  function crosshairRange(center: number): number[] {
+    const n = Math.round((2 * CROSSHAIR_SPAN_DEG) / CROSSHAIR_STEP_DEG);
+    return Array.from(
+      { length: n + 1 },
+      (_, i) => center - CROSSHAIR_SPAN_DEG + i * CROSSHAIR_STEP_DEG,
+    );
+  }
+  const obsParallel = $derived(
+    crosshairRange($observer.lon).map((lon): [number, number] => [$observer.lat, lon]),
+  );
+  const obsMeridian = $derived(
+    crosshairRange($observer.lat).map((lat): [number, number] => [lat, $observer.lon]),
+  );
 
   // The umbra outline: the actual shape of the umbral shadow's footprint
   // on Earth at effectiveTime, as opposed to shadowXY above (just its
@@ -402,6 +449,13 @@
   );
   const globalLandPathD = $derived(geoPathGenerator(globalProjection)(globalLandFeature) ?? '');
   const gePos = $derived(stereo(GREATEST_ECLIPSE[0], GREATEST_ECLIPSE[1]));
+
+  // Global tab's own observer marker + Sun/Moon azimuth indicators --
+  // stereo() always returns a real point (falls back to the viewport
+  // center), unlike Spain's project() above, so no null-check is needed.
+  const obsGlobalXY = $derived(stereo($observer.lat, $observer.lon));
+  const sunAzGlobalXY = $derived(stereo(sunAzPoint.lat, sunAzPoint.lon));
+  const moonAzGlobalXY = $derived(stereo(moonAzPoint.lat, moonAzPoint.lon));
 </script>
 
 <div class="mapwrap">
@@ -441,22 +495,6 @@
       <polyline class="limitline" points={projectPts(PATH_NORTH)} />
       <polyline class="limitline" points={projectPts(PATH_SOUTH)} />
       <polyline class="pathline" points={projectPts(PATH_CENTER)} />
-      {#each PATH_CENTER as [lat, lon], i (i)}
-        {@const p = project(lat, lon)}
-        {#if p}<circle class="gridpoint centerpoint" cx={p[0]} cy={p[1]} r="0.9" />{/if}
-      {/each}
-      {#each PATH_NORTH as [lat, lon], i (i)}
-        {@const p = project(lat, lon)}
-        {#if p}<circle class="gridpoint" cx={p[0]} cy={p[1]} r="0.7" />{/if}
-      {/each}
-      {#each PATH_SOUTH as [lat, lon], i (i)}
-        {@const p = project(lat, lon)}
-        {#if p}<circle class="gridpoint" cx={p[0]} cy={p[1]} r="0.7" />{/if}
-      {/each}
-      {#each TERMINATOR_POINTS as tp (tp.lat + ',' + tp.lon)}
-        {@const p = project(tp.lat, tp.lon)}
-        {#if p}<circle class="terminatorpoint" cx={p[0]} cy={p[1]} r="1.6" />{/if}
-      {/each}
       {#if outlinePenumbraLatLon.length >= 3}
         <polygon class="penumbraOutlineSpain" points={projectPts(outlinePenumbraLatLon)} />
       {/if}
@@ -470,6 +508,26 @@
         cy={shadowXY ? shadowXY[1] : 0}
         opacity={shadowXY ? 1 : 0}
       />
+      <polyline class="crosshair" points={projectPts(obsParallel)} />
+      <polyline class="crosshair" points={projectPts(obsMeridian)} />
+      {#if obsXY && sunAzSpainXY}
+        <line
+          class="sunazline"
+          x1={obsXY[0]}
+          y1={obsXY[1]}
+          x2={sunAzSpainXY[0]}
+          y2={sunAzSpainXY[1]}
+        />
+      {/if}
+      {#if obsXY && moonAzSpainXY}
+        <line
+          class="moonazline"
+          x1={obsXY[0]}
+          y1={obsXY[1]}
+          x2={moonAzSpainXY[0]}
+          y2={moonAzSpainXY[1]}
+        />
+      {/if}
       <circle class="obsmarker" r="3.5" cx={obsXY ? obsXY[0] : 0} cy={obsXY ? obsXY[1] : 0} />
     </svg>
     <svg
@@ -486,6 +544,21 @@
         <polygon class="globalFill umbraOutline" points={stereoPts(outlineLatLon)} />
       {/if}
       <circle class="gemarker" cx={gePos[0]} cy={gePos[1]} r="2.5" />
+      <line
+        class="sunazline"
+        x1={obsGlobalXY[0]}
+        y1={obsGlobalXY[1]}
+        x2={sunAzGlobalXY[0]}
+        y2={sunAzGlobalXY[1]}
+      />
+      <line
+        class="moonazline"
+        x1={obsGlobalXY[0]}
+        y1={obsGlobalXY[1]}
+        x2={moonAzGlobalXY[0]}
+        y2={moonAzGlobalXY[1]}
+      />
+      <circle class="obsmarker" r="2.5" cx={obsGlobalXY[0]} cy={obsGlobalXY[1]} />
     </svg>
   </div>
 </div>
@@ -608,21 +681,6 @@
     stroke-linecap: round;
     stroke-linejoin: round;
   }
-  /* DIAGNOSTIC (PLAN.md): raw sample points, matplotlib `.-`-style, so
-     gaps near the terminator are visible while judging whether finer
-     time steps are needed there -- not final polish. */
-  .gridpoint {
-    fill: var(--accent);
-    stroke: none;
-  }
-  .gridpoint.centerpoint {
-    fill: var(--cline);
-  }
-  .terminatorpoint {
-    fill: #c22;
-    stroke: var(--screen);
-    stroke-width: 0.3;
-  }
   /* The umbral shadow's actual instantaneous footprint (as opposed to
      .shadowmarker below, just its center point) -- a dark, semi-
      transparent shape with a crisper outline stroke, matching the
@@ -663,6 +721,17 @@
     fill-opacity: 0.8;
     stroke: none;
   }
+  /* Faint dashed lat/lon crosshair through the observer's current position
+     (Spain tab only) -- deliberately understated so it reads as a
+     reference guide, not a drawn feature competing with the path/limit
+     lines. */
+  .crosshair {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 0.7;
+    stroke-opacity: 0.6;
+    stroke-dasharray: 2 2;
+  }
   .obsmarker {
     fill: var(--screen);
     stroke: var(--ink);
@@ -671,6 +740,22 @@
   .gemarker {
     fill: var(--accent);
     stroke: none;
+  }
+  /* Short direction-indicator lines from the observer toward the Sun/Moon's
+     current azimuth (both tabs) -- thin strokes, not filled shapes, so
+     they read as pointers rather than bold arrows. Sun reuses SkyPanel's
+     own #f6c445 gold (.sunfill); Moon uses var(--muted) rather than
+     SkyPanel's pure-black .moonfill, since a thin black line here would be
+     too easily confused with .coast's own black stroke. */
+  .sunazline {
+    stroke: #f6c445;
+    stroke-width: 1.25;
+    stroke-linecap: round;
+  }
+  .moonazline {
+    stroke: var(--muted);
+    stroke-width: 1.25;
+    stroke-linecap: round;
   }
   /* Global tab only: filled shapes, stroke off by default (band/umbra
      stay stroke-free by design -- at this small scale a 1px edge reads
