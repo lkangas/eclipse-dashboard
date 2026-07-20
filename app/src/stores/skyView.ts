@@ -141,6 +141,14 @@ export function sunAltAzAt(date: Date, lat: number, lon: number, elevationM: num
   return bodyPositionAt(date, astroObserver, Body.Sun, SUN_RADIUS_KM);
 }
 
+/** Moon alt/az at an arbitrary instant for a given observer -- same pattern
+ * as sunAltAzAt above, for callers that need the Moon's position at a
+ * specific instant rather than skyView's live "now" value. */
+export function moonAltAzAt(date: Date, lat: number, lon: number, elevationM: number): AltAz {
+  const astroObserver = new Observer(lat, lon, elevationM);
+  return bodyPositionAt(date, astroObserver, Body.Moon, MOON_RADIUS_KM);
+}
+
 export const skyView = derived([observer, effectiveTime], ([$observer, $now]): SkyView => {
   const astroObserver = new Observer($observer.lat, $observer.lon, $observer.elevationM);
 

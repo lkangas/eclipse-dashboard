@@ -59,7 +59,7 @@ export function apparentElevationDeg(
  * standard spherical direct-geodesic formula (mean Earth radius -- ample
  * precision for a ray-march over tens of km, unlike the shadow/eclipse
  * geometry elsewhere in this app which needs true ellipsoid precision). */
-function destinationPoint(
+export function destinationPoint(
   lat: number,
   lon: number,
   bearingDeg: number,
