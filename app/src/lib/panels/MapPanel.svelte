@@ -227,7 +227,7 @@
   // reimplementing either. The lat/lon destination point itself doesn't
   // depend on either tab's projection, so it's computed once here; each
   // tab below projects it through its own projection.
-  const AZ_LINE_DISTANCE_M = 200_000;
+  const AZ_LINE_DISTANCE_M = 600_000;
   const sunAzPoint = $derived.by(() => {
     const az = sunAltAzAt(
       $effectiveTime,
@@ -728,8 +728,8 @@
   .crosshair {
     fill: none;
     stroke: var(--muted);
-    stroke-width: 0.5;
-    stroke-opacity: 0.4;
+    stroke-width: 0.7;
+    stroke-opacity: 0.6;
     stroke-dasharray: 2 2;
   }
   .obsmarker {
