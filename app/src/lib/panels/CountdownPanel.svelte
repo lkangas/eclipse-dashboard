@@ -18,6 +18,8 @@
   import { localCircumstances } from '../../stores/localCircumstances';
   import { effectiveTime } from '../../stores/clock';
   import { skyView } from '../../stores/skyView';
+  import { horizonObstruction } from '../../stores/horizonObstruction';
+  import { checkHorizonObstruction } from '../../eclipse/horizon';
   import { formatCountdown } from '../format';
 
   const phase = $derived.by(():
@@ -199,7 +201,27 @@
     // skyView.ts using the exact same constant/formula SearchRiseSet
     // uses) verified to sub-second alignment against the real Sunset
     // instant (a temporary scratch test, deleted after).
-    const horizonY = VIEWBOX_HALF + (sun.altitudeTrueDeg + horizonDepressionDeg) * pxPerDeg;
+    // Real terrain horizon (docs/HORIZON-PLAN.md), not just the idealized
+    // flat reference above -- interpolated from the same shared profile
+    // SkyPanel/ContactsPanel use (stores/horizonObstruction.ts), at the
+    // Sun's own current (live) azimuth. checkHorizonObstruction is reused
+    // here for a single synthetic "now" point rather than duplicating its
+    // interpolation logic; `time` is carried through unused. Falls back to
+    // 0 (flat, today's previous behavior) while the fine DEM is still
+    // loading, or before/after the actual event when the live Sun's real
+    // azimuth has nothing to do with eclipse-day geometry -- the shared
+    // profile's own interpolation already clamps gracefully rather than
+    // crashing in that case, so this never needs its own separate guard.
+    const profile = $horizonObstruction.profile;
+    const terrainAltDeg =
+      profile.length > 0
+        ? checkHorizonObstruction(profile, [
+            { key: 'now', time: $effectiveTime, altitudeDeg: sun.altitude, azimuthDeg: sun.azimuth },
+          ])[0].terrainAltitudeDeg
+        : 0;
+
+    const horizonY =
+      VIEWBOX_HALF + (sun.altitudeTrueDeg + horizonDepressionDeg - terrainAltDeg) * pxPerDeg;
 
     return {
       moonRPx,
