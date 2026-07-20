@@ -19,7 +19,6 @@
   import { effectiveTime } from '../../stores/clock';
   import { skyView } from '../../stores/skyView';
   import { horizonObstruction } from '../../stores/horizonObstruction';
-  import { checkHorizonObstruction } from '../../eclipse/horizon';
   import { formatCountdown } from '../format';
 
   const phase = $derived.by(():
@@ -201,33 +200,72 @@
     // skyView.ts using the exact same constant/formula SearchRiseSet
     // uses) verified to sub-second alignment against the real Sunset
     // instant (a temporary scratch test, deleted after).
-    // Real terrain horizon (docs/HORIZON-PLAN.md), not just the idealized
-    // flat reference above -- interpolated from the same shared profile
-    // SkyPanel/ContactsPanel use (stores/horizonObstruction.ts), at the
-    // Sun's own current (live) azimuth. checkHorizonObstruction is reused
-    // here for a single synthetic "now" point rather than duplicating its
-    // interpolation logic; `time` is carried through unused. Falls back to
-    // 0 (flat, today's previous behavior) while the fine DEM is still
-    // loading, or before/after the actual event when the live Sun's real
-    // azimuth has nothing to do with eclipse-day geometry -- the shared
-    // profile's own interpolation already clamps gracefully rather than
-    // crashing in that case, so this never needs its own separate guard.
+    // Real terrain-horizon CURVE (docs/HORIZON-PLAN.md) -- reprojects the
+    // SAME profile SkyPanel's Wide view/ContactsPanel already use
+    // (stores/horizonObstruction.ts) through THIS panel's own Sun-
+    // centered/zoomed transform (the Sun fixed at VIEWBOX_HALF, not a
+    // moving boresight), rather than generating separate data (direct
+    // request/correction -- an earlier version collapsed the whole curve
+    // into a single flat line at one interpolated altitude, losing the
+    // actual shape). Each profile point projects the same way the Moon's
+    // own offset above does: azimuth relative to the Sun, compressed by
+    // cos(altitude). The Y side uses altitudeTrueDeg+horizonDepressionDeg
+    // as the Sun's own "apparent altitude" reference (see the flat-
+    // horizon comment above for why that specific pair, not sun.altitude)
+    // minus each point's own apparent terrain altitude -- both already
+    // refracted per their own appropriate physics (terrestrial for
+    // terrain, this constant for the Sun), so they're directly comparable
+    // with no further adjustment.
+    //
+    // This panel's field of view is extremely tight -- SUN_R_PX alone
+    // maps the Sun's ~0.26deg radius to 44px, so the whole 120-unit box
+    // spans well under 1deg -- so usually only a single, nearly-straight
+    // local segment of the real curve falls inside it. That's the honest
+    // "zoomed-in portion of" the real shape at this scale, not a bug: the
+    // profile's own real extent (tens of degrees) overshoots this tiny
+    // window by orders of magnitude either way, which is also why the
+    // curve itself needs no extra edge-extension padding (unlike the
+    // flat-fallback case below) -- it already reaches far past both
+    // edges on its own.
+    const sunApparentAltDeg = sun.altitudeTrueDeg + horizonDepressionDeg;
     const profile = $horizonObstruction.profile;
-    const terrainAltDeg =
-      profile.length > 0
-        ? checkHorizonObstruction(profile, [
-            { key: 'now', time: $effectiveTime, altitudeDeg: sun.altitude, azimuthDeg: sun.azimuth },
-          ])[0].terrainAltitudeDeg
-        : 0;
+    const terrainCurveXY: [number, number][] = profile.map((p): [number, number] => {
+      let d = p.azimuthDeg - sun.azimuth;
+      if (d > 180) d -= 360;
+      if (d < -180) d += 360;
+      const x = VIEWBOX_HALF + d * Math.cos(altRad) * pxPerDeg;
+      const y = VIEWBOX_HALF + (sunApparentAltDeg - p.terrainAltitudeDeg) * pxPerDeg;
+      return [x, y];
+    });
 
-    const horizonY =
-      VIEWBOX_HALF + (sun.altitudeTrueDeg + horizonDepressionDeg - terrainAltDeg) * pxPerDeg;
+    // Flat-line fallback (today's previous, pre-terrain behavior) while
+    // the fine DEM is still loading or the profile is otherwise empty --
+    // matches the old horizonY formula exactly (the terrainAltDeg=0 case).
+    const flatHorizonY = VIEWBOX_HALF + sunApparentAltDeg * pxPerDeg;
+    const frameBottom = VIEWBOX_HALF * 2 + HORIZON_EXTENT;
+    const groundPoints: [number, number][] =
+      terrainCurveXY.length > 1
+        ? [
+            [-HORIZON_EXTENT, terrainCurveXY[0][1]],
+            ...terrainCurveXY,
+            [HORIZON_EXTENT, terrainCurveXY[terrainCurveXY.length - 1][1]],
+            [HORIZON_EXTENT, frameBottom],
+            [-HORIZON_EXTENT, frameBottom],
+          ]
+        : [
+            [-HORIZON_EXTENT, flatHorizonY],
+            [HORIZON_EXTENT, flatHorizonY],
+            [HORIZON_EXTENT, frameBottom],
+            [-HORIZON_EXTENT, frameBottom],
+          ];
 
     return {
       moonRPx,
       moonCx: VIEWBOX_HALF + offsetX,
       moonCy: VIEWBOX_HALF + offsetY,
-      horizonY,
+      terrainCurveXY,
+      flatHorizonY,
+      groundPoints,
       separationDeg: moonSunSeparationDeg,
     };
   });
@@ -257,20 +295,21 @@
          past it here means it's the *rendered element's* overflow:hidden
          clip (the true panel bounds) that cuts this off, not the
          viewBox's own coordinate range. -->
-    <rect
-      class="ground"
-      x={-HORIZON_EXTENT}
-      y={schematic.horizonY}
-      width={HORIZON_EXTENT * 2}
-      height={Math.max(0, VIEWBOX_HALF * 2 - schematic.horizonY + HORIZON_EXTENT)}
-    />
-    <line
-      class="horizonline"
-      x1={-HORIZON_EXTENT}
-      y1={schematic.horizonY}
-      x2={HORIZON_EXTENT}
-      y2={schematic.horizonY}
-    />
+    <polygon class="ground" points={schematic.groundPoints.map((p) => p.join(',')).join(' ')} />
+    {#if schematic.terrainCurveXY.length > 1}
+      <polyline
+        class="horizonline"
+        points={schematic.terrainCurveXY.map((p) => p.join(',')).join(' ')}
+      />
+    {:else}
+      <line
+        class="horizonline"
+        x1={-HORIZON_EXTENT}
+        y1={schematic.flatHorizonY}
+        x2={HORIZON_EXTENT}
+        y2={schematic.flatHorizonY}
+      />
+    {/if}
   </svg>
 </div>
 
@@ -343,6 +382,7 @@
     fill-opacity: 0.6;
   }
   .horizonline {
+    fill: none;
     stroke: #dce4f2;
     stroke-width: 1.5;
   }
