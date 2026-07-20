@@ -73,16 +73,6 @@ changelog. See `docs/PLAN.md` §1–§12/§14–§15 for the frozen spec/archite
   true regardless of DEM tier: no DEM sees close-in obstructions like
   trees or buildings — always needs on-site verification, and the UI says
   so.
-  - ✅ **Corridor-limited, not whole-bbox.** A real deploy attempt hit
-    Cloudflare Pages' hard 25MiB-per-file limit (the whole-bbox 250m grid
-    was 69MB). Re-scoped to only store land cells (real coastline) inside
-    the umbral totality corridor + a small ray-march margin, column-major
-    sparse storage — 69MB → 10.5MB. Outside the corridor (e.g. Madrid),
-    `elevationFineAt()` returns `null` and the caller falls back to the
-    coarse whole-Iberia grid, so the feature degrades gracefully rather
-    than disappearing. See `docs/HORIZON-PLAN.md`'s "Phase 3 revised"
-    section for the full design. Deployment to `eclipse.defocus.fi`,
-    previously blocked on this, can now be re-attempted.
 - 🟡 **Licensing** — `constellation-lines.json` (Stellarium/HYG-derived)
   still has no `NOTICE.md` entry, no in-app credits screen exists, and the
   root `README.md` license line is still "TBD."

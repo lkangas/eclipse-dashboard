@@ -19,43 +19,40 @@
   import { effectiveTime } from '../../stores/clock';
   import { skyView } from '../../stores/skyView';
   import { horizonObstruction } from '../../stores/horizonObstruction';
+  import { observableEvents, type EventKey } from '../../eclipse/schedule';
   import { formatCountdown } from '../format';
 
-  const phase = $derived.by(():
-    | { mode: 'single'; key: 'c1' | 'c2' | 'max' | 'c3' | 'c4' | 'sunset' }
-    | { mode: 'dual' }
-    | { mode: 'none' } => {
+  const phase = $derived.by((): { mode: 'single'; key: EventKey } | { mode: 'dual' } | { mode: 'none' } => {
     const lc = $localCircumstances;
     const nowMs = $effectiveTime.getTime();
-    const sunsetMs = lc.sunset ? lc.sunset.getTime() : null;
-    const observable = (d: Date | null) => d !== null && (sunsetMs === null || d.getTime() <= sunsetMs);
+    // Already sorted ascending and pre-filtered for observability (null
+    // contacts absent, anything past sunset dropped, sunset itself always
+    // kept when it exists) -- sunset sorts among c1..c4 by real time, so
+    // "the earliest observable event still >= now" below naturally falls
+    // through to sunset once c1..c4 are exhausted, with no separate
+    // fallback branch needed.
+    const events = observableEvents(lc);
 
     // Dual mode only when C2/Max/C3 are ALL observable -- sunset is one
     // cutoff, so if C2 already isn't, nothing chronologically after it
     // is either.
-    if (
-      observable(lc.c2) &&
-      observable(lc.max) &&
-      observable(lc.c3) &&
-      nowMs >= lc.c2!.getTime() &&
-      nowMs < lc.max.getTime()
-    ) {
+    const c2 = events.find((e) => e.key === 'c2');
+    const max = events.find((e) => e.key === 'max');
+    const c3 = events.find((e) => e.key === 'c3');
+    if (c2 && max && c3 && nowMs >= c2.time.getTime() && nowMs < max.time.getTime()) {
       return { mode: 'dual' };
     }
 
-    const candidates: { key: 'c1' | 'c2' | 'max' | 'c3' | 'c4'; date: Date | null }[] = [
-      { key: 'c1', date: lc.c1 },
-      { key: 'c2', date: lc.c2 },
-      { key: 'max', date: lc.max },
-      { key: 'c3', date: lc.c3 },
-      { key: 'c4', date: lc.c4 },
-    ];
-    const next = candidates
-      .filter((c) => observable(c.date) && c.date!.getTime() >= nowMs)
-      .sort((a, b) => a.date!.getTime() - b.date!.getTime())[0];
+    // Uniform >= for every key here, sunset included -- the pre-extraction
+    // version of this file used a separate sunset-only fallback branch
+    // with a *strict* < instead, an inconsistency with the >= used for
+    // c1..c4 (and with isBeforeSunsetCutoff's own <=-inclusive convention
+    // elsewhere). Only differs at the single exact millisecond
+    // nowMs === sunset, with nothing else observable -- unreachable in
+    // Live mode's 1Hz sampling, and a deliberate consistency fix, not an
+    // accidental behavior change, if a Sim-mode fixture ever lands on it.
+    const next = events.find((e) => e.time.getTime() >= nowMs);
     if (next) return { mode: 'single', key: next.key };
-
-    if (sunsetMs !== null && nowMs < sunsetMs) return { mode: 'single', key: 'sunset' };
     return { mode: 'none' };
   });
   const dual = $derived(phase.mode === 'dual');

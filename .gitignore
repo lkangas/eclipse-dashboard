@@ -38,4 +38,3 @@ __pycache__/
 .venv/
 venv/
 tools/build-data/.venv-copernicus/
-tools/build-data/dem-mask.json

@@ -9,6 +9,7 @@
   import { get } from 'svelte/store';
   import { clock, effectiveTime } from '../stores/clock';
   import { localCircumstances } from '../stores/localCircumstances';
+  import { isBeforeSunsetCutoff } from '../eclipse/schedule';
 
   const MARGIN_S = 30 * 60; // 'default' zoom: comfortable margin before C1 / after C4
   const ZOOM_IN_MARGIN_S = 3 * 60; // 'in' zoom: margin either side of C2/C3
@@ -148,8 +149,12 @@
       const t = ev[key];
       if (t === null) return false;
       // Non-observable (past sunset) events don't belong on the
-      // timeline either -- same reasoning as ContactsPanel.
-      if (key !== 'sunset' && ev.sunset !== null && t > ev.sunset) return false;
+      // timeline either -- same rule as ContactsPanel/CountdownPanel,
+      // shared via eclipse/schedule.ts (this file passes its own
+      // fallback-substituted c1/c4 placeholders through the same
+      // predicate, in epoch SECONDS -- isBeforeSunsetCutoff is unit-
+      // agnostic as long as both arguments match).
+      if (!isBeforeSunsetCutoff(key, t, ev.sunset)) return false;
       // Outside the currently visible domain (e.g. C1 while zoomed in on
       // Max) -- drawing it would just place a label off the track.
       return t >= domainStart && t <= domainEnd;

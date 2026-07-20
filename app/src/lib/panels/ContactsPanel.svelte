@@ -16,6 +16,7 @@
   import { observer } from '../../stores/observer';
   import { skyView, sunAltAzAt } from '../../stores/skyView';
   import { horizonObstruction } from '../../stores/horizonObstruction';
+  import { observableEvents, type EventKey } from '../../eclipse/schedule';
   import { formatCountdown, formatDurationSeconds, formatCest } from '../format';
   import { buildTimesJson, downloadTimesJson } from '../exportTimes';
   import eclipseTimesData from '../../data/eclipse-times.json';
@@ -36,43 +37,38 @@
   // 34' constant disagree slightly at the horizon (see skyView.ts's
   // horizonDepressionDeg comment), which is real and worth showing, not
   // papering over.
+  const EVENT_LABELS: Record<EventKey, string> = {
+    c1: 'C1',
+    c2: 'C2',
+    max: 'Max',
+    c3: 'C3',
+    c4: 'C4',
+    sunset: 'Sunset',
+  };
   const rows = $derived.by(() => {
     const lc = $localCircumstances;
-    const sunsetMs = lc.sunset ? lc.sunset.getTime() : null;
-    const candidates: { key: string; label: string; date: Date | null }[] = [
-      { key: 'c1', label: 'C1', date: lc.c1 },
-      { key: 'c2', label: 'C2', date: lc.c2 },
-      { key: 'max', label: 'Max', date: lc.max },
-      { key: 'c3', label: 'C3', date: lc.c3 },
-      { key: 'c4', label: 'C4', date: lc.c4 },
-      { key: 'sunset', label: 'Sunset', date: lc.sunset },
-    ];
-    return candidates
-      .filter((r): r is { key: string; label: string; date: Date } => r.date !== null)
-      .filter((r) => r.key === 'sunset' || sunsetMs === null || r.date.getTime() <= sunsetMs)
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .map((r) => {
-        const altAz = sunAltAzAt(r.date, $observer.lat, $observer.lon, $observer.elevationM);
-        const obstruction = $horizonObstruction.contacts.find((c) => c.key === r.key);
-        return {
-          key: r.key,
-          label: r.label,
-          date: r.date,
-          time: formatCest(r.date),
-          alt: formatAlt(altAz.altitude),
-          az: formatAz(altAz.azimuth),
-          offset: formatCountdown((r.date.getTime() - $effectiveTime.getTime()) / 1000),
-          // Sunset itself is excluded here (direct request) -- it's
-          // checked against a threshold within a fraction of a degree of
-          // the idealized flat 0deg horizon, and real terrain (even
-          // gentle, distant hills) almost always sits at least that high
-          // in the real world, so it flags as "blocked" at nearly every
-          // site regardless of whether anything actually matters is in
-          // the way. C1-C4/Max need genuinely significant nearby terrain
-          // to trigger and stay the useful, discriminating signal.
-          obstructedByTerrain: r.key !== 'sunset' && (obstruction?.obstructed ?? false),
-        };
-      });
+    return observableEvents(lc).map((r) => {
+      const altAz = sunAltAzAt(r.time, $observer.lat, $observer.lon, $observer.elevationM);
+      const obstruction = $horizonObstruction.contacts.find((c) => c.key === r.key);
+      return {
+        key: r.key,
+        label: EVENT_LABELS[r.key],
+        date: r.time,
+        time: formatCest(r.time),
+        alt: formatAlt(altAz.altitude),
+        az: formatAz(altAz.azimuth),
+        offset: formatCountdown((r.time.getTime() - $effectiveTime.getTime()) / 1000),
+        // Sunset itself is excluded here (direct request) -- it's
+        // checked against a threshold within a fraction of a degree of
+        // the idealized flat 0deg horizon, and real terrain (even
+        // gentle, distant hills) almost always sits at least that high
+        // in the real world, so it flags as "blocked" at nearly every
+        // site regardless of whether anything actually matters is in
+        // the way. C1-C4/Max need genuinely significant nearby terrain
+        // to trigger and stay the useful, discriminating signal.
+        obstructedByTerrain: r.key !== 'sunset' && (obstruction?.obstructed ?? false),
+      };
+    });
   });
   // Horizon-obstruction warning (docs/HORIZON-PLAN.md): derived from `rows`
   // (already sunset-filtered) rather than horizonObstruction's own raw

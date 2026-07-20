@@ -8,7 +8,6 @@ import { observer } from './observer';
 import { localCircumstances } from './localCircumstances';
 import { sunAltAzAt } from './skyView';
 import { elevationFineAt, elevationFineReady, loadElevationFine } from '../data/elevationFine';
-import { elevationAt as coarseElevationAt } from '../data/elevation';
 import {
   checkHorizonObstruction,
   terrainHorizonProfile,
@@ -86,19 +85,11 @@ export const horizonObstruction = derived(
       $observer.elevationM,
       azMinDeg,
       azMaxDeg,
-      // Three-tier fallback, outermost (most detailed) tried first:
-      // 1. The sparse 250m Copernicus corridor grid (data/elevationFine.ts)
-      //    -- real terrain detail, but only where the observer's ray-march
-      //    lands inside the totality corridor's land.
-      // 2. elevationFineAt legitimately returns null far more than "not
-      //    ready yet" now that the grid is sparse -- any ray sample outside
-      //    the corridor (open ocean, or real land beyond it) has no dense
-      //    data at all, so this falls back to data/elevation.ts's coarse,
-      //    always-fully-covering whole-Iberia grid.
-      // 3. That coarse grid's own elevationAt() already clamps negative
-      //    (underwater) results to 0, so open ocean naturally resolves to
-      //    0 without this needing its own separate "explicit zero" case.
-      { elevationAt: (lat, lon) => elevationFineAt(lat, lon) ?? coarseElevationAt(lat, lon) },
+      // The 250m Copernicus grid, not data/elevation.ts's coarse default --
+      // elevationFineAt only returns null before elevationFineReady flips
+      // true, which is already gated above, so the ?? 0 fallback here is
+      // unreachable in practice, just satisfying the number-only signature.
+      { elevationAt: (lat, lon) => elevationFineAt(lat, lon) ?? 0 },
     );
     const contacts = checkHorizonObstruction(profile, positions);
 
