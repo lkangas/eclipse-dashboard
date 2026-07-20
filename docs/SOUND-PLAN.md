@@ -1,31 +1,37 @@
 # Sound Warnings — Plan
 
-Status: **New plan — nothing implemented yet.** `docs/STATUS.md` still lists
-this as "zero code... the single largest remaining gap for actual field
-use; nobody's reading a screen during totality." This document is the final,
-opinionated synthesis of three independently-written design candidates
-(pure synthesized tones, speech-first via Web Speech API, and a deliberate
-tone+speech hybrid) into one implementation-ready plan — not a summary of
-all three, a real judgment call on each decision, with the losing ideas
-named and discarded rather than smoothed over. Every claim about this app's
-own architecture below (`localCircumstances`, `effectiveTime`/`now`,
-`horizonObstruction`, and the actual triplicated "next observable event"
-logic) was checked directly against the current source in this session, not
-assumed from the candidates' own descriptions of it. T−23 days at time of
-writing (2026-08-12, ~18:26–18:33 UT, Spain).
+Status: **New plan — nothing implemented (beyond `app/src/sound/scheduler.ts`,
+the pure reducer in §3.2, deliberately independent of the event/message
+content below) — not yet implemented.** `docs/STATUS.md` still lists this as
+"zero code... the single largest remaining gap for actual field use; nobody's
+reading a screen during totality." This document was originally the
+synthesis of three independently-written design candidates (pure synthesized
+tones, speech-first via Web Speech API, and a deliberate tone+speech hybrid)
+into one implementation-ready plan; §1-§2's event/message content was then
+**revised 2026-07-21 per direct instruction**, replacing that synthesis's
+original single-T−30s-pre-warning design with a richer per-event countdown
+ladder (§2.1) — the underlying architecture (hybrid tone+speech split,
+scheduler, voice-filtering guardrail) is unchanged and still applies. Every
+claim about this app's own architecture below (`localCircumstances`,
+`effectiveTime`/`now`, `horizonObstruction`, and the actual triplicated "next
+observable event" logic) was checked directly against the current source,
+not assumed. T−23 days at time of writing (2026-08-12, ~18:26–18:33 UT,
+Spain).
 
 ---
 
 ## 1. Approach and why
 
-**Recommendation: a hybrid, but a specific, narrow one — Web Audio
-oscillator tones own exactly two events (C2, C3), and local-voice-only
-`SpeechSynthesis` owns everything else, including a T−30s spoken pre-warning
-for C2 and C3 themselves.** No event ever gets a tone-only or speech-only
-treatment by default except that narrow C2/C3 pair, which gets *both*,
-concurrently, for reasons in §1.3. This is closest to Candidate C's thesis,
-deliberately narrowed and corrected in a few places where reading candidates
-A and B closely exposed real gaps in C's own execution (§1.4).
+**Recommendation: a hybrid — Web Audio oscillator tones own the three
+hard-deadline eye-safety instants (C1, C2, C3), and local-voice-only
+`SpeechSynthesis` owns everything else, including each of their countdown
+ladders (§2.1).** No event ever gets a tone-only or speech-only treatment by
+default except that C1/C2/C3 trio, which gets tone at the exact instant with
+no concurrent speech (the ladder beforehand already named what's coming —
+§1.3). This is closest to Candidate C's thesis, deliberately narrowed and
+corrected in a few places where reading candidates A and B closely exposed
+real gaps in C's own execution (§1.4) — then widened from C2/C3-only to
+C1/C2/C3 in the 2026-07-21 revision above.
 
 ### 1.1 Why not tone-only (Candidate A)
 
@@ -46,7 +52,7 @@ not the repeated-exposure setting (a smoke alarm, a reversing-vehicle beep)
 where a learned tone vocabulary actually earns its keep through repetition.
 **A tone can't say "second contact" — only speech can, with zero learned
 association required.** That is the one structural advantage speech has
-and it is decisive for every event except the two where reaction speed, not
+and it is decisive for every event except the three where reaction speed, not
 comprehension, is what matters (§1.3). Keep A's tone-engineering rigor;
 discard its plan to extend that vocabulary across all six events.
 
@@ -79,8 +85,9 @@ with a fixed 10s pre-warning plus an at-moment line... No... tone layer yet"
 — deferring the tone to Phase 2. That is a real inconsistency: it means B's
 own proposed MVP covers the two eye-safety-critical instants with *only*
 the channel B's own document says is unfit for them. This design corrects
-that by putting the tone for C2/C3 in Phase 1 from the start (§6) — it is
-not an enhancement layered onto speech, it is the load-bearing part.
+that by putting the tone in Phase 1 from the start (§6) for all three
+eye-safety instants (C1/C2/C3 per the 2026-07-21 revision) — it is not an
+enhancement layered onto speech, it is the load-bearing part.
 
 ### 1.3 Why hybrid, and why this specific division of labor
 
@@ -90,51 +97,40 @@ naming" are not two ends of one dial to compromise between — they are two
 different *jobs*, and this app's six events split cleanly across them with
 no overlap:
 
-- **C2 (totality begins) and C3 (totality ends)** are the only two moments
-  where a specific physical action (filter off / filter back on) is tied to
-  the *exact* instant, and where getting the instant wrong by more than a
-  couple of seconds has a real eye-safety cost. This needs a signal immune
-  to platform TTS engine variance, `.speak()`'s tens-to-hundreds-of-ms
-  startup latency, and its FIFO (non-overlapping) queueing behavior —
-  properties no `SpeechSynthesis` call can fully escape even after voice
-  filtering, because they're inherent to the API, not a bug in some
-  browser's implementation. Web Audio oscillators sidestep all of it:
-  `oscillator.start(audioContext.currentTime + delta)` is honored by the
-  browser's own audio-rate clock, immune to main-thread jank, GC pauses, or
-  `setInterval`/`setTimeout` throttling.
-- **C1, C4, Max (conditionally), and terminal-Sunset (conditionally)** — see
-  §2 for exactly when — are informational: "something is about to start,"
-  "it's over," "here's how much of the disk is covered." None of them has a
-  hard deadline measured in fractions of a second. For these, the ability to
-  *name the thing* ("Partial eclipse has begun") beats split-second timing
-  by a wide margin, precisely because the user cannot be assumed to have
-  memorized what a specific beep pattern means for an event this rare.
-- **The T−30s pre-warnings for C2 and C3 themselves** are also informational
-  ("something precise is coming soon") rather than the precise cue itself —
-  so they're spoken, not toned. This actually *removes* a problem Candidate
-  B ran into: B fixed its pre-warning lead at a stingy 10s specifically
-  because a spoken pre-warning immediately followed by a spoken at-moment
-  line risked the first still being mid-sentence when the second needed to
-  fire, forcing an ugly `cancel()`-or-queue choice. That problem is an
-  artifact of using speech for *both* halves. Once the at-moment cue is a
-  tone (a completely independent playback path that never queues behind
-  `SpeechSynthesis`), the pre-warning lead is free to be a comfortable 30s
-  with no such constraint — see §3.4 for the one residual edge case (very
-  short totality near the corridor edge) and its guard.
-
-**One further refinement beyond all three candidates: C2 and C3 fire the
-tone and a spoken confirmation *concurrently*, not tone-only.** The tone is
-scheduled with audio-clock precision as the reaction cue; a plain
-`speechSynthesis.speak('Totality has begun. Filters off.')` (or the C3
-equivalent) is triggered via an ordinary (imprecise, and that's fine)
-`setTimeout` landing within roughly the same second, purely as a redundant
-naming confirmation for anyone who wasn't certain what the tone meant. This
-costs nothing — the tone's precision does not depend on the speech call
-succeeding, arriving on time, or even existing on a device with no usable
-local voice — and it closes the one real gap in Candidate C's own table
-(§2, C's version), which assigns C2/C3's at-instant cell to "tone" only and
-never revisits naming for the single most safety-critical moment in the
-whole app.
+- **C1 (partial begins), C2 (totality begins), and C3 (totality ends)** are
+  the three moments where a specific physical action (filter on / filter
+  off / filter back on) is tied to the *exact* instant, and where getting
+  the instant wrong by more than a couple of seconds has a real eye-safety
+  cost. **Revised from this document's original cut** (which reserved tone
+  for C2/C3 only, reasoning C1 had no hard deadline) **per direct
+  instruction** — C1 gets a tone too, on the same footing as C2/C3, since
+  the filter must already be on by C1 exactly as it must come off/on at
+  C2/C3. All three need a signal immune to platform TTS engine variance,
+  `.speak()`'s tens-to-hundreds-of-ms startup latency, and its FIFO
+  (non-overlapping) queueing behavior — properties no `SpeechSynthesis`
+  call can fully escape even after voice filtering, because they're
+  inherent to the API, not a bug in some browser's implementation. Web
+  Audio oscillators sidestep all of it: `oscillator.start(audioContext
+  .currentTime + delta)` is honored by the browser's own audio-rate clock,
+  immune to main-thread jank, GC pauses, or `setInterval`/`setTimeout`
+  throttling.
+- **Max (conditionally) and terminal-Sunset (conditionally)** — see §2 for
+  exactly when — are informational: "here's how much of the disk is
+  covered," "it's over here." Neither has a hard deadline measured in
+  fractions of a second, so spoken, not toned.
+- **The countdown ladders for C1/C2/C3 themselves** (§2.1) are also
+  informational ("something precise is coming soon") rather than the
+  precise cue itself — so every rung is spoken, not toned, and naming what
+  it's counting down to is exactly the job speech is better at. Unlike this
+  document's original single-T−30s-pre-warning design, a multi-rung ladder
+  reintroduces a real version of the queueing risk Candidate B hit (§1.2):
+  adjacent rungs can sit as close as 5s apart (e.g. C2's 15s/10s/5s marks),
+  which is enough for a slow TTS engine to still be mid-utterance when the
+  next rung fires. Mitigation (§6.4/§7.2): `speechSynthesis.cancel()`
+  immediately before queuing each new rung, same discipline already needed
+  for §5.9's overlapping-utterance case — an interrupted "fifteen seconds"
+  cut off by "ten seconds" a moment later is a far smaller cost than a
+  queued backlog of stale countdown lines reading out after the fact.
 
 ### 1.4 Why this degrades better than either pure candidate
 
@@ -145,8 +141,8 @@ finds no usable local voice on the actual field hardware — or, worse, finds
 that mere voice *enumeration* triggers a network call that can't be avoided
 (a real, specific risk Candidate B raises and this document treats with the
 same seriousness, §5.3) — the result is graceful: informational events fall
-back to tone + on-screen text, while C2/C3's tone-based safety cue is
-completely unaffected, because it never depended on speech in the first
+back to tone + on-screen text, while C1/C2/C3's tone-based safety cues are
+completely unaffected, because they never depended on speech in the first
 place. A pure speech-first design has no equivalent fallback for its own
 most safety-critical moments without secretly building the same tone this
 document builds anyway (which, per §1.2, is exactly what Candidate B's own
@@ -188,30 +184,58 @@ app's own track record of `file://`-specific surprises.
 
 ## 2. Events and triggers
 
-### 2.1 The six events, and which channel(s) they get
+### 2.1 The events, and which channel(s) they get
 
-All six keys come directly from `LocalCircumstances`
-(`app/src/stores/localCircumstances.ts`): `c1, c2, max, c3, c4, sunset`, all
-independently nullable except `max`. No event in this design ever reads a
-`Date` field without checking it for `null` first — every row in the table
-below is gated by the eligibility rules in §2.2 before it's ever considered
-"armed."
+**Revised 2026-07-21, per direct instruction — replaces this section's
+original single-T−30s-pre-warning design.** All keys come directly from
+`LocalCircumstances` (`app/src/stores/localCircumstances.ts`): `c1, c2, max,
+c3, c4, sunset`, all independently nullable except `max`. No event in this
+design ever reads a `Date` field without checking it for `null` first —
+every rung below is gated by the eligibility rules in §2.2 before it's ever
+considered "armed."
 
-| Event | Pre-warning (T−30s) | At-instant | Default |
-|---|---|---|---|
-| C1 — partial begins | Spoken: *"Partial eclipse begins in about thirty seconds. Solar filter on."* | Spoken: *"Partial eclipse has begun."* | On |
-| C2 — totality begins | Spoken: *"Totality in about thirty seconds."* | **Tone** (rising sweep) + spoken: *"Totality has begun. Filters off."* — concurrent, see §1.3 | On |
-| Max — greatest eclipse | — (nothing to prepare for) | Spoken: *"Maximum eclipse now."* — **only when Max is the climactic moment for this observer**, see §2.3 | On (conditionally silent) |
-| C3 — totality ends | Spoken: *"Totality ending in about thirty seconds."* | **Tone** (falling, faster/more urgent sweep) + spoken: *"Totality has ended. Filters on."* — concurrent | On |
-| C4 — partial ends | — (no hard deadline) | Spoken: *"Eclipse has ended."* | On |
-| Sunset (terminal only) | Spoken: *"Sun setting in about thirty seconds. Eclipse viewing ending here."* | Spoken: *"Sun has set. Eclipse viewing has ended."* | On (conditionally silent) |
+**C1 — partial eclipse begins** (solar filter must already be on):
+- Spoken countdown: 5 min, 1 min, 30s, 10s, 5s before C1 (e.g. *"Five
+  minutes to C1."* ... *"Five seconds to C1."*)
+- At C1: **Tone** only — no separate spoken confirmation; the ladder above
+  already named what's coming, so the tone is purely the precise click,
+  same reasoning as C2/C3 below
 
-No pre-warning for Max, C4, or non-terminal Sunset — none of them has
-anything actionable to prepare for; a countdown to "nothing in particular
-happens" is noise, not warning. The tone channel is reserved *exclusively*
-for C2/C3 — no other event gets a tone, ever, in any phase (§6's "explicitly
-not doing" list) — keeping the "Timing tones" UI toggle (§4) a small,
-well-defined control over exactly two sounds rather than a fuzzy grab-bag.
+**C2 — totality begins** (filter comes off):
+- Spoken countdown: 10 min, 5 min, 2 min, 1 min, 30s, 15s, 10s, 5s before C2
+- Separate spoken safety call: *"Filters off!"* at C2 − *X* seconds — **X
+  not yet decided** (§2.4)
+- At C2: **Tone** (rising sweep) only
+
+**Max — greatest eclipse**:
+- No pre-warning (nothing actionable to prepare for)
+- At Max: Spoken *"Maximum."* — carrying forward this document's original
+  suppression rule (§2.3) unless told otherwise: silent when C2 *and* C3
+  both survive `observableEvents()` (a normal, fully-observable totality
+  already has its own C2/C3 cues saying "this is the big moment"), fires
+  otherwise (partial-only sites, or sites where sunset cuts off before
+  Max even though C2 was observable)
+
+**C3 — totality ends** (filter goes back on):
+- Spoken countdown: 50s, 30s, 15s, 10s, 5s before C3 — starts closer in
+  than C1/C2's ladders, since totality itself is only ~1-2 minutes long; a
+  5-minute-out warning for C3 would be warning about an instant that
+  hasn't even had its own C2 tone yet at most sites
+- Separate spoken safety call: *"Filters on!"* at C3 + *X* seconds — **X
+  not yet decided** (§2.4), and note the sign: *after* C3, not before,
+  unlike C2's filters-off call
+- At C3: **Tone** (falling, faster/more urgent sweep) only
+
+**C4 — partial eclipse ends** and **Sunset (terminal only)** — **carried
+forward unchanged from this document's original design pending explicit
+confirmation**, since neither was mentioned in the revision: no pre-warning
+(no hard deadline to prepare for), spoken-only at-instant (*"Eclipse has
+ended."* / *"Sun has set. Eclipse viewing has ended."*), no tone.
+
+Tone is now reserved for the three hard-deadline eye-safety instants —
+C1, C2, C3 — not C2/C3 exclusively as originally designed; still no event
+outside those three ever gets a tone, in any phase, keeping the "Timing
+tones" UI toggle (§4.3) a well-defined control over exactly three sounds.
 
 ### 2.2 Nullability — the exact gating rule, ported from real existing code
 
@@ -264,7 +288,7 @@ export interface ScheduledEvent {
 export function observableEvents(lc: LocalCircumstances): ScheduledEvent[];
 ```
 
-### 2.3 Sound-specific layering on top of `observableEvents()` — the two judgment calls the brief asks for, made explicit
+### 2.3 Sound-specific layering on top of `observableEvents()` — the three judgment calls the brief asks for, made explicit
 
 `observableEvents()` above is a faithful port of what the three existing
 UI consumers *already* do — it is not sound-specific. Sound warnings need
@@ -345,10 +369,39 @@ export interface SoundEvent extends ScheduledEvent {
 export function soundEligibleEvents(lc: LocalCircumstances): SoundEvent[];
 ```
 
-(C2 and C3 each expand to two `SoundEvent` entries in the real
-implementation — one `channel: 'tone'`, one `channel: 'speech'` for the
-concurrent confirmation line — rather than a single event trying to carry
-two channels; kept as one conceptual row in §2.1's table for readability.)
+(Per §2.1's revised table: C1/C2/C3 each expand to multiple `SoundEvent`
+entries in the real implementation — one per countdown-ladder rung
+(`channel: 'speech'`, `prewarn: true`) plus one at-instant tone entry
+(`channel: 'tone'`, `prewarn: false`); C2/C3 additionally get a separate
+`'Filters off!'`/`'Filters on!'` speech entry once §2.4's *X* timing is
+settled — rather than a single event trying to carry every channel; kept
+as one conceptual row in §2.1's table for readability.)
+
+### 2.4 Open items from this revision, not yet resolved
+
+- **The *X* lead/lag times for "Filters off!"/"Filters on!"** — genuinely
+  undecided. `sound/eligibility.ts` cannot construct these two
+  `SoundEvent`s without a concrete number; blocks that module specifically,
+  not the rest of Phase 1 (§6). Whatever *X* is chosen also needs a check
+  against landing too close to an adjacent countdown rung (the same
+  category of collision §3.4 already guards against between C2's tone and
+  C3's ladder) — not yet analyzed since *X* itself isn't picked.
+- **C4/Sunset's treatment** — assumed unchanged above; flagged for explicit
+  confirmation rather than silently decided, since the revision instruction
+  didn't mention either.
+- **Max's suppression rule** — assumed still in force above (this
+  document's own original design, §2.3); flagged for explicit confirmation
+  for the same reason.
+- **Countdown-ladder queueing risk** (§1.3's closing paragraph) — adjacent
+  rungs as close as 5s apart is a real `SpeechSynthesis` overlap risk on a
+  slow engine; mitigation identified (`cancel()` before each new rung) but
+  not yet load-tested against a real slow-TTS device.
+- **`GUARD_BUFFER_S`'s exact value** (§3.4's generalized short-totality
+  guard) — 10s carried forward from the original design as a placeholder,
+  not confirmed against the new multi-rung ladder.
+- **C1's tone shape** (§6's Phase 1 bullet list) — C2 (rising sweep) and C3
+  (falling, faster sweep) are specified; C1 needs its own distinct third
+  shape, not yet designed.
 
 ---
 
@@ -368,7 +421,7 @@ avoid:
   app (countdown, contacts table, map shadow marker) already treats 1-second
   granularity as sufficient; and nothing here is trying to beat the
   Besselian-element prediction's own inherent uncertainty.
-- *Should the C2/C3 tone actually be fired from inside the 1Hz tick
+- *Should the C1/C2/C3 tone actually be fired from inside the 1Hz tick
   handler?* No — not because 1Hz is too coarse in principle, but because
   handing the last few seconds to `AudioContext`'s own clock is strictly
   better and free. `oscillator.start(audioContext.currentTime + delta)` is
@@ -450,39 +503,41 @@ acquires/loses a fix) is just another `curMs` discontinuity, handled by the
 identical forward/backward branches above with no special-casing.
 
 **Implementation refinement (found during `scheduler.ts`'s own adversarial
-review, before `sound/eligibility.ts` existed to expose it live):** the
-"more than one crossed" collapse above must key off the most-recently-
-passed **time**, not the most-recently-passed **event** — §2.3's C2/C3
-tone+speech companion pair shares one exact instant, so an ordinary single
-live-mode tick can cross *both* of them at once, which is not the "skipped
-through a rehearsal" case the collapse rule exists for. `scheduler.ts`
-fires every crossed event **at** the latest crossed time (usually one,
-occasionally a same-instant pair), and only silently swallows anything
-strictly **earlier** than that. Caught by constructing the exact
-same-timestamp case directly, not by the multi-crossing test that happened
-to already use a chronologically-sorted fixture.
+review):** the "more than one crossed" collapse above must key off the
+most-recently-passed **time**, not the most-recently-passed **event** —
+defensive design for the case where two `SoundEvent`s ever land on one
+exact instant (e.g. if §2.4's still-undecided Filters-off!/Filters-on! lead
+time *X* is ever chosen as 0, landing exactly on C2/C3's own tone), which
+is not the "skipped through a rehearsal" case the collapse rule exists for.
+`scheduler.ts` fires every crossed event **at** the latest crossed time
+(usually one, occasionally a same-instant pair), and only silently
+swallows anything strictly **earlier** than that.
 
 ### 3.3 What the tone channel does differently once "fire now" is decided
 
-Speech firing is simple: when the reducer says "fire `c1`'s prewarn now,"
-call `speechSynthesis.speak(...)` directly from the tick handler — its own
-onset latency (tens to a few hundred ms) is irrelevant against a loose
-"about thirty seconds" cue.
+Speech firing is simple: when the reducer says "fire `c1`'s 30-second
+countdown rung now" (any ladder rung, on any of C1/C2/C3, or the Filters
+off!/Filters on! calls once §2.4's *X* is settled), call
+`speechSynthesis.speak(...)` directly from the tick handler — its own onset
+latency (tens to a few hundred ms) is irrelevant against a spoken cue
+that's already several seconds loose by design.
 
-The C2/C3 *tone* needs the audio-clock precision from §3.1, which means it
-can't simply fire "now" from inside a tick that only runs once a second.
-**Arming**: once the reducer's lookahead (computed each tick regardless of
-whether anything is due *this* tick) shows a `tone`-channel event is within
-`ARM_LEAD_S = 3` seconds **and the current motion is forward with a
-plausibly-small delta** (i.e., we're in the "zero or one events crossed"
-regime from §3.2, not a big jump), compute the precise remaining delta
-against `effectiveTime` and call `oscillator.start(audioContext.currentTime
-+ delta)` — the audio clock, not the next tick, now owns the exact playback
-moment. Three seconds of lead comfortably covers the tick's own worst-case
-~1s detection jitter with margin to spare before computing and issuing the
-precise schedule call. **In the same arm step**, schedule the concurrent
-spoken confirmation (§1.3) via an ordinary `setTimeout(..., delta * 1000)`
-— imprecise is fine here, its whole value is naming, not timing.
+Each of **C1/C2/C3's own tone** needs the audio-clock precision from §3.1,
+which means it can't simply fire "now" from inside a tick that only runs
+once a second. **Arming**: once the reducer's lookahead (computed each tick
+regardless of whether anything is due *this* tick) shows a `tone`-channel
+event — any of the three, not just two — is within `ARM_LEAD_S = 3` seconds
+**and the current motion is forward with a plausibly-small delta** (i.e.,
+we're in the "zero or one events crossed" regime from §3.2, not a big
+jump), compute the precise remaining delta against `effectiveTime` and call
+`oscillator.start(audioContext.currentTime + delta)` — the audio clock, not
+the next tick, now owns the exact playback moment. Three seconds of lead
+comfortably covers the tick's own worst-case ~1s detection jitter with
+margin to spare before computing and issuing the precise schedule call.
+**Unlike this document's original design, there is nothing to arm
+alongside it any more** — §2.1's revision made the at-instant moment
+tone-only, with naming handled entirely by the countdown ladder
+beforehand, so the tone's own arm step is the whole job here.
 
 **If a sim jump lands *inside* that 3-second arm window or skips past the
 event entirely before arming could happen**, the tone falls back to the
@@ -501,14 +556,21 @@ arm-time, per Candidate A's mitigation.
 
 Near the corridor's edges, `localCircumstances.durationS` can shrink toward
 zero — `docs/HORIZON-PLAN.md`'s own reasoning about grazing/sunset
-incidence applies here too. If C3's own T−30s pre-warning would land within
-`SHORT_TOTALITY_GUARD_S = 10` seconds of C2's tone (i.e., `durationS !==
-null && durationS < 40`), **skip C3's pre-warning entirely** rather than
-stacking a spoken "totality ending soon" almost on top of C2's own tone +
-confirmation line — cheap insurance against a confusing back-to-back
-collision at exactly the sites where totality is shortest and attention is
-most valuable. C3's at-instant tone+speech is never skipped by this guard —
-only the loose, genuinely-skippable pre-warning is.
+incidence applies here too. The original single-T−30s design guarded
+against one collision case (C3's lone pre-warning landing near C2's tone).
+**Generalized for §2.1's revised multi-rung ladder**: a C3 rung with lead
+time `L` computes to `C3 − L`, landing `durationS − L` seconds after C2's
+tone — for a short enough totality this can land uncomfortably close to
+C2's own cue, or even *before* C2 altogether (announcing totality's end
+before its start has even happened, nonsensical). **Skip each C3 rung
+individually** if `durationS < L + GUARD_BUFFER_S`, rather than an
+all-or-nothing cutoff — a moderately-short totality only drops the
+longest-lead rung ("fifty seconds to C3") while keeping the close-in ones
+that still make sense once C2 has actually passed. `GUARD_BUFFER_S`'s exact
+value is **TBD** (10s, matching the original design's own buffer, is a
+reasonable placeholder pending confirmation — added to §2.4). C3's
+at-instant tone is never skipped by this guard — only the loose,
+genuinely-skippable pre-warning rungs are.
 
 ### 3.5 Re-arming on observer/location change
 
@@ -520,10 +582,18 @@ new `lastEffectiveMs`, empty `fired` set, any pending `oscillator.start()`
 call still scheduled against the *old* location's contact times is
 cancelled. New contact times are, for this purpose, entirely new event
 instances — never partially reconciled against the previous location's
-already-fired flags. This recompute is cheap enough (a handful of
-comparisons over ≤7 `SoundEvent` entries) to run unconditionally, with no
-debouncing, matching `horizonObstruction`'s own precedent for reacting to
-every observer change.
+already-fired flags. This recompute is cheap enough (a linear scan over a
+few dozen plain `SoundEvent` entries at most — §2.1's revised ladder pushes
+the real per-observer count to roughly 24-26, up from the original design's
+≤7, but only ever from discrete, human-paced triggers, never a render loop;
+still sub-millisecond, no DOM/geometry/I/O involved) to run unconditionally,
+with no debouncing. Note the part of this reset that touches real browser
+timers is unaffected by the ladder's size: only `tone`-channel events (C1,
+C2, C3 — never more than 3) are ever pre-armed ahead of time (§3.3); ladder
+rungs fire directly from the tick, so there's nothing to cancel for them.
+`horizonObstruction`'s own precedent for reacting to every observer change
+does real DEM/geometry sampling per change — categorically heavier than
+this scan even at the larger count.
 
 ---
 
@@ -554,10 +624,12 @@ idea, extended to cover both channels rather than speech alone, since tone
 is now the load-bearing safety channel):
 
 1. `audioContext.resume()`.
-2. Play the actual C2 tone once, immediately — not a generic beep, the real
-   sound the user will hear in the field.
-3. Play the actual C3 tone once, immediately after.
-4. Attempt the local-voice filter/select (§5.1); if one is found, speak
+2. Play the actual C1 tone once, immediately — not a generic beep, the real
+   sound the user will hear in the field (§2.1's revision added a tone to
+   C1, alongside C2/C3).
+3. Play the actual C2 tone once, immediately after.
+4. Play the actual C3 tone once, immediately after that.
+5. Attempt the local-voice filter/select (§5.1); if one is found, speak
    "Sound warnings enabled." If none is found, set the degraded-mode flag
    and skip straight to informing the user via the badge/tooltip instead.
 
@@ -575,14 +647,15 @@ No settings/preferences/`localStorage` convention exists anywhere in this
 codebase yet — this is genuinely greenfield. Keep it minimal rather than
 over-building a general-purpose settings abstraction nobody else needs:
 
-- **Two category toggles, not six per-event ones**: "Timing tones" (C2/C3
-  only) and "Spoken announcements" (everything else), both **on** by
-  default. The litmus test used to settle "how granular" (adapted from
-  Candidate C): does the distinction change what the user should physically
-  do next? Tone-vs-speech clears that bar — e.g. an observer with others
-  nearby may want the device silent verbally but still want the two
-  eye-safety tones, or the reverse. Six independent per-contact toggles
-  don't clear that bar for a fixed list with three weeks of runway left —
+- **Two category toggles, not a per-event one for every rung**: "Timing
+  tones" (C1/C2/C3 only) and "Spoken announcements" (everything else,
+  including every countdown-ladder rung), both **on** by default. The
+  litmus test used to settle "how granular" (adapted from Candidate C):
+  does the distinction change what the user should physically do next?
+  Tone-vs-speech clears that bar — e.g. an observer with others nearby may
+  want the device silent verbally but still want the three eye-safety
+  tones, or the reverse. Per-rung toggles don't clear that bar for a fixed
+  ladder with three weeks of runway left —
   nobody has a plausible reason to mute C2's tone specifically while
   leaving C3's on.
 - **One shared volume control**, scaling both the tones' `GainNode` and
@@ -614,13 +687,17 @@ acceptable cost.
 
 - **No per-contact lead-time configuration.** The original `docs/PLAN.md`
   §9 sketch imagined "per-contact, user-set lead times" — this document
-  recommends against it for launch: a fixed `PREWARN_LEAD_S = 30` constant
-  (§3) is simpler, has no failure mode of its own, and the marginal benefit
-  of per-contact tuning doesn't clear the bar against the UI complexity and
-  testing surface it would add with three weeks left. Revisit post-event if
-  actually wanted.
-- **No per-event (six-way) toggles.** Covered in §4.3 — the two-category
-  split already covers every plausible real use case.
+  recommends against it for launch: §2.1's fixed countdown ladders (a
+  specific, hand-picked lead-time set per event, not a single shared
+  constant any more since the 2026-07-21 revision) are simpler, have no
+  failure mode of their own, and the marginal benefit of further per-contact
+  tuning on top of an already-rich ladder doesn't clear the bar against the
+  UI complexity and testing surface it would add with three weeks left.
+  Revisit post-event if actually wanted.
+- **No per-rung or per-event toggles beyond the two categories.** Covered in
+  §4.3 — the tone/speech category split already covers every plausible real
+  use case; muting one specific countdown rung while keeping its neighbors
+  has no plausible use case.
 - **No attempt to detect device-silent/hardware-mute/system-volume state.**
   No web API exposes any of this (deliberately, for fingerprinting
   reasons) — see §5 for why this is a "surface it, don't pretend to solve
@@ -633,8 +710,8 @@ acceptable cost.
 | # | Failure mode | Mitigation |
 |---|---|---|
 | 5.1 | A network-backed voice gets silently selected (Chrome/Edge), quietly breaking this app's own zero-runtime-network guarantee the moment the device is actually offline in the field | Architectural: hard-filter to `localService === true` at voice-selection time (§1.5), never fall through to an unfiltered default voice. Actively re-verified with the network adapter physically disabled during the mandatory Phase 0 spike (§6), not just asserted from documentation |
-| 5.2 | No local voice exists on the device at all (locked-down image, minimal install, missing language pack) | Detected at enable-time (§4.2 step 4); surfaced as the degraded-mode badge on the TopBar control (§4.1), not a silent no-op. Tone-based C2/C3 warnings are completely unaffected — this is the direct payoff of the hybrid split (§1.4) |
-| 5.3 | Voice *enumeration itself* (not just speaking) triggers a network request in Chrome, before any local-voice filtering can even happen client-side | Unverified either way as of this writing — must be checked with DevTools' Network tab open, and again with the network adapter physically disabled, as part of the Phase 0 spike (§6), on the actual field laptop. If confirmed, `SpeechSynthesis` is dropped entirely (not just degraded) and every informational event falls back to on-screen text only; the tone-based C2/C3 warnings are, again, entirely unaffected |
+| 5.2 | No local voice exists on the device at all (locked-down image, minimal install, missing language pack) | Detected at enable-time (§4.2 step 5); surfaced as the degraded-mode badge on the TopBar control (§4.1), not a silent no-op. Tone-based C1/C2/C3 warnings are completely unaffected — this is the direct payoff of the hybrid split (§1.4) |
+| 5.3 | Voice *enumeration itself* (not just speaking) triggers a network request in Chrome, before any local-voice filtering can even happen client-side | Unverified either way as of this writing — must be checked with DevTools' Network tab open, and again with the network adapter physically disabled, as part of the Phase 0 spike (§6), on the actual field laptop. If confirmed, `SpeechSynthesis` is dropped entirely (not just degraded) and every informational event falls back to on-screen text only; the tone-based C1/C2/C3 warnings are, again, entirely unaffected |
 | 5.4 | Autoplay/gesture restriction blocks the first `speak()`/leaves `AudioContext` `suspended` (Chrome, and documented on iOS Safari as needing the *first* `speak()` synchronously inside a user gesture) | The mandatory Enable-Sound click *is* the unlock gesture and, per §4.2, an immediate, personally-audible self-test — failure here is discovered the moment the button is pressed, not during totality. Residual risk: the user never presses it after a reload right before totality — mitigated by making the not-yet-enabled state visually loud (§4.1), not a subtle icon shade |
 | 5.5 | Device on silent/vibrate/DND (mobile) — the hardware mute switch silences web audio output on at least iOS Safari, with no web API able to query that switch's state | **Not detectable by any web API, full stop.** The only available mitigation is forcing discovery *before* totality via the Test Sound re-run (§4.2), with explicit copy near the control: "test this at the volume/silent-switch position you'll actually use in the field." Not fixable in code, and this document says so plainly rather than implying otherwise |
 | 5.6 | System/hardware volume at zero (laptop) | Same category, same mitigation as 5.5 — no cross-browser API exposes real system volume level, deliberately (fingerprinting risk) |
@@ -667,7 +744,7 @@ if this finds zero usable local voices, or finds that enumeration itself
 makes an unavoidable network call, on the actual target hardware —
 `SpeechSynthesis` is dropped from the design entirely (not degraded, gone),
 every informational event falls back to on-screen text, and Phase 1 ships
-tone-only for C2/C3 with text-only for everything else. This is a real
+tone-only for C1/C2/C3 with text-only for everything else. This is a real
 possible outcome of this design, not a formality to rubber-stamp before
 moving on, and the hybrid architecture (§1.4) means nothing else about the
 plan needs to change if it happens.
@@ -684,7 +761,10 @@ Aug 12):**
   backward, and multi-event-jump cases.
 - `app/src/sound/tones.ts` — C2 (rising sweep) and C3 (falling, faster/
   more urgent sweep) envelope specs as plain data, per §1.1's frequency
-  reasoning; `app/src/sound/audioEngine.ts` — the thin, deliberately
+  reasoning. **C1's own tone shape is not yet designed** (§2.1's revision
+  added a tone to C1 but didn't specify its character) — needs a third
+  shape distinct from both C2's and C3's, added to §2.4's open items;
+  `app/src/sound/audioEngine.ts` — the thin, deliberately
   untested `AudioContext`/`oscillator`/`resume()` glue (same "keep it
   thin, untested surface stays small" convention `connection.ts` already
   established for this codebase's other real-hardware-facing glue).
@@ -791,9 +871,12 @@ already draws for `connection.ts`'s `navigator.serial` glue.
   same event fires twice, once per forward crossing) — this last case is
   the concrete regression test for "rehearsal in sim mode is actually
   useful," not just a nice property.
-- **The short-totality guard (§3.4)**: `durationS` values just above/below
-  the 40s threshold, confirming the pre-warning is skipped exactly at the
-  boundary this document specifies and not off by a tick.
+- **The short-totality guard (§3.4)**: since each C3 rung now has its own
+  threshold (`L + GUARD_BUFFER_S` per lead time `L` — 60s/40s/25s/20s/15s
+  given the 10s placeholder), test `durationS` values just above/below each
+  rung's own boundary independently, confirming a moderately-short totality
+  drops only its longest-lead rungs while keeping the close-in ones, not an
+  all-or-nothing cutoff.
 - **`sound/voices.ts`'s filter predicate**: given a synthetic array of
   `{name, lang, localService}` voice objects (no real `SpeechSynthesis`
   needed — this is a plain array filter/sort), confirm `localService:
@@ -807,10 +890,11 @@ already draws for `connection.ts`'s `navigator.serial` glue.
 
 ### 7.2 Necessarily manual/live-verified
 
-- **Actual audio output correctness** — do the C2/C3 tones actually sound
-  distinct from each other, is the "more urgent" C3 tempo actually
-  perceptible, is spoken text actually intelligible at field volume on the
-  real hardware. No amount of unit testing substitutes for a human ear
+- **Actual audio output correctness** — do the C1/C2/C3 tones actually sound
+  distinct from each other (all three, not just C2 vs. C3), is the "more
+  urgent" C3 tempo actually perceptible, is spoken text (including every
+  countdown-ladder rung) actually intelligible at field volume on the real
+  hardware. No amount of unit testing substitutes for a human ear
   here.
 - **The Phase 0 voice-enumeration/network spike itself (§6)** — inherently
   a real-hardware, real-DevTools, network-adapter-physically-disabled
