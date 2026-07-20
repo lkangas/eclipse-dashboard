@@ -81,8 +81,74 @@ the dynamic import + decode of a file this size is itself genuinely slow
 in Vitest's own transform pipeline, a one-time test-suite cost with no
 production impact), typecheck clean.
 
-Phase 3 (denser Tier-1 DEM) and Phase 4 (real-hardware/field validation,
-not applicable here the way it was for the GPS monitor) not started.
+**Phase 3 revised: corridor-limited, land-clipped sparse grid, replacing the
+whole-bbox 69MB file.** A real deploy attempt to `eclipse.defocus.fi`
+(Cloudflare Pages) failed outright: Cloudflare hard-caps individual files at
+25MiB, and the whole-bbox `elevation-fine.json` was 69MB -- not a tunable
+setting, a hard blocker. The whole-bbox grid was also mostly waste: at 250m
+resolution, storing every cell of the Iberia+Balearics bounding rectangle
+means storing the open Atlantic/Mediterranean too, which this ray-march
+never needs.
+
+Fix: store only cells that are (a) real land (exact coastline, from the
+same `basemap.topojson` the maps already use, via scanline polygon
+crossings -- not a data-driven guess off the DEM's own near-zero coastal
+values, which aren't a reliable land/sea signal) AND (b) within the umbral
+totality corridor -- the north/south limit curves already computed at
+build time by `generate_shadow_frames.py`, buffered by an *asymmetric*
+margin (40km south, 10km north) that exists solely to cover
+`horizon.ts`'s own ray-march distance, not any notion of how far someone
+might drive to chase weather (there is no such margin -- observers only
+make sense within the umbral path itself). The margin is asymmetric
+because the path runs NW->SE across Spain while the Sun's azimuth is
+consistently WSW for observers on it: a sightline from the corridor's
+north edge points back into the corridor (no margin needed), one from the
+south edge points away from it (needs the full ray-march distance).
+Verified against a user-supplied reference figure (~260+km umbral width at
+the Valencia-Barcelona coast) using the correct method -- nearest
+spatial point on the north/south limit curves, *not* pairing points by
+matching timestamp, which conflates true cross-track width with the
+shadow's along-track elongation at grazing/sunset incidence and gives
+wildly inflated (350-1000km, physically impossible) numbers.
+
+All four Balearic Islands (Ibiza, Formentera, Mallorca, Menorca) fall
+naturally inside the corridor's own north/south bounds at their
+longitudes -- no separate handling needed. Storage is column-major
+(fixed-longitude columns, not fixed-latitude rows): checked directly
+against the real data that mainland-in-corridor and the islands don't
+overlap in longitude (mainland's easternmost point inside the corridor is
+~1.57°E near Tarragona; Mallorca starts at 2.37°E) except a narrow ~0.4°
+band near Ibiza, so almost every column needs exactly one contiguous span
+of rows, versus almost every row needing two-or-more spans (mainland coast
++ at least one island) if stored row-major.
+
+Pipeline: `tools/build-data/generate_dem_mask.mjs` (new) computes the
+corridor∩land geometry once (pure JS/topojson-client, no DEM access) and
+writes `tools/build-data/dem-mask.json` (gitignored, ~4.1M cells across
+5,516 spans); `generate_elevation_fine.py` reads that mask and samples the
+real Copernicus DEM only for those cells, reusing its existing per-tile
+`/vsicurl/` fetch loop unchanged -- just changing what gets written out.
+`elevationFine.ts`'s reader does the same 4-corner bilinear interpolation
+as before, but now returns `null` (not a phantom 0) if *any* corner falls
+outside the sparse grid, so a caller can tell "no terrain here" apart from
+"not covered by the dense grid, fall back to the coarse whole-Iberia
+grid" -- `stores/horizonObstruction.ts`'s fallback chain is now
+`elevationFineAt() ?? coarseElevationAt()` (was `?? 0`), so observers
+outside the totality corridor (e.g. Madrid) still get a real, if coarser,
+terrain horizon instead of silently losing the feature.
+
+Result: 69MB -> **10.5MB**, comfortably under Cloudflare's 25MiB limit.
+Live-verified: Calamocha (in corridor) renders the real varying 250m
+terrain silhouette in both SkyPanel and CountdownPanel; Madrid (outside
+the corridor, correctly shown as "no totality here") falls back cleanly to
+the coarse grid with no errors and no stuck-loading state. 259/259 tests
+passing, typecheck clean.
+
+Deployment to `eclipse.defocus.fi`, previously blocked, can now be
+re-attempted (separate, explicit step -- not part of this change).
+
+Phase 4 (real-hardware/field validation, not applicable here the way it
+was for the GPS monitor) not started.
 
 ---
 
