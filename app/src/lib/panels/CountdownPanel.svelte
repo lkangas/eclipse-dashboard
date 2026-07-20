@@ -296,18 +296,20 @@
          clip (the true panel bounds) that cuts this off, not the
          viewBox's own coordinate range. -->
     <polygon class="ground" points={schematic.groundPoints.map((p) => p.join(',')).join(' ')} />
+    <!-- Idealized flat 0deg horizon -- ALWAYS shown (same convention as
+         SkyPanel's Wide view), a fixed reference to compare the real
+         terrain curve below against, not replaced by it. -->
+    <line
+      class="zerohorizon"
+      x1={-HORIZON_EXTENT}
+      y1={schematic.flatHorizonY}
+      x2={HORIZON_EXTENT}
+      y2={schematic.flatHorizonY}
+    />
     {#if schematic.terrainCurveXY.length > 1}
       <polyline
         class="horizonline"
         points={schematic.terrainCurveXY.map((p) => p.join(',')).join(' ')}
-      />
-    {:else}
-      <line
-        class="horizonline"
-        x1={-HORIZON_EXTENT}
-        y1={schematic.flatHorizonY}
-        x2={HORIZON_EXTENT}
-        y2={schematic.flatHorizonY}
       />
     {/if}
   </svg>
@@ -385,5 +387,14 @@
     fill: none;
     stroke: #dce4f2;
     stroke-width: 1.5;
+  }
+  /* Idealized flat 0deg reference -- dashed and dimmer than .horizonline
+     (same convention as SkyPanel's Wide view) so the two read as
+     "reference vs. real" rather than competing solid lines. */
+  .zerohorizon {
+    stroke: #dce4f2;
+    stroke-opacity: 0.45;
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
   }
 </style>
