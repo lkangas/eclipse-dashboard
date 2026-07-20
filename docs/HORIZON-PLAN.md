@@ -24,15 +24,62 @@ different, larger terrain-silhouette variation and a real obstruction
 result, confirmed against the unaffected Calamocha default afterward.
 242/242 tests passing, typecheck clean.
 
-**One characteristic worth knowing, not a bug**: the "Sunset" contact
-trips the obstruction flag almost everywhere, including the Calamocha
-default -- it's checked against a threshold within a fraction of a degree
-of the idealized flat-horizon 0°, and real terrain (even gentle, distant
-hills) almost always sits at least that high in the real world. C1-C4
-require genuinely significant nearby terrain to trigger, and are the more
-discriminating/useful signal; Sunset itself is rarely the actual eclipse
-event anyway (usually well after C3/C4 -- see each site's own margin in
-PLAN.md Sec1).
+**"Sunset" is deliberately excluded from the obstruction flag/warning**
+(direct request, after observing it trip almost everywhere, including the
+Calamocha default) -- it's checked against a threshold within a fraction
+of a degree of the idealized flat-horizon 0°, and real terrain (even
+gentle, distant hills) almost always sits at least that high in the real
+world, making it true nearly unconditionally and therefore not an
+actionable signal. C1-C4/Max still flag normally (`ContactsPanel.svelte`'s
+`obstructedByTerrain` computation skips the `'sunset'` key specifically) --
+they need genuinely significant nearby terrain to trigger and are the
+useful, discriminating signal Sunset never was.
+
+**Phase 3 (§9) also done: the real Tier-1 DEM.** Source is **Copernicus DEM
+GLO-30** (ESA/Copernicus, TanDEM-X-derived, ~30m native, license verified
+and quoted in `NOTICE.md` -- free with attribution), fetched from the
+public AWS Open Data S3 bucket via GDAL's `/vsicurl/` (range-request reads,
+not full ~40MB/tile downloads) and resampled to **250m** (3801x6801 cells)
+over the whole existing bbox, per the user's explicit choice of the
+densest tier this plan costed out. Ships as a base64-encoded Int16 array
+inside `elevation-fine.json` (~69MB) -- embedding, not a runtime `fetch()`,
+because a sibling-asset fetch fails over `file://`, one of this app's two
+supported access modes.
+
+That size forced a real architectural split, discovered by direct
+measurement rather than assumption: embedding it changes app startup from
+near-instant to **~21s in this session's own (sandboxed, likely
+slower-than-real) browser tooling, and ~5s measured by the user on real
+hardware** -- and critically, a lazily-triggered `import()` does **not**
+help, because `vite.config.ts` forces a single-file, non-code-split IIFE
+build (for the same `file://`-compatibility reason above), so the whole
+72MB script has to finish parsing/compiling before *anything* renders,
+loading indicator included. Resolved by **not** routing this data through
+`elevationAt()`/the location picker's display at all: that stays on the
+small, always-instant ETOPO grid (`elevation.json`, restored to its own
+Tier-0.5 native-resolution regen), while a new `data/elevationFine.ts`
+(dynamic `import()`, a `elevationFineReady` Svelte store,
+`elevationFineAt()`) is used ONLY by `stores/horizonObstruction.ts` --
+which now depends on that readiness store and returns `{loading: true}`
+until it resolves. SkyPanel shows a "Rendering horizon…" indicator during
+that window; live-verified to genuinely appear/disappear correctly in dev
+mode (real code-splitting there), even though it's a no-op in the
+production single-file build for the reason above. User's call, given the
+real ~5s number: leave it as-is rather than build the further `fetch()`-
+based (serve-only, `file://`-losing) hybrid this finding otherwise
+motivated.
+
+Re-verified against real terrain at the same Torla/Ordesa site used for
+Phase 1-2's live check: the 250m grid resolves the actual valley walls
+precisely enough to newly flag **Max** (6.0° altitude) as blocked there,
+where the coarser Tier-0.5 grid had only caught the always-flags-anyway
+Sunset contact -- concrete evidence the resolution upgrade is doing real
+work, not just adding size. 258/258 tests passing (`data/elevation.test.ts`
+against the restored coarse grid, `data/elevationFine.test.ts` end-to-end
+against the real 250m grid -- its `beforeAll` needs a 120s timeout, since
+the dynamic import + decode of a file this size is itself genuinely slow
+in Vitest's own transform pipeline, a one-time test-suite cost with no
+production impact), typecheck clean.
 
 Phase 3 (denser Tier-1 DEM) and Phase 4 (real-hardware/field validation,
 not applicable here the way it was for the GPS monitor) not started.

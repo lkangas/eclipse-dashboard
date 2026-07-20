@@ -160,19 +160,84 @@ first, see that script's header comment).
 
 ## elevation.json
 
-Elevation-above-sea-level grid (229x409, 1/24-degree spacing) from
-[ETOPO 2022, 60 Arc-Second Global Relief Model](https://www.ncei.noaa.gov/products/etopo-global-relief-model)
+Elevation-above-sea-level grid (571x1021, 1/60-degree spacing, ~1.4-1.9km
+at this latitude) from [ETOPO 2022, 60 Arc-Second Global Relief Model](https://www.ncei.noaa.gov/products/etopo-global-relief-model)
 (NOAA National Centers for Environmental Information) -- **public
 domain** (U.S. federal work), free for any use, no attribution
 required. Blends topography and bathymetry, so coastal/island sites
 (A Coruna, Santander, Palma de Mallorca) get valid elevation right up
 to and past the shoreline, unlike land-only DEMs; sea cells are
-negative, not clamped to 0. Clipped to the same bbox as
-basemap.topojson and resampled from the native ~60 arc-sec grid via
-bilinear interpolation to keep the bundle small (not a resolution
-compromise -- the native grid is already fine enough that this is
-purely a size optimization). Fetched via ERDDAP griddap subsetting on
-NOAA PIFSC's "oceanwatch" mirror (which serves this same NCEI-produced
-dataset), not the full global grid. Regenerate with
+negative, not clamped to 0 (the exposed `elevationAt()` clamps its own
+*return value* to >=0 for display purposes -- the underlying grid still
+carries real bathymetry). Clipped to the same bbox as basemap.topojson
+and resampled to the source's own native ~60 arc-sec resolution (not
+downsampled further, as an earlier version of this grid was -- see git
+history -- once `elevation-fine.json` below existed for genuinely
+terrain-sensitive work, there was no reason left to throw away resolution
+here too). Fetched via ERDDAP griddap subsetting on NOAA PIFSC's
+"oceanwatch" mirror (which serves this same NCEI-produced dataset), not
+the full global grid. Backs `elevationAt()` -- the location picker's own
+instant elevation display, and nothing else (see `elevation-fine.json`
+below for the denser grid `eclipse/horizon.ts`'s terrain-obstruction
+ray-march actually uses). Regenerate with
 `tools/build-data/generate_elevation.py` (needs two raw netCDF chunks
 pre-downloaded first, see that script's header comment).
+
+## elevation-fine.json
+
+Elevation-above-sea-level grid (3801x6801, 1/400-degree spacing, ~250-280m
+at this latitude) from [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/)
+(ESA/Copernicus, ~30m/1 arc-sec native, derived from TanDEM-X radar data via
+DLR/Airbus Defence and Space) -- built for
+[docs/HORIZON-PLAN.md](../../../docs/HORIZON-PLAN.md)'s horizon-obstruction
+feature, which needs real nearby terrain (a hill a few km away, exactly
+what matters at this event's 2-12deg Sun altitude) that `elevation.json`
+above is too coarse to resolve. Used ONLY by that feature
+(`data/elevationFine.ts`, consumed via `stores/horizonObstruction.ts`) --
+deliberately NOT by `elevationAt()`/the location picker's own display,
+which stays on the small grid above: this file is ~69MB embedded (as
+base64, see below), and even via a lazily-triggered `import()` there's no
+way to defer the cost of a browser parsing/compiling a bundle that much
+bigger before ANYTHING in the app can run, given this project's
+`file://`-compatibility requirement forces a single-file, non-code-split
+build (`vite.config.ts`'s `format: 'iife'`) -- confirmed by direct
+measurement, not assumption (see commit history around this file for the
+actual before/after numbers). Keeping it out of `elevationAt()`'s own
+path means that startup cost is paid once, off the app's main "does
+everything work" critical path, only for the one feature that actually
+needs this resolution.
+
+**License: free of charge, worldwide, no time limit.** Attribution
+required when distributing or communicating the data to the public --
+per the license (`docs/HORIZON-PLAN.md`'s own research this session,
+cross-checked against Sentinel Hub's published copy of the license PDF):
+
+> © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018
+> provided under COPERNICUS by the European Union and ESA; all rights
+> reserved.
+
+No bathymetry (a land-only DEM, unlike ETOPO) -- deliberately not a
+concern here, ocean depth doesn't affect whether terrain blocks the Sun's
+line of sight (see project memory "bathymetry-irrelevant-for-horizon-dem"):
+void/missing data over open water (or any of the small number of tiles
+Copernicus hasn't yet publicly released for a handful of countries --
+confirmed Spain itself is fully published) is filled with 0 at generation
+time, exactly correct for "no terrain there."
+
+Fetched from the public AWS Open Data S3 bucket
+(`arn:aws:s3:::copernicus-dem-30m`, `eu-central-1`, no AWS account/
+credentials needed) as Cloud-Optimized GeoTIFFs tiled on a 1x1 degree
+grid, read via GDAL's `/vsicurl/` virtual filesystem at a decimated
+resolution matching this file's own target grid -- NOT downloaded in full
+(~40MB/tile native) -- so only ~180 lightweight range-request reads are
+needed, not ~7GB of raw tile downloads. Ships as a base64-encoded Int16
+array **inside this JSON** (not a separate `.bin`) so it's bundled into
+the JS at build time rather than fetched at runtime -- a runtime `fetch()`
+of a sibling asset generally fails over `file://`, one of this app's two
+officially-supported access modes (`docs/STATUS.md`'s field-deployment
+notes). Needs a separate isolated Python venv with `rasterio`
+(`tools/build-data/.venv-copernicus`, gitignored -- rasterio's PyPI wheel
+requires numpy>=2, ABI-incompatible with the scipy/netCDF4 already pinned
+in the shared `eclipse` conda env used by the other `tools/build-data/*.py`
+scripts). Regenerate with `tools/build-data/generate_elevation_fine.py`
+(see that script's own header comment for the one-time venv setup).

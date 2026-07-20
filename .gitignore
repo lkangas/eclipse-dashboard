@@ -37,3 +37,4 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+tools/build-data/.venv-copernicus/

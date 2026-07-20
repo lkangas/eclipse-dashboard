@@ -458,6 +458,12 @@
       />
       {#if showDemHorizon && terrainSilhouetteXY.length > 1}
         <polyline class="horizon" points={terrainSilhouetteXY.map((p) => p.join(',')).join(' ')} />
+      {:else if showDemHorizon && $horizonObstruction.loading}
+        <!-- The 250m fine DEM (docs/HORIZON-PLAN.md) loads lazily on a
+             separate chunk (data/elevationFine.ts) rather than blocking
+             app startup -- this is the one-time window before it's ready,
+             during which the terrain line above can't be computed yet. -->
+        <text class="horizonloading" x={wideCx} y={horizonY - 8}>Rendering horizon…</text>
       {/if}
     </svg>
     <svg
@@ -573,6 +579,13 @@
     stroke-opacity: 0.45;
     stroke-width: 1;
     stroke-dasharray: 2 3;
+  }
+  .horizonloading {
+    fill: #dce4f2;
+    font-size: 9px;
+    font-style: italic;
+    opacity: 0.75;
+    text-anchor: middle;
   }
   .ground {
     fill: #05070d;

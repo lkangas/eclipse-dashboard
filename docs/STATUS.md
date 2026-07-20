@@ -1,7 +1,7 @@
 # Status — Eclipse Dashboard
 
-**Updated:** 2026-07-17 · **T−26 days** to the eclipse (2026-08-12, ~18:26–18:33 UT,
-Spain) · `main` @ current HEAD · `npm run test`: 242/242 · `npm run check`: 0 errors
+**Updated:** 2026-07-20 · **T−23 days** to the eclipse (2026-08-12, ~18:26–18:33 UT,
+Spain) · `main` @ current HEAD · `npm run test`: 258/258 · `npm run check`: 0 errors
 
 Markers: ✅ done · 🟡 partial · ⬜ not started. Update this file when a
 feature's state actually changes, not per-commit — `git log` is the
@@ -57,16 +57,22 @@ changelog. See `docs/PLAN.md` §1–§12/§14–§15 for the frozen spec/archite
 
 - ⬜ **Sound warnings** — zero code. The single largest remaining gap for
   actual field use; nobody's reading a screen during totality.
-- 🟡 **Horizon obstruction check** (`docs/HORIZON-PLAN.md`) — Phases 1-2
-  done: real terrain-horizon profile from the bundled DEM (now regenerated
-  at ETOPO's native ~1.4-1.9km resolution, up from ~4.6km), cross-referenced
-  against each contact's actual Sun position; SkyPanel's Wide-view horizon
-  now follows the real silhouette, and ContactsPanel flags any predicted-
-  obstructed contact. Phase 3 (a genuinely denser whole-bbox DEM, binary-
-  encoded) not started — the current DEM only catches large/moderately-
-  distant terrain, not close-in obstructions like trees or buildings, which
-  no DEM tier will ever see (always needs on-site verification, and the UI
-  says so).
+- ✅ **Horizon obstruction check** (`docs/HORIZON-PLAN.md`) — all 3 phases
+  done: real terrain-horizon profile cross-referenced against each
+  contact's actual Sun position, SkyPanel's Wide-view horizon follows the
+  real silhouette (toggleable; the flat 0° reference always shows too),
+  ContactsPanel flags any predicted-obstructed contact (Sunset itself
+  excluded — it trips almost everywhere and isn't an actionable signal).
+  The bundled DEM is now Copernicus GLO-30 at 250m (up from ETOPO's
+  ~1.4-1.9km) specifically for this feature, loaded async/lazily
+  (`data/elevationFine.ts`) so it doesn't sit on the app's startup path —
+  the location picker's own elevation display stays on the small,
+  always-instant ETOPO grid. Real-world startup cost of embedding the
+  250m grid: ~5s (measured on real hardware; left as-is, a `fetch()`-based
+  hybrid was scoped but not built — see the plan doc's own notes). Still
+  true regardless of DEM tier: no DEM sees close-in obstructions like
+  trees or buildings — always needs on-site verification, and the UI says
+  so.
 - 🟡 **Licensing** — `constellation-lines.json` (Stellarium/HYG-derived)
   still has no `NOTICE.md` entry, no in-app credits screen exists, and the
   root `README.md` license line is still "TBD."

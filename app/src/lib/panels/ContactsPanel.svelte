@@ -62,7 +62,15 @@
           alt: formatAlt(altAz.altitude),
           az: formatAz(altAz.azimuth),
           offset: formatCountdown((r.date.getTime() - $effectiveTime.getTime()) / 1000),
-          obstructedByTerrain: obstruction?.obstructed ?? false,
+          // Sunset itself is excluded here (direct request) -- it's
+          // checked against a threshold within a fraction of a degree of
+          // the idealized flat 0deg horizon, and real terrain (even
+          // gentle, distant hills) almost always sits at least that high
+          // in the real world, so it flags as "blocked" at nearly every
+          // site regardless of whether anything actually matters is in
+          // the way. C1-C4/Max need genuinely significant nearby terrain
+          // to trigger and stay the useful, discriminating signal.
+          obstructedByTerrain: r.key !== 'sunset' && (obstruction?.obstructed ?? false),
         };
       });
   });
