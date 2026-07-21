@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Phase 0: Voice/network spike (docs/SOUND-PLAN.md §6)</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+  h1 { font-size: 1.3rem; }
+  ol, ul { padding-left: 1.3rem; }
+  .step { background: #f4f4f4; border-left: 4px solid #666; padding: 0.75rem 1rem; margin: 1rem 0; }
+  button { font-size: 1rem; padding: 0.6rem 1.2rem; cursor: pointer; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: 0.9rem; }
+  th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
+  th { background: #eee; }
+  .local-true { color: #0a7a0a; font-weight: 600; }
+  .local-false { color: #c22; font-weight: 600; }
+  .status { font-weight: 600; margin: 1rem 0; }
+  .verdict { padding: 0.75rem 1rem; border-radius: 4px; margin-top: 1rem; font-weight: 600; }
+  .verdict.ok { background: #e6f7e6; color: #0a7a0a; }
+  .verdict.bad { background: #fbe6e6; color: #c22; }
+  code { background: #eee; padding: 0.1rem 0.3rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>Phase 0: Voice enumeration / network spike</h1>
+<p>Reference: <code>docs/SOUND-PLAN.md</code> §6. This is a throwaway diagnostic,
+not part of the shipped app -- it exists only to answer one question before any
+real sound-warnings code gets built: <strong>does this device have a genuinely
+offline speech voice, and does merely asking for the voice list ever touch the
+network?</strong></p>
+
+<div class="step">
+  <strong>Before clicking the button below:</strong>
+  <ol>
+    <li>Physically disconnect this device from the network -- turn off Wi-Fi
+      (and unplug Ethernet if applicable). Airplane mode is fine and simplest.</li>
+    <li>Open DevTools (<kbd>F12</kbd> or <kbd>Ctrl+Shift+I</kbd>) and switch to
+      the <strong>Network</strong> tab. Leave it open and visible.</li>
+    <li>Open this same page two ways and repeat the check for each:
+      <strong>directly as a <code>file://</code> URL</strong> (double-click the
+      file), and <strong>via <code>app/serve-field.cmd</code></strong>'s
+      localhost server.</li>
+    <li>Repeat the whole thing on at least one Android phone too, in whichever
+      browser you'd actually use in the field (likely Chrome).</li>
+  </ol>
+</div>
+
+<button id="run">Enumerate voices</button>
+<span id="status" class="status"></span>
+
+<table id="results" style="display:none">
+  <thead><tr><th>#</th><th>name</th><th>lang</th><th>localService</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<div id="verdict"></div>
+
+<div class="step">
+  <strong>What to look for:</strong>
+  <ul>
+    <li>Did <em>any</em> request appear in the Network tab just from clicking
+      the button, with the network physically off? If your browser is genuinely
+      offline, any request that shows up will fail/hang -- but on some setups a
+      DNS lookup or connection attempt can still be visible in the Network tab
+      even when it can't complete. Note anything you see there, even a failed one.</li>
+    <li>Does the table below show at least one row with
+      <span class="local-true">localService: true</span>? If every row says
+      <span class="local-false">false</span>, or the table is empty, that's the
+      "no usable local voice" outcome the plan's decision gate describes.</li>
+  </ul>
+  Report back what you see for each of the four combinations (laptop file://,
+  laptop localhost, phone file://, phone localhost) -- that's everything
+  needed to decide how <code>sound/audioEngine.ts</code>/<code>voices.ts</code>
+  get wired up next.
+</div>
+
+<script>
+  const btn = document.getElementById('run');
+  const statusEl = document.getElementById('status');
+  const table = document.getElementById('results');
+  const tbody = table.querySelector('tbody');
+  const verdictEl = document.getElementById('verdict');
+
+  function getVoicesAsync() {
+    return new Promise((resolve) => {
+      const existing = speechSynthesis.getVoices();
+      if (existing.length > 0) {
+        resolve(existing);
+        return;
+      }
+      // Async population workaround (docs/SOUND-PLAN.md §6.4) -- some
+      // browsers don't have the list ready on the first synchronous call.
+      const onChange = () => {
+        speechSynthesis.removeEventListener('voiceschanged', onChange);
+        resolve(speechSynthesis.getVoices());
+      };
+      speechSynthesis.addEventListener('voiceschanged', onChange);
+      // Fallback in case voiceschanged never fires on this browser.
+      setTimeout(() => {
+        speechSynthesis.removeEventListener('voiceschanged', onChange);
+        resolve(speechSynthesis.getVoices());
+      }, 2000);
+    });
+  }
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    statusEl.textContent = 'Enumerating... (watch the Network tab now)';
+    verdictEl.innerHTML = '';
+    tbody.innerHTML = '';
+
+    if (!('speechSynthesis' in window)) {
+      statusEl.textContent = 'speechSynthesis is not available in this browser at all.';
+      btn.disabled = false;
+      return;
+    }
+
+    const voices = await getVoicesAsync();
+    statusEl.textContent = `Found ${voices.length} voice(s). Full list logged to the console too.`;
+    console.log('Voices:', voices.map((v) => ({ name: v.name, lang: v.lang, localService: v.localService })));
+
+    if (voices.length === 0) {
+      verdictEl.innerHTML = '<div class="verdict bad">No voices at all -- SpeechSynthesis must be treated as unavailable on this device (docs/SOUND-PLAN.md §6 decision gate).</div>';
+    } else {
+      table.style.display = '';
+      let anyLocal = false;
+      voices.forEach((v, i) => {
+        if (v.localService) anyLocal = true;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${i}</td><td>${v.name}</td><td>${v.lang}</td><td class="${v.localService ? 'local-true' : 'local-false'}">${v.localService}</td>`;
+        tbody.appendChild(tr);
+      });
+      verdictEl.innerHTML = anyLocal
+        ? '<div class="verdict ok">At least one localService:true voice found -- a genuinely local voice exists on this device.</div>'
+        : '<div class="verdict bad">Every voice reports localService:false -- per docs/SOUND-PLAN.md §1.5, this must be treated the same as "no voice at all". Also check the Network tab: did requesting this list alone try to reach the network?</div>';
+    }
+    btn.disabled = false;
+  });
+</script>
+</body>
+</html>
