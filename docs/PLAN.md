@@ -422,7 +422,11 @@ eclipse/
 - **Unit tests** — NMEA parsing, projection round-trips (`project`∘`invert`),
   ΔT/TD↔UT, obscuration formula.
 - **Manual e2e** — geolocation + a real/simulated NMEA serial stream; LIVE-mode
-  countdown; sound arming across browsers (Chrome/Edge).
+  countdown; sound arming across browsers (Chrome/Edge). Phase 0's voice/network
+  spike (`docs/SOUND-PLAN.md` §6) passed on the laptop (both `file://` and
+  localhost, no network activity, local voices found) but **not yet run on an
+  Android phone** — do this before the event, not a blocker for building the
+  rest of the feature now.
 
 ---
 

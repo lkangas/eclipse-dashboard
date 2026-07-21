@@ -756,23 +756,20 @@ acceptable cost.
 Given ~23 days of runway, essential-vs-nice-to-have is a real, load-bearing
 distinction here, not a formality.
 
-**Phase 0 — mandatory verification spike, done *before* any other sound
-code is written (recommend ~half a day):** Build a small throwaway harness
-that enumerates `getVoices()` (handling the async `voiceschanged`
-population, §6.4) and prints `{name, lang, localService}` for every voice
-found, run on the actual field laptop and at least one Android phone, each
-combination tested via `file://` and via `serve-field.cmd`'s localhost
-path, **each with the network adapter physically disabled**, with DevTools'
-Network tab open specifically to check whether mere enumeration (not just
-speaking) ever triggers a request (§5.3). **Decision gate, stated plainly:**
-if this finds zero usable local voices, or finds that enumeration itself
-makes an unavoidable network call, on the actual target hardware —
-`SpeechSynthesis` is dropped from the design entirely (not degraded, gone),
-every informational event falls back to on-screen text, and Phase 1 ships
-tone-only for C1/C2/C3 with text-only for everything else. This is a real
-possible outcome of this design, not a formality to rubber-stamp before
-moving on, and the hybrid architecture (§1.4) means nothing else about the
-plan needs to change if it happens.
+**Phase 0 — mandatory verification spike — DONE, 2026-07-21, decision:
+`SpeechSynthesis` is viable, proceed with the full hybrid design.**
+`tools/phase0-voice-check.html` (+ `tools/serve-tools.mjs`/
+`serve-phase0-check.cmd` for the localhost half, since `serve-field.cmd`
+only serves `app/dist/`) enumerates `getVoices()` and prints
+`{name, lang, localService}` for every voice found. Run by the user on
+their real field laptop, network physically disabled, DevTools' Network
+tab open, both via `file://` and via the new localhost server: **at least
+4 local (`localService: true`) voices found each time, no network activity
+observed in either mode.** Decision gate resolved positive — `SpeechSynthesis`
+is not dropped from the design. **Not yet run on an Android phone** (the
+user's explicit call, not an oversight) — add to `docs/PLAN.md` §12's manual
+e2e checklist as a residual item to check before the event, not a blocker
+for continuing Phase 1 now.
 
 **Phase 1 — the field-usable core (essential, target: complete well before
 Aug 12):**
