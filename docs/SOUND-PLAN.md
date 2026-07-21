@@ -24,7 +24,58 @@ instead of array identity, and by having a genuine re-arm preserve
 rather than collapsing the tick's own crossing-detection window to zero
 width. Confirmed live: 15 repeated `setObserver` calls at an unchanged
 position produced zero extra resets; 5 genuinely different positions
-produced exactly 5. Not yet done: Phase 2 (§4.3 popover: category
+produced exactly 5.
+
+**Update, 2026-07-21 (same day): user field-tested Phase 1 and reported
+"the sounds systematically come about 1-2s too late."** Investigated via a
+diagnostic workflow (parallel code-trace, external latency research, and
+an independent re-audit of the re-arm fix above for a possible regression
+— cleared, no regression) plus direct live-browser measurement. Two real,
+independent causes found and fixed, both in `audioEngine.ts`/
+`soundWarnings.ts` only — §3.2/§3.4/§3.5's pure logic was not at fault (the
+re-arm fix's own re-audit and a standalone real-time scheduler replay both
+confirmed the crossing-detection math is exact):
+
+- **Tone channel**: `playTone()` called `void c.resume()` (fire-and-forget)
+  and read `audioContext.currentTime` on the very next synchronous line.
+  Per the Web Audio spec, `currentTime` freezes while `suspended` and does
+  NOT catch up once resumed — it keeps advancing from wherever it froze.
+  Live-measured: after a 5s gap requiring a real resume, `currentTime` had
+  drifted ~873ms behind real elapsed wall-clock time. Fixed: `playTone` is
+  now `async`, always `await`s `resume()` before reading `currentTime`, and
+  takes an absolute target (`Date.now()`-style `targetMs`) instead of a
+  `delaySec` captured before any await — the delay is now computed fresh,
+  against `Date.now()`, only after the context is confirmed `running`.
+- **Speech channel**: had ZERO onset-latency compensation of any kind —
+  §3.3's original assumption ("tens to a few hundred ms... irrelevant") was
+  wrong. Live-measured on the actual field machine (Windows/Chrome,
+  "Microsoft David" SAPI voice): real `speechSynthesis.speak()` onset
+  latency of **1.0–1.8 seconds**, confirmed as the dominant cause of the
+  report (there are far more spoken rungs than tones per contact, so this
+  is what a user mostly notices). Also discovered: the engine "cools down"
+  between calls spaced more than ~30-45s apart (a 46.5s-gapped call showed
+  ~966ms latency, close to cold-start) but stays fast for rapid
+  back-to-back calls (<1s apart) — since real countdown rungs are spaced
+  5s to 10+ minutes apart, a single COLD measurement is actually
+  representative of real use, not a systematic overestimate. Fixed: added
+  `speakAndMeasureLatency()` to `audioEngine.ts`, which times the EXISTING
+  "Sound warnings enabled." confirmation utterance's own `onstart` event
+  during `enableOrTestSound()` (no extra utterance added to §4.2's
+  documented sequence) and stores the result (+ a flat 300ms safety
+  margin, erring toward firing early rather than late — the safer
+  direction for the "filters off/on" cues specifically) as `speechLeadS`.
+  `soundWarnings.ts`'s arm-ahead mechanism (§3.3) was generalized to also
+  fire speech-channel rungs up to `speechLeadS` seconds before their
+  nominal instant, the same way tones are armed ahead via the audio clock
+  — clamped to 3s max, comfortably under the ladders' own tightest
+  consecutive-rung gap (5s), so compensation can never reorder or collide
+  two rungs. This is a best-effort, measured compensation, not a
+  guarantee — SpeechSynthesis has no audio-clock-equivalent scheduling
+  primitive, so residual error (typically now within a few hundred ms,
+  sometimes firing slightly early) remains, unlike the tone channel's
+  audio-clock precision.
+
+Not yet done: Phase 2 (§4.3 popover: category
 toggles/volume/persistence) and Phase 0's Android pass (deferred by user
 choice, tracked in `docs/PLAN.md` §12). `docs/STATUS.md` should be updated
 to drop the "zero code" framing for this feature. This document was
@@ -562,14 +613,23 @@ silently swallows anything strictly **earlier** than that.
 
 ### 3.3 What the tone channel does differently once "fire now" is decided
 
-Speech firing is simple: when the reducer says "fire `c1`'s 30-second
-countdown rung now" (any ladder rung on any of C1/C2/C3 — including C2's
-own reworded 15s "Fifteen, filters off!" rung, which is just a rung with
-different text, nothing special about its firing — or C3's standalone
-Filters-on! event at C3+15s), call `speechSynthesis.speak(...)` directly
-from the tick handler — its own onset latency (tens to a few hundred ms)
-is irrelevant against a spoken cue that's already several seconds loose by
-design.
+Speech firing was originally designed to be simple: when the reducer says
+"fire `c1`'s 30-second countdown rung now" (any ladder rung on any of
+C1/C2/C3 — including C2's own reworded 15s "Fifteen, filters off!" rung,
+which is just a rung with different text, nothing special about its firing
+— or C3's standalone Filters-on! event at C3+15s), call
+`speechSynthesis.speak(...)` directly from the tick handler, on the
+assumption that its own onset latency ("tens to a few hundred ms") would
+be irrelevant against a spoken cue that's already several seconds loose by
+design. **That assumption was wrong** — live-measured on a real Windows/
+Chrome session, real onset latency was 1.0-1.8 seconds, not "tens to a few
+hundred ms" (see this document's top status line, 2026-07-21 update, for
+the full investigation). Speech now gets its own best-effort early-fire
+compensation (`speechLeadS` in `soundWarnings.ts`, measured once at
+enable-time from the confirmation utterance's own `onstart` timing),
+mirroring the tone channel's arm-ahead mechanism below but without an
+audio-clock-precision guarantee, since SpeechSynthesis has no equivalent
+scheduling primitive to arm against.
 
 Each of **C1/C2/C3's own tone** needs the audio-clock precision from §3.1,
 which means it can't simply fire "now" from inside a tick that only runs

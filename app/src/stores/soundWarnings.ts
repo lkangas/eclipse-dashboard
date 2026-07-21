@@ -19,6 +19,7 @@ import {
   cancelSpeech,
   resumeAudio,
   selectLocalVoice,
+  speakAndMeasureLatency,
   acquireWakeLock,
 } from '../sound/audioEngine';
 
@@ -44,13 +45,52 @@ const ARM_LEAD_S = 3;
 // 1Hz live tick cadence; anything bigger is a sim jump and should use the
 // same-tick fire-now fallback instead of arm-ahead.
 const SMALL_STEP_MS = 2000;
+// Clamp for the measured SpeechSynthesis onset latency (speechLeadS below)
+// -- bounds a single bad/erratic measurement from making countdown rungs
+// fire implausibly early. Deliberately kept below 5s: every countdown
+// ladder's tightest consecutive-rung gap (§2.1) is 5 seconds (e.g. C1's
+// "10 seconds"/"5 seconds"), so firing each rung independently up to this
+// much early can never reorder two rungs relative to each other or shrink
+// the gap between them to something an utterance can't finish speaking in.
+const MAX_SPEECH_LEAD_S = 3;
+// A single measurement of a real, variable-latency engine is noisy --
+// live-measured call-to-call variance on one Windows/Chrome session
+// ranged roughly 1.0-1.8s for the same voice. Erring toward firing a rung
+// too EARLY is the safer direction for this feature's two safety-adjacent
+// speech cues ("Fifteen, filters off!" firing early means more lead time
+// before totality; "Filters on!" firing early means less time spent
+// looking at the reappearing photosphere without a filter) -- so a flat
+// margin is added on top of the single real measurement, biasing toward
+// over- rather than under-compensating, without adding extra utterances
+// to §4.2's documented self-test sequence just to average multiple
+// samples.
+const SPEECH_LEAD_SAFETY_MARGIN_S = 0.3;
 
 let schedulerState: SchedulerState | null = null;
-// Tone ids already armed via playTone's delaySec -- distinct from
+// Tone ids already armed via playTone's targetMs -- distinct from
 // SchedulerState's own `fired` set, which only tracks the reducer's
 // crossing detection, not whether audioEngine has already scheduled the
 // physical play for this particular id.
 let armedIds = new Set<string>();
+// Speech-channel ids already fired EARLY to compensate for real-world
+// speak() onset latency (see speechLeadS below) -- the speech-channel
+// analog of armedIds, so the ordinary toFire loop doesn't re-speak a rung
+// that was already spoken ahead of its nominal instant.
+let spokenIds = new Set<string>();
+// Measured real onset latency (seconds) between calling speak() and the
+// utterance actually becoming audible, for the currently-selected voice --
+// 0 until enableOrTestSound() measures it (matching the ORIGINAL, now-
+// known-wrong assumption that this latency was negligible, as a safe no-
+// compensation default for the brief window before the first measurement
+// lands). §3.3 assumed speech's own onset latency was "tens to a few
+// hundred ms" and therefore irrelevant; live-measured on a real Windows/
+// Chrome session with a "Microsoft David" SAPI voice, it was actually
+// 1.0-1.8 SECONDS -- confirmed as the dominant cause of a reported "sounds
+// come 1-2s late" bug, 2026-07-21. Rather than hardcode a guessed
+// constant (voice/OS/engine dependent), this is measured fresh each
+// session using the SAME confirmation utterance enableOrTestSound() was
+// already speaking, timing its own `onstart` event.
+let speechLeadS = 0;
 // Value-based marker for "did the eligible-events list itself actually
 // change" (§3.5) -- NOT array-reference identity. localCircumstances (and
 // therefore soundEligibleEvents' output) recomputes on every `observer`
@@ -71,16 +111,30 @@ function eventsKey(events: SoundEvent[]): string {
   return events.map((e) => `${e.id}:${Math.round(e.time.getTime() / 1000)}`).join('|');
 }
 
-function armAheadIfDue(events: SoundEvent[], curMs: number, prevMs: number): void {
+function fireAheadIfDue(events: SoundEvent[], curMs: number, prevMs: number): void {
   const smallForward = curMs > prevMs && curMs - prevMs <= SMALL_STEP_MS;
   if (!smallForward) return;
   for (const ev of events) {
-    if (ev.channel !== 'tone') continue;
-    if (armedIds.has(ev.id) || schedulerState!.fired.has(ev.id)) continue;
+    if (schedulerState!.fired.has(ev.id)) continue;
     const deltaS = (ev.time.getTime() - curMs) / 1000;
-    if (deltaS > 0 && deltaS <= ARM_LEAD_S) {
-      playTone(CONTACT_TONE, deltaS);
-      armedIds.add(ev.id);
+    if (deltaS <= 0) continue;
+    if (ev.channel === 'tone') {
+      if (armedIds.has(ev.id)) continue;
+      if (deltaS <= ARM_LEAD_S) {
+        void playTone(CONTACT_TONE, ev.time.getTime());
+        armedIds.add(ev.id);
+      }
+    } else {
+      // Speech has no audio-clock scheduling primitive to arm ahead of
+      // time with -- the only available compensation is to call speak()
+      // itself early, by the measured onset-latency margin, so the
+      // utterance becomes audible close to the nominal instant instead of
+      // speechLeadS seconds after it.
+      if (spokenIds.has(ev.id) || speechLeadS <= 0) continue;
+      if (deltaS <= speechLeadS) {
+        if (ev.phrase) speak(ev.phrase);
+        spokenIds.add(ev.id);
+      }
     }
   }
 }
@@ -95,6 +149,7 @@ function onTick(curMs: number, events: SoundEvent[]): void {
     // initialSchedulerState's own contract.
     schedulerState = initialSchedulerState(curMs);
     armedIds = new Set();
+    spokenIds = new Set();
     lastEventsKey = key;
   } else if (key !== lastEventsKey) {
     lastEventsKey = key;
@@ -114,11 +169,12 @@ function onTick(curMs: number, events: SoundEvent[]): void {
     // own multi-crossing collapse rule, exactly like an ordinary sim jump.
     schedulerState = { lastEffectiveMs: schedulerState.lastEffectiveMs, fired: new Set() };
     armedIds = new Set();
+    spokenIds = new Set();
     cancelArmedTones();
   }
   const prevMs = schedulerState!.lastEffectiveMs;
   const muted = get(soundMuted);
-  if (!muted) armAheadIfDue(events, curMs, prevMs);
+  if (!muted) fireAheadIfDue(events, curMs, prevMs);
 
   const result = tick(schedulerState!, curMs, events);
   schedulerState = result.state;
@@ -126,13 +182,17 @@ function onTick(curMs: number, events: SoundEvent[]): void {
 
   for (const ev of result.toFire as SoundEvent[]) {
     if (ev.channel === 'speech') {
-      if (ev.phrase) speak(ev.phrase);
+      // Already spoken early to compensate for onset latency (above) --
+      // don't repeat. Only unspoken (speechLeadS is 0, or a sim jump
+      // skipped past the compensation window entirely) fires here.
+      if (!spokenIds.has(ev.id) && ev.phrase) speak(ev.phrase);
+      spokenIds.delete(ev.id);
     } else {
       // Already armed and playing from the precise audio-clock schedule
       // above -- don't replay. Only unarmed (a sim jump landed inside the
       // arm window or skipped past it entirely, §3.3's fallback) fires
       // here, immediately, with no forward scheduling.
-      if (!armedIds.has(ev.id)) playTone(CONTACT_TONE, 0);
+      if (!armedIds.has(ev.id)) void playTone(CONTACT_TONE);
       armedIds.delete(ev.id);
     }
   }
@@ -155,17 +215,25 @@ derived([effectiveTime, eligibleEvents], ([$t, $events]) => ({ t: $t, events: $e
  * resume the audio context, play the three real contact tones back-to-
  * back, then attempt to select a local voice and speak a confirmation (or
  * flag degraded mode if none is found). Must be called from directly
- * inside a user gesture (browser autoplay policy, §5.4). */
+ * inside a user gesture (browser autoplay policy, §5.4). The confirmation
+ * utterance doubles as this session's speechLeadS calibration -- see
+ * speechLeadS's own comment above for why this measurement exists at all. */
 export async function enableOrTestSound(): Promise<void> {
   await resumeAudio();
   void acquireWakeLock(); // §5.7 -- best-effort, doesn't block the audio self-test below.
-  playTone(CONTACT_TONE, 0);
-  playTone(CONTACT_TONE, CONTACT_TONE.durationS);
-  playTone(CONTACT_TONE, CONTACT_TONE.durationS * 2);
+  const now = Date.now();
+  void playTone(CONTACT_TONE, now);
+  void playTone(CONTACT_TONE, now + CONTACT_TONE.durationS * 1000);
+  void playTone(CONTACT_TONE, now + CONTACT_TONE.durationS * 2000);
   const hasVoice = await selectLocalVoice();
   soundStatus.set(hasVoice ? 'full' : 'degraded');
   soundEnabled.set(true);
-  if (hasVoice) speak('Sound warnings enabled.');
+  if (hasVoice) {
+    const measuredMs = await speakAndMeasureLatency('Sound warnings enabled.');
+    speechLeadS = Math.min(MAX_SPEECH_LEAD_S, Math.max(0, measuredMs / 1000) + SPEECH_LEAD_SAFETY_MARGIN_S);
+  } else {
+    speechLeadS = 0;
+  }
 }
 
 /** Master mute toggle (§4.3/§4.1's "Muted" state) -- muting cancels
@@ -178,6 +246,7 @@ export function setSoundMuted(muted: boolean): void {
   if (muted) {
     cancelArmedTones();
     armedIds.clear();
+    spokenIds.clear();
     cancelSpeech();
   }
 }

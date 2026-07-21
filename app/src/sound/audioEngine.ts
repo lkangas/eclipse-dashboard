@@ -25,20 +25,36 @@ export async function resumeAudio(): Promise<void> {
   await ctx().resume();
 }
 
-/** Play `spec` right now, or `delaySec` from now for the arm-ahead case
- * (docs/SOUND-PLAN.md §3.3) -- `audioContext.currentTime + delaySec` owns
- * the exact playback moment, not the caller's own timer. Defensive
- * `resume()` before every play (some browsers, Safari particularly, can
- * auto-suspend after a period of silence even after an initial resume()). */
-export function playTone(spec: ToneSpec, delaySec = 0): void {
+/** Play `spec` right now, or scheduled for `targetMs` (an absolute
+ * `Date.now()`-style wall-clock timestamp) for the arm-ahead case
+ * (docs/SOUND-PLAN.md §3.3). Deliberately `async` and always AWAITS
+ * `resume()` before reading `currentTime` or computing the delay --
+ * `currentTime` freezes while the context is `suspended` and does not
+ * "catch up" once resumed, it just continues advancing from wherever it
+ * was frozen. The previous version read `currentTime` synchronously right
+ * after a fire-and-forget `void c.resume()`, so any time the context
+ * needed to actually resume from suspension (multi-minute gaps between
+ * ladder rungs make this a real risk, not just theoretical), the computed
+ * `startAt` was silently anchored to a stale clock reference and the tone
+ * played however long resume() took to complete AFTER the intended
+ * instant -- this was reported and confirmed as the tone channel's own
+ * share of a "sounds come 1-2s late" bug, 2026-07-21. Recomputing the
+ * delay against `Date.now()` taken AFTER the resume await resolves (not
+ * before) means the actual elapsed real time during any resume is
+ * absorbed into the delay calculation instead of silently vanishing into a
+ * stale `currentTime` snapshot. */
+export async function playTone(spec: ToneSpec, targetMs?: number): Promise<void> {
   const c = ctx();
-  void c.resume();
+  if (c.state !== 'running') {
+    await c.resume();
+  }
+  const delaySec = targetMs === undefined ? 0 : Math.max(0, (targetMs - Date.now()) / 1000);
   const osc = c.createOscillator();
   const gain = c.createGain();
   osc.frequency.value = spec.frequencyHz;
   osc.connect(gain);
   gain.connect(c.destination);
-  const startAt = c.currentTime + Math.max(0, delaySec);
+  const startAt = c.currentTime + delaySec;
   osc.start(startAt);
   osc.stop(startAt + spec.durationS);
   if (delaySec > 0) {
@@ -49,7 +65,7 @@ export function playTone(spec: ToneSpec, delaySec = 0): void {
   }
 }
 
-/** Stops every tone scheduled ahead of time via playTone's `delaySec` but
+/** Stops every tone scheduled ahead of time via playTone's `targetMs` but
  * not yet played (docs/SOUND-PLAN.md §3.5: re-arming on an observer change
  * must cancel anything scheduled against the old location's contact
  * times). No-op for anything already played or never armed. */
@@ -123,6 +139,51 @@ export function speak(text: string): void {
 
 export function cancelSpeech(): void {
   speechSynthesis.cancel();
+}
+
+/** Conservative fallback onset-latency estimate (ms) if a real measurement
+ * can't be taken (no voice, error, or the utterance's own `onstart` never
+ * fires before the timeout) -- roughly this feature's ORIGINAL assumption
+ * before the real number was measured and found much higher on Windows
+ * SAPI voices via Chrome (see speakAndMeasureLatency's own comment). */
+const FALLBACK_SPEECH_LATENCY_MS = 300;
+
+/** Speaks `text` and resolves with the measured onset latency in ms -- the
+ * real elapsed time between calling `speak()` and the utterance's own
+ * `onstart` event actually firing. Used once, at enable/test time
+ * (stores/soundWarnings.ts's enableOrTestSound), to calibrate how far
+ * ahead of a countdown rung's nominal instant `speak()` should be called
+ * to compensate for this specific engine/voice's real dispatch latency.
+ * §3.3's original design assumed this latency was "tens to a few hundred
+ * ms" and therefore "irrelevant" -- live-measured on a real Windows/Chrome
+ * session with the "Microsoft David" SAPI voice, it was actually
+ * 1.0-1.8 SECONDS, confirmed as the dominant cause of a reported
+ * "sounds come 1-2s late" bug, 2026-07-21. Resolves with
+ * FALLBACK_SPEECH_LATENCY_MS rather than rejecting if the utterance errors
+ * or `onstart` never fires within `timeoutMs` -- a missed measurement
+ * should degrade to "no worse than the original assumption," not crash the
+ * enable flow. */
+export function speakAndMeasureLatency(text: string, timeoutMs = 4000): Promise<number> {
+  return new Promise((resolve) => {
+    if (!selectedVoice) {
+      resolve(FALLBACK_SPEECH_LATENCY_MS);
+      return;
+    }
+    const callTime = performance.now();
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.voice = selectedVoice;
+    let settled = false;
+    const finish = (ms: number) => {
+      if (settled) return;
+      settled = true;
+      resolve(ms);
+    };
+    utterance.onstart = () => finish(Math.max(0, performance.now() - callTime));
+    utterance.onerror = () => finish(FALLBACK_SPEECH_LATENCY_MS);
+    setTimeout(() => finish(FALLBACK_SPEECH_LATENCY_MS), timeoutMs);
+    speechSynthesis.speak(utterance);
+  });
 }
 
 let wakeLock: { release: () => Promise<void> } | null = null;
