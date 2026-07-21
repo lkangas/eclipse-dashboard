@@ -7,7 +7,7 @@
 // from here, so the module keeps effectiveTime/localCircumstances "hot"
 // itself for the whole page lifetime).
 import { derived, writable, get } from 'svelte/store';
-import { effectiveTime } from './clock';
+import { clock, effectiveTime } from './clock';
 import { localCircumstances } from './localCircumstances';
 import { soundOverrides } from './soundOverrides';
 import { soundEligibleEvents, type SoundEvent } from '../sound/eligibility';
@@ -107,6 +107,18 @@ let speechLeadS = 0;
 // observer -- correctly stops re-arming once the derived event times
 // settle, instead of re-arming every single tick for the entire session.
 let lastEventsKey: string | null = null;
+// Was sound actually eligible to fire as of the last tick? Live mode is
+// always "active" (the real clock is always genuinely progressing); sim
+// mode is only "active" while playback is actually running via the
+// Play button (clock.playing) -- deliberately NOT while merely paused or
+// mid-drag on the time slider. TimeBar.svelte's own onTrackPointerDown
+// explicitly pauses (playing:false) before applying any drag position, so
+// this one existing flag already distinguishes "the user is scrubbing to
+// look around" from "time is genuinely elapsing, fire warnings for real" --
+// no new clock-state concept needed. Tracked here (not just recomputed
+// inline) so onTick can tell the difference between "was already active"
+// and "just became active this tick" -- see onTick's own use of it.
+let wasSoundActive = false;
 
 function eventsKey(events: SoundEvent[]): string {
   return events.map((e) => `${e.id}:${Math.round(e.time.getTime() / 1000)}`).join('|');
@@ -140,8 +152,44 @@ function fireAheadIfDue(events: SoundEvent[], curMs: number, prevMs: number): vo
   }
 }
 
-function onTick(curMs: number, events: SoundEvent[]): void {
+function onTick(curMs: number, events: SoundEvent[], soundActive: boolean): void {
   if (!get(soundEnabled)) return; // AudioContext never unlocked yet -- nothing to do.
+
+  if (!soundActive) {
+    // Sim mode, paused or mid-drag: don't fire anything, and don't advance
+    // scheduler state either -- there's nothing correct to advance it TO,
+    // since the "current instant" while scrubbing is just wherever the
+    // pointer happens to be, not real elapsed time. wasSoundActive=false
+    // is what tells the next genuinely-active tick to re-anchor fresh
+    // (below) instead of resuming from a now-meaningless lastEffectiveMs.
+    if (wasSoundActive) {
+      // Just BECAME inactive this tick (a drag/pause just started) -- a
+      // tone armed moments ago is scheduled against the real audio clock
+      // (§3.3), which keeps advancing in real time regardless of the sim
+      // clock being paused/dragged now, so it would otherwise still
+      // physically play at its original real-world instant even though
+      // the user has moved on to look at something else. Cancel it, same
+      // as any other re-arm.
+      cancelArmedTones();
+      armedIds = new Set();
+      spokenIds = new Set();
+    }
+    wasSoundActive = false;
+    return;
+  }
+  if (!wasSoundActive) {
+    // Just became active this tick (Play pressed after a pause/drag, or
+    // switched back to live mode) -- force the "first tick ever" branch
+    // just below to re-anchor at the CURRENT instant, exactly like a
+    // fresh page load. Without this, resuming playback after scrubbing
+    // through several events would immediately fire all of them at once
+    // (schedulerState.lastEffectiveMs would still be wherever it was
+    // BEFORE the scrub/pause, so the reducer would see everything in
+    // between as newly crossed) -- the opposite of the "don't fire while
+    // scrubbing" behavior this whole gate exists for.
+    schedulerState = null;
+  }
+  wasSoundActive = true;
 
   const key = eventsKey(events);
   if (schedulerState === null) {
@@ -223,9 +271,11 @@ const eligibleEvents = derived([localCircumstances, soundOverrides], ([$lc, $ove
   });
 });
 
-derived([effectiveTime, eligibleEvents], ([$t, $events]) => ({ t: $t, events: $events })).subscribe(
-  ({ t, events }) => onTick(t.getTime(), events),
-);
+derived([effectiveTime, eligibleEvents, clock], ([$t, $events, $clock]) => ({
+  t: $t,
+  events: $events,
+  soundActive: $clock.mode === 'live' || $clock.playing,
+})).subscribe(({ t, events, soundActive }) => onTick(t.getTime(), events, soundActive));
 
 /** The enable gesture (§4.2) and the persistent, re-runnable "Test Sound"
  * action are the same thing by design -- both run this exact sequence:

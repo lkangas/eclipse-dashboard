@@ -156,6 +156,45 @@ rejection.** Two follow-ups landed after the latency fix:
    possible. Live-verified: tone/speech rows both fire correctly, and
    editing a phrase then testing it plays the edited text, not the
    original.
+5. **"Sounds should not be heard when moving the time slider manually in
+   sim mode"** (direct request/bug report). Previously, `onTick()` fired
+   from any `effectiveTime` change at all -- including every `pointermove`
+   during a manual drag on TimeBar.svelte's slider, which could sweep
+   across the whole event range in one gesture and fire a rapid burst of
+   whatever it crossed. Fixed: `onTick()` now takes a third parameter,
+   `soundActive`, computed as `$clock.mode === 'live' || $clock.playing`.
+   Sim mode's own `playing` flag already distinguishes "the user is
+   scrubbing to look around" from "time is genuinely elapsing" for free --
+   `TimeBar.svelte`'s `onTrackPointerDown` already calls `pauseClock()`
+   (setting `playing:false`) as its very first action, before applying any
+   drag position, specifically so dragging always pauses playback; no new
+   clock-state concept was needed. While `!soundActive`, `onTick` does
+   nothing at all -- no firing, no scheduler advancement (there's no
+   correct "elapsed time" to advance by while the position is just
+   wherever the pointer happens to be) -- and if it was previously active,
+   also cancels any tone armed moments before the drag/pause began (a
+   tone's audio-clock schedule keeps advancing in real time regardless of
+   the sim clock being paused, so it would otherwise still physically play
+   at its original real-world instant). When `soundActive` transitions
+   back to true (Play pressed again, or returning to live mode),
+   `schedulerState` is force-reset to re-anchor fresh at the CURRENT
+   instant -- exactly like a fresh sim-mode entry -- so resuming playback
+   after scrubbing through several events fires them one at a time as
+   real elapsed time actually reaches each, not all at once. Live mode is
+   unconditionally always "active" (`mode==='live'` short-circuits the
+   check), so this has zero effect on the real-world field-use path.
+   Adversarially reviewed (traced against the actual Svelte store
+   synchronous-propagation semantics, not just re-read) and live-verified
+   via a debug hook exposing the real `clock` store state directly: a
+   30-step drag sweeping `simTimeMs` by over an hour (covering every
+   sound-eligible event) produced zero `oscillator.start()`/
+   `speechSynthesis.speak()` calls and zero errors; resuming Play
+   afterward correctly set `playing:true` and resumed advancing normally.
+   One narrow, pre-existing (not caused by this fix) residual gap was
+   found in `audioEngine.ts`'s async tone-arming path (a tone could still
+   play if cancelled while `AudioContext.resume()` is in flight after an
+   auto-suspend) -- spun off as a separate, lower-priority follow-up task,
+   not a blocker for this fix.
 
 This document was originally the
 synthesis of three independently-written design candidates (pure synthesized
