@@ -43,6 +43,7 @@ export function applyRichNmeaLine(rawLine: string): void {
   // see applyGsaSentence) -- parseRichNmeaSentence can now also return
   // VTG/GLL/ZDA/HDG/GNS/RMC-extras (PLAN.md §6 phase 3, gpsExtras.ts's own
   // concern), so this can no longer assume "anything not GSV is GSA".
+  const prevState = state;
   if (sentence.type === 'GSV') {
     state = applyGsvSentence(state, sentence, Date.now());
   } else if (sentence.type === 'GSA') {
@@ -50,7 +51,30 @@ export function applyRichNmeaLine(rawLine: string): void {
   } else {
     return;
   }
-  gpsSatellites.set(state);
+  // Publish only when what's actually DISPLAYED changed -- a GSV group
+  // just completed (constellations got a fresh object) or a GSA arrived
+  // (gsaByKey did) -- matching this function's own doc comment above
+  // ("on a completed constellation group or a fresh full-GSA arrival"),
+  // which the code had silently drifted away from: it used to call
+  // gpsSatellites.set(state) unconditionally on EVERY GSV sentence,
+  // including every still-assembling intermediate message, not just the
+  // one that completes a group. applyGsvSentence's own incomplete branch
+  // spreads the old state (`{ ...state, assemblies: {...} }`), so
+  // `constellations`/`gsaByKey` keep their EXACT prior object reference
+  // in that case -- only becoming a new reference on a real completion --
+  // which is exactly what these two reference checks detect, with no
+  // extra state or timer needed. Bug report: a fast multi-constellation
+  // receiver can emit ~10-14 GSV sentences per epoch (2-4 messages per
+  // constellation), but only ~1 of those per constellation is a real
+  // completion -- publishing on every intermediate message forced
+  // SatelliteSkyPlot.svelte/SnrBarChart.svelte (both SVG, cost scaling
+  // with satellite count) to fully recompute and repaint up to ~10x more
+  // often than the displayed data actually changed, enough to visibly
+  // stall the main thread (the GPS monitor's own clock freezing, click
+  // handlers not responding) under a fast enough receiver.
+  if (state.constellations !== prevState.constellations || state.gsaByKey !== prevState.gsaByKey) {
+    gpsSatellites.set(state);
+  }
 }
 
 /** Resets to empty -- called from connection.ts on disconnect/fresh

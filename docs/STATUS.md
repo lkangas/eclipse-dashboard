@@ -31,11 +31,19 @@ changelog. See `docs/PLAN.md` §1–§12/§14–§15 for the frozen spec/archite
   stream monitor. Two real connection-lifecycle bugs found and fixed this
   session (port left open on source switch; "port already open" on a fast
   Connect→Disconnect→Connect).
-- 🟡 GPS NMEA monitor is a deliberate "few fields" first pass (fix
-  quality/type, UTC, lat/lon, altitude, sats, HDOP, raw stream, Hz). A full
-  expansion plan exists (`docs/GPS-MONITOR-PLAN.md`) for a
-  GSV/full-GSA/VTG/GLL/GNS satellite sky-plot + SNR bars, phased — not yet
-  implemented.
+- ✅ GPS NMEA monitor — `docs/GPS-MONITOR-PLAN.md`'s full expansion is in:
+  fix fields, satellite sky-plot + SNR bars, per-constellation GSA panels,
+  VTG/GLL/ZDA/HDG/GNS extras, raw stream (scrolling + "live rows" modes),
+  Hz readout with staleness detection. Bug report/fix, 2026-07-21: a fast
+  multi-constellation receiver could visibly freeze the whole monitor
+  (clock stalling, buttons unresponsive) — `stores/gpsSatellites.ts`'s
+  `applyRichNmeaLine` was publishing a store update on every individual
+  GSV sentence, including intermediate still-assembling ones (~10-14/epoch
+  for GPS+GLONASS+Galileo+BeiDou), forcing the SVG-heavy sky-plot/SNR
+  components to fully re-render far more often than the displayed data
+  actually changed. Fixed to publish only when a GSV group actually
+  completes (a fresh full-GSA arrival still always publishes) — matches
+  what the function's own doc comment already said it should do.
 
 ## Field deployment
 

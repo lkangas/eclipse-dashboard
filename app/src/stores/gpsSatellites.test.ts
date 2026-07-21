@@ -151,6 +151,49 @@ describe('applyRichNmeaLine', () => {
   });
 });
 
+describe('applyRichNmeaLine notification throttling', () => {
+  // Bug report: a fast multi-constellation receiver's ~10-14 GSV
+  // sentences/epoch (only ~1 per constellation is a real completion) were
+  // each triggering a full store notification, forcing SatelliteSkyPlot/
+  // SnrBarChart's SVG rendering to recompute far more often than the
+  // displayed data actually changed -- enough to visibly freeze the GPS
+  // monitor. These pin the fix: publish only on a real completion.
+  it('does not notify subscribers for an incomplete (still-assembling) GSV message', () => {
+    let notifyCount = 0;
+    const unsub = gpsSatellites.subscribe(() => {
+      notifyCount++;
+    });
+    notifyCount = 0; // discard the mandatory immediate call every store.subscribe() makes
+    applyRichNmeaLine(withChecksum('GPGSV,3,1,09,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,45'));
+    expect(notifyCount).toBe(0);
+    unsub();
+  });
+
+  it('notifies subscribers exactly once when a GSV group completes', () => {
+    applyRichNmeaLine(withChecksum('GPGSV,3,1,09,01,10,020,30,02,20,040,35,03,30,060,40,04,40,080,45'));
+    applyRichNmeaLine(withChecksum('GPGSV,3,2,09,05,50,100,50,06,60,120,55,07,70,140,60,08,80,160,00'));
+    let notifyCount = 0;
+    const unsub = gpsSatellites.subscribe(() => {
+      notifyCount++;
+    });
+    notifyCount = 0;
+    applyRichNmeaLine(withChecksum('GPGSV,3,3,09,09,90,180,20'));
+    expect(notifyCount).toBe(1);
+    unsub();
+  });
+
+  it('still notifies on every GSA sentence (no assembly step, always immediately displayable)', () => {
+    let notifyCount = 0;
+    const unsub = gpsSatellites.subscribe(() => {
+      notifyCount++;
+    });
+    notifyCount = 0;
+    applyRichNmeaLine(withChecksum('GNGSA,A,3,18,20,21,26,,,,,,,,,1.94,1.18,1.54,1'));
+    expect(notifyCount).toBe(1);
+    unsub();
+  });
+});
+
 describe('resetGpsSatellites', () => {
   it('clears the store back to initialSatellitesState', () => {
     applyRichNmeaLine(withChecksum('GPGSV,1,1,02,01,10,020,30,02,20,040,35'));
