@@ -1,10 +1,34 @@
 # Sound Warnings — Plan
 
-Status: **New plan — nothing implemented (beyond `app/src/sound/scheduler.ts`,
-the pure reducer in §3.2, deliberately independent of the event/message
-content below) — not yet implemented.** `docs/STATUS.md` still lists this as
-"zero code... the single largest remaining gap for actual field use; nobody's
-reading a screen during totality." This document was originally the
+Status: **Phase 1 (§6) implemented and live-verified, 2026-07-21.** All of
+`app/src/eclipse/schedule.ts`, `app/src/sound/{eligibility,scheduler,tones,
+voices,phrases,audioEngine}.ts`, `app/src/stores/soundWarnings.ts`, and
+`app/src/lib/SoundControl.svelte` (wired into `TopBar.svelte`) exist, are
+unit-tested (scheduler/eligibility/phrases/tones/voices — 323 tests total
+across the app), and pass `svelte-check`. Live-verified in-browser: real
+`AudioContext` oscillator scheduling (three tones staggered exactly
+`durationS` apart), real local-voice enumeration/selection/`speak()`, mute/
+unmute, and a full forward sim-scrub through C1→C2→Max→C3→Sunset with zero
+console errors. An adversarial review of `stores/soundWarnings.ts` (the one
+new, not-independently-tested reactive glue module) caught and fixed a
+real, ship-blocking bug before commit: the §3.5 re-arm trigger compared the
+eligible-events array by *reference*, and `localCircumstances` emits a
+fresh array on every `observer` update — which `serial/connection.ts`'s
+`flushFix()` does roughly once a second, unconditionally, for the entire
+duration of a live GPS-connected session regardless of whether the fix
+actually moved. That made the scheduler reset (and thus never fire
+anything) on nearly every tick specifically in the app's primary intended
+field-use mode. Fixed by comparing a value-based, second-rounded key
+instead of array identity, and by having a genuine re-arm preserve
+`lastEffectiveMs` (only clearing `fired` and cancelling pending tones)
+rather than collapsing the tick's own crossing-detection window to zero
+width. Confirmed live: 15 repeated `setObserver` calls at an unchanged
+position produced zero extra resets; 5 genuinely different positions
+produced exactly 5. Not yet done: Phase 2 (§4.3 popover: category
+toggles/volume/persistence) and Phase 0's Android pass (deferred by user
+choice, tracked in `docs/PLAN.md` §12). `docs/STATUS.md` should be updated
+to drop the "zero code" framing for this feature. This document was
+originally the
 synthesis of three independently-written design candidates (pure synthesized
 tones, speech-first via Web Speech API, and a deliberate tone+speech hybrid)
 into one implementation-ready plan; §1-§2's event/message content was then
@@ -772,7 +796,9 @@ e2e checklist as a residual item to check before the event, not a blocker
 for continuing Phase 1 now.
 
 **Phase 1 — the field-usable core (essential, target: complete well before
-Aug 12):**
+Aug 12) — DONE, 2026-07-21 (see this document's own top status line for the
+live-verification summary and the GPS-churn bug caught and fixed during
+adversarial review):**
 
 - `app/src/eclipse/schedule.ts` (`observableEvents`) and
   `app/src/sound/eligibility.ts` (`soundEligibleEvents`, layering §2.3's

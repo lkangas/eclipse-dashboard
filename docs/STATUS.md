@@ -55,8 +55,11 @@ changelog. See `docs/PLAN.md` §1–§12/§14–§15 for the frozen spec/archite
 
 ## Known gaps (unchanged from the 2026-07-13 review, still accurate)
 
-- ⬜ **Sound warnings** — zero code. The single largest remaining gap for
-  actual field use; nobody's reading a screen during totality.
+- ✅ **Sound warnings** (`docs/SOUND-PLAN.md`) — Phase 1 done, 2026-07-21:
+  tone+speech hybrid for C1/C2/Max/C3, TopBar enable/test/mute control,
+  wake-lock acquisition, live-verified in-browser. Phase 2 (category
+  toggles/volume/persistence popover) and an Android hardware pass for
+  Phase 0's voice/network spike remain open, tracked in the plan doc.
 - ✅ **Horizon obstruction check** (`docs/HORIZON-PLAN.md`) — all 3 phases
   done: real terrain-horizon profile cross-referenced against each
   contact's actual Sun position, SkyPanel's Wide-view horizon follows the

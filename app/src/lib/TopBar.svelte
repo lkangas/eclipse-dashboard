@@ -4,6 +4,7 @@
   import { gpsConnection, disconnectGps } from '../serial/connection';
   import { gpsRibbonExpanded } from '../stores/layout';
   import GpsRibbon from './GpsRibbon.svelte';
+  import SoundControl from './SoundControl.svelte';
 
   // Switching to a different position source must actually release the
   // GPS serial connection, not just change observer.source (bug report:
@@ -225,6 +226,7 @@
       <span class="sourcestatus warn">{browserError}</span>
     {/if}
   </div>
+  <SoundControl />
   <input
     type="text"
     inputmode="decimal"
