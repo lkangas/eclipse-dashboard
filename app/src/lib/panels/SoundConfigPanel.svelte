@@ -12,6 +12,9 @@
   import { localCircumstances } from '../../stores/localCircumstances';
   import { soundEligibleEvents, type SoundEvent, type SoundEventKey } from '../../sound/eligibility';
   import { soundOverrides, toggleEventEnabled, setPhraseOverride } from '../../stores/soundOverrides';
+  import { soundEnabled } from '../../stores/soundWarnings';
+  import { playTone, speak } from '../../sound/audioEngine';
+  import { CONTACT_TONE } from '../../sound/tones';
 
   const KEY_LABELS: Record<SoundEventKey, string> = { c1: 'C1', c2: 'C2', max: 'Max', c3: 'C3' };
   const KEY_ORDER: SoundEventKey[] = ['c1', 'c2', 'max', 'c3'];
@@ -76,6 +79,25 @@
   function resetPhrase(id: string): void {
     setPhraseOverride(id, null);
   }
+
+  // Plays this one event's actual sound right now, using whatever's
+  // currently in effect (a saved phrase override, or the default) --
+  // NOT whatever's mid-edit in an open, uncommitted text input, so
+  // testing always reflects what would really fire. Gated on
+  // $soundEnabled: speak() is a silent no-op with no voice ever selected
+  // (audioEngine.ts's own §1.5 guardrail), and playing a tone before the
+  // AudioContext has ever been unlocked risks the same autoplay-policy
+  // restriction the TopBar's own Enable Sound gesture exists to clear --
+  // reusing that one gesture rather than duplicating its setup here.
+  function testEvent(ev: SoundEvent): void {
+    if (!$soundEnabled) return;
+    if (ev.channel === 'tone') {
+      void playTone(CONTACT_TONE);
+    } else {
+      const phrase = effectivePhrase(ev);
+      if (phrase) speak(phrase);
+    }
+  }
 </script>
 
 <div class="soundconfig">
@@ -100,6 +122,14 @@
               title={disabled ? 'Disabled -- click to re-enable' : 'Enabled -- click to disable'}
             >
               {disabled ? 'Off' : 'On'}
+            </button>
+            <button
+              class="testbtn"
+              disabled={!$soundEnabled}
+              onclick={() => testEvent(ev)}
+              title={$soundEnabled ? 'Play this sound now' : 'Click "Enable Sound" in the top bar first'}
+            >
+              ▶
             </button>
             <span class="channelicon" title={ev.channel === 'tone' ? 'Timing tone' : 'Spoken announcement'}>
               {ev.channel === 'tone' ? '🔔' : '💬'}
@@ -207,6 +237,27 @@
     border-color: var(--accent);
     background: var(--accent-bg);
     color: var(--accent-ink);
+  }
+  .testbtn {
+    flex-shrink: 0;
+    width: 22px;
+    font: inherit;
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 2px 0;
+    font-size: 10px;
+    color: var(--muted);
+    cursor: pointer;
+    text-align: center;
+  }
+  .testbtn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .testbtn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
   .channelicon {
     flex-shrink: 0;

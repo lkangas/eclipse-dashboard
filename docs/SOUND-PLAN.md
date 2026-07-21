@@ -74,8 +74,9 @@ confirmed the crossing-detection math is exact):
   sometimes firing slightly early) remains, unlike the tone channel's
   audio-clock precision.
 
-Not yet done: the rest of Phase 2 (§4.3's shared volume slider) and Phase
-0's Android pass (deferred by user choice, tracked in `docs/PLAN.md` §12).
+Not yet done: Phase 0's Android pass (deferred by user choice, tracked in
+`docs/PLAN.md` §12). §4.3's shared volume slider is dropped entirely, not
+just deferred — see the 2026-07-21 update below.
 `docs/STATUS.md` should be updated to drop the "zero code" framing for
 this feature.
 
@@ -128,9 +129,33 @@ rejection.** Two follow-ups landed after the latency fix:
    editing and resetting a phrase, and switching back to the normal
    Timetable view, all with zero console errors and correct persistence.
    §4.4's rejection of this granularity is superseded for this specific,
-   explicitly-requested case — the category-level toggle and volume
-   slider from §4.3 remain undone and are no longer the planned next step
-   for "control granularity," since per-event control now exists instead.
+   explicitly-requested case — the category-level toggle from §4.3 is no
+   longer the planned next step for "control granularity," since per-event
+   control now exists instead.
+3. **§4.3's shared volume slider: dropped, not just deferred.** Reconsidered
+   directly: it would have scaled tones and speech together, but the
+   device's own system volume already does that, universally, more
+   reliably (the slider's own documented caveat was that it "cannot
+   override a device's hardware mute switch, silent/vibrate mode, or
+   system volume" — it was never solving §5.5/§5.6's actual failure
+   modes). Master mute (already built) covers "silence everything";
+   per-event disable (above) covers "not this one." No use case is left
+   that only a volume slider would cover, so it's off the plan entirely,
+   not carried forward as open Phase 2 work.
+4. **Per-event "▶ Test" buttons added to `SoundConfigPanel.svelte`** (direct
+   request) — every row, tone or speech, gets its own button that plays
+   that exact sound immediately via the same `playTone`/`speak` calls the
+   real scheduler uses, using whatever phrase is currently in effect
+   (a saved override, or the default — never an uncommitted, still-being-
+   typed edit). Gated on `soundEnabled` (disabled with an explanatory
+   tooltip until the TopBar's own Enable Sound gesture has run) rather
+   than duplicating that setup here — reuses the one already-audited
+   unlock path instead of re-deriving it. Works even on a currently-
+   disabled row (deliberately not gated on the row's own on/off toggle),
+   so previewing a sound before deciding whether to re-enable it is
+   possible. Live-verified: tone/speech rows both fire correctly, and
+   editing a phrase then testing it plays the edited text, not the
+   original.
 
 This document was originally the
 synthesis of three independently-written design candidates (pure synthesized
@@ -956,9 +981,16 @@ adversarial review):**
 
 **Phase 2 (only if time remains after Phase 1 is field-verified):**
 
-- The two category toggles ("Timing tones" / "Spoken announcements"),
-  shared volume slider with its caveat copy, `localStorage` persistence of
-  preferences (never fired-flags) — §4.3.
+- ~~The two category toggles ("Timing tones" / "Spoken announcements")~~ —
+  superseded by per-event enable/disable (2026-07-21, see top status line),
+  which is strictly more granular. ~~Shared volume slider with its caveat
+  copy~~ — dropped entirely (2026-07-21): the device's own system volume
+  already does what it would have, and no use case survived scrutiny that
+  only a slider (not system volume + the master mute already built) would
+  cover. `localStorage` persistence of preferences (never fired-flags) —
+  §4.3 — done, via `soundOverrides.ts`, though scoped to the per-event
+  disable/phrase-override data this superseding feature actually needed,
+  not category flags.
 - Degraded-mode polish (richer tooltip copy explaining *why* it's
   degraded, not just that it is).
 - The Chrome long-utterance/post-backgrounding `.cancel()`-kick workaround
