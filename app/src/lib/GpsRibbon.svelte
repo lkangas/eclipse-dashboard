@@ -30,15 +30,18 @@
     connectToPort,
     listKnownPorts,
     isActivePort,
+    selectedBaudRate,
   } from '../serial/connection';
   import { describeFixType, describePort } from '../serial/monitor';
   import { gpsMonitorOpen } from '../stores/layout';
 
   // Web Serial has no "change baud on an already-open port" call, so the
   // rate still has to be chosen before the click that opens the
-  // connection.
+  // connection. The selected value itself lives in serial/connection.ts's
+  // selectedBaudRate store, not component-local state -- see that store's
+  // own comment for why (this component gets unmounted/remounted every
+  // time the ribbon collapses/reopens or the observer source changes).
   const BAUD_RATES = [4800, 9600, 19200, 38400, 57600, 115200];
-  let gpsBaud = $state(115200);
 
   // Connect/Connected button: reconnects to whatever port worked last
   // time without re-showing Chrome's native device picker, once one
@@ -61,9 +64,9 @@
     if (status === 'connected') {
       disconnectGps();
     } else if ($gpsConnection.hasRememberedPort) {
-      reconnectLastPort(gpsBaud);
+      reconnectLastPort($selectedBaudRate);
     } else {
-      connectGps(gpsBaud);
+      connectGps($selectedBaudRate);
     }
   }
 
@@ -170,12 +173,12 @@
 
   async function pickKnownPort(p: SerialPort) {
     portMenuOpen = false;
-    await connectToPort(p, gpsBaud);
+    await connectToPort(p, $selectedBaudRate);
   }
 
   async function pickNewPort() {
     portMenuOpen = false;
-    await connectGps(gpsBaud);
+    await connectGps($selectedBaudRate);
   }
 
   // Minimal click-outside-to-close for the port popover specifically
@@ -207,7 +210,7 @@
   </button>
   <select
     class="modebtn baudselect"
-    bind:value={gpsBaud}
+    bind:value={$selectedBaudRate}
     disabled={$gpsConnection.status === 'connecting' ||
       $gpsConnection.status === 'connected' ||
       $gpsConnection.status === 'disconnecting'}

@@ -115,6 +115,19 @@ export const gpsConnection = writable<GpsConnectionState>({
   needsReload: false,
 });
 
+// The user's selected baud rate for the NEXT connect attempt (direct
+// request: "make it remember the setting eg. when i switch from gps to
+// manual and back to gps") -- distinct from GpsConnectionState.baudRate
+// above, which instead reflects whatever the current/last connection
+// actually opened at. A shared store rather than GpsRibbon.svelte's own
+// component-local state, because TopBar.svelte mounts/unmounts that
+// component via `{#if $gpsRibbonExpanded}` (stores/layout.ts) -- local
+// state there resets every time the ribbon is collapsed and reopened, or
+// the observer source is switched away from GPS and back, which is
+// exactly the "forgets the setting" bug reported. 38400 default (direct
+// request) -- previously 115200.
+export const selectedBaudRate = writable(38400);
+
 // How many raw lines the gear popover's NMEA monitor keeps around --
 // generous enough to show a few seconds of a chatty 10Hz multi-
 // constellation receiver's GGA+RMC+GSA+GSV+VTG+GLL burst, small enough
