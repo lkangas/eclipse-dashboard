@@ -25,39 +25,54 @@ export async function resumeAudio(): Promise<void> {
   await ctx().resume();
 }
 
-/** Play `spec` right now, or scheduled for `targetMs` (an absolute
- * `Date.now()`-style wall-clock timestamp) for the arm-ahead case
- * (docs/SOUND-PLAN.md §3.3). Deliberately `async` and always AWAITS
- * `resume()` before reading `currentTime` or computing the delay --
- * `currentTime` freezes while the context is `suspended` and does not
- * "catch up" once resumed, it just continues advancing from wherever it
- * was frozen. The previous version read `currentTime` synchronously right
- * after a fire-and-forget `void c.resume()`, so any time the context
- * needed to actually resume from suspension (multi-minute gaps between
- * ladder rungs make this a real risk, not just theoretical), the computed
- * `startAt` was silently anchored to a stale clock reference and the tone
- * played however long resume() took to complete AFTER the intended
- * instant -- this was reported and confirmed as the tone channel's own
- * share of a "sounds come 1-2s late" bug, 2026-07-21. Recomputing the
- * delay against `Date.now()` taken AFTER the resume await resolves (not
- * before) means the actual elapsed real time during any resume is
- * absorbed into the delay calculation instead of silently vanishing into a
+/** Play `spec` right now, or `delaySec` from the moment this is called
+ * (docs/SOUND-PLAN.md §3.3's arm-ahead case) -- a RELATIVE delay, not an
+ * absolute timestamp. Deliberately relative: the caller (soundWarnings.ts)
+ * computes `delaySec` against whatever clock is currently driving the app
+ * (`effectiveTime`, which is real wall-clock time in live mode but can be
+ * an arbitrary simulated instant -- weeks away from `Date.now()` -- in sim
+ * mode). An earlier version of this fix took an ABSOLUTE target timestamp
+ * and computed the delay against `Date.now()` inside this function --
+ * correct for live mode only, and a real regression in sim mode: an
+ * event's own Date (e.g. 2026-08-12) compared against the real current
+ * date (e.g. 2026-07-21) produced a multi-week "delay," so no sim-mode
+ * tone or arm-ahead speech ever actually played. Reverted to a relative
+ * delay for that reason.
+ *
+ * Deliberately `async` and always AWAITS `resume()` before reading
+ * `currentTime` -- `currentTime` freezes while the context is `suspended`
+ * and does not "catch up" once resumed, it just continues advancing from
+ * wherever it was frozen. The previous version read `currentTime`
+ * synchronously right after a fire-and-forget `void c.resume()`, so any
+ * time the context needed to actually resume from suspension (multi-
+ * minute gaps between ladder rungs make this a real risk, not just
+ * theoretical), the computed `startAt` was silently anchored to a stale
+ * clock reference and the tone played however long resume() took to
+ * complete AFTER the intended instant -- this was reported and confirmed
+ * as the tone channel's own share of a "sounds come 1-2s late" bug,
+ * 2026-07-21. `performance.now()` (monotonic, real elapsed time,
+ * unaffected by either Date.now() or this app's own simulated clock)
+ * measures how long any such await actually took, and that much is
+ * subtracted from `delaySec` before computing `startAt` -- so a delayed
+ * resume() eats into the lead time instead of silently vanishing into a
  * stale `currentTime` snapshot. */
-export async function playTone(spec: ToneSpec, targetMs?: number): Promise<void> {
+export async function playTone(spec: ToneSpec, delaySec = 0): Promise<void> {
   const c = ctx();
+  const callTime = performance.now();
   if (c.state !== 'running') {
     await c.resume();
   }
-  const delaySec = targetMs === undefined ? 0 : Math.max(0, (targetMs - Date.now()) / 1000);
+  const elapsedWhileResumingS = (performance.now() - callTime) / 1000;
+  const adjustedDelaySec = Math.max(0, delaySec - elapsedWhileResumingS);
   const osc = c.createOscillator();
   const gain = c.createGain();
   osc.frequency.value = spec.frequencyHz;
   osc.connect(gain);
   gain.connect(c.destination);
-  const startAt = c.currentTime + delaySec;
+  const startAt = c.currentTime + adjustedDelaySec;
   osc.start(startAt);
   osc.stop(startAt + spec.durationS);
-  if (delaySec > 0) {
+  if (adjustedDelaySec > 0) {
     armedOscillators.push(osc);
     osc.addEventListener('ended', () => {
       armedOscillators = armedOscillators.filter((o) => o !== osc);
@@ -65,7 +80,7 @@ export async function playTone(spec: ToneSpec, targetMs?: number): Promise<void>
   }
 }
 
-/** Stops every tone scheduled ahead of time via playTone's `targetMs` but
+/** Stops every tone scheduled ahead of time via playTone's `delaySec` but
  * not yet played (docs/SOUND-PLAN.md §3.5: re-arming on an observer change
  * must cancel anything scheduled against the old location's contact
  * times). No-op for anything already played or never armed. */

@@ -42,10 +42,9 @@ confirmed the crossing-detection math is exact):
   NOT catch up once resumed — it keeps advancing from wherever it froze.
   Live-measured: after a 5s gap requiring a real resume, `currentTime` had
   drifted ~873ms behind real elapsed wall-clock time. Fixed: `playTone` is
-  now `async`, always `await`s `resume()` before reading `currentTime`, and
-  takes an absolute target (`Date.now()`-style `targetMs`) instead of a
-  `delaySec` captured before any await — the delay is now computed fresh,
-  against `Date.now()`, only after the context is confirmed `running`.
+  now `async` and always `await`s `resume()` before reading `currentTime`
+  (see the follow-up update below for a correction to this fix's first
+  version, which briefly broke sim mode).
 - **Speech channel**: had ZERO onset-latency compensation of any kind —
   §3.3's original assumption ("tens to a few hundred ms... irrelevant") was
   wrong. Live-measured on the actual field machine (Windows/Chrome,
@@ -75,11 +74,65 @@ confirmed the crossing-detection math is exact):
   sometimes firing slightly early) remains, unlike the tone channel's
   audio-clock precision.
 
-Not yet done: Phase 2 (§4.3 popover: category
-toggles/volume/persistence) and Phase 0's Android pass (deferred by user
-choice, tracked in `docs/PLAN.md` §12). `docs/STATUS.md` should be updated
-to drop the "zero code" framing for this feature. This document was
-originally the
+Not yet done: the rest of Phase 2 (§4.3's shared volume slider) and Phase
+0's Android pass (deferred by user choice, tracked in `docs/PLAN.md` §12).
+`docs/STATUS.md` should be updated to drop the "zero code" framing for
+this feature.
+
+**Update, 2026-07-21 (same day, again): a real sim-mode regression from the
+latency fix above, then a direct request superseding §4.4's per-event
+rejection.** Two follow-ups landed after the latency fix:
+
+1. **Regression caught by the user ("Max did not happen, also no tones
+   (except for the test sound button)")**: the tone-channel latency fix
+   had changed `playTone()` to take an ABSOLUTE target timestamp and
+   compute the delay against `Date.now()` — correct in live mode, but a
+   real bug in sim mode, where `effectiveTime` can be weeks away from
+   `Date.now()` (an event's own Aug-12 Date compared against the real
+   July-21 "now" produced a multi-week "delay," so nothing in sim mode
+   ever actually played). Reverted `playTone()` to a RELATIVE `delaySec`
+   (matching its original, already-correct design) computed by the
+   caller against whatever clock is authoritative (`curMs`, sim or live),
+   while keeping the real fix (always `await resume()` before reading
+   `currentTime`) by measuring elapsed real time during any such await
+   with `performance.now()` (monotonic, unaffected by either `Date.now()`
+   or the app's own simulated clock) and subtracting it from `delaySec`.
+   Live-verified: full sim-mode playthrough with instrumented
+   `oscillator.start`/`speechSynthesis.speak` calls, zero console errors.
+2. **Direct request, superseding §4.4's "no per-event toggles... no
+   plausible use case" decision**: the user asked for a list of every
+   individual sound event with the ability to disable/re-enable it and
+   edit its spoken text, in a new view that replaces the Timetable panel
+   when toggled (not integrated into it, and not the category-level
+   toggle §4.3 had sketched). Built as `app/src/stores/soundOverrides.ts`
+   (a `{disabledIds, phraseOverrides}` store, persisted to
+   `localStorage` under `eclipse-dashboard:sound-overrides` — the first
+   persisted preference this feature has, ahead of §4.3's own planned
+   persistence), applied inside `stores/soundWarnings.ts`'s
+   `eligibleEvents` derived (filters disabled ids out of the array
+   entirely, remaps `phrase` for overridden ones) before anything reaches
+   the scheduler, `app/src/lib/panels/SoundConfigPanel.svelte` (the new
+   view — one row per event, grouped by C1/C2/Max/C3, a per-row on/off
+   toggle and click-to-edit phrase text with a reset-to-default), and a
+   new `soundConfigVisible` boolean in `stores/layout.ts` toggled from a
+   small icon button in the 'timetable' pane (both `ContactsPanel` and
+   `SoundConfigPanel` stay permanently mounted, one hidden via
+   `display:none` — same rationale as the existing fullscreen-panel
+   convention, here specifically preserving an in-progress phrase edit
+   across visibility toggles). An adversarial review confirmed disabling
+   an already-armed tone correctly triggers the existing re-arm/cancel
+   path (removing an id changes `eventsKey()`'s hash, which was already
+   how an observer move triggers the same reset), and that phrase edits
+   are always read fresh at the moment an event actually fires (no stale
+   captured text). Live-verified in-browser: toggling an event off/on,
+   editing and resetting a phrase, and switching back to the normal
+   Timetable view, all with zero console errors and correct persistence.
+   §4.4's rejection of this granularity is superseded for this specific,
+   explicitly-requested case — the category-level toggle and volume
+   slider from §4.3 remain undone and are no longer the planned next step
+   for "control granularity," since per-event control now exists instead.
+
+This document was originally the
 synthesis of three independently-written design candidates (pure synthesized
 tones, speech-first via Web Speech API, and a deliberate tone+speech hybrid)
 into one implementation-ready plan; §1-§2's event/message content was then

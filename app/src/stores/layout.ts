@@ -32,3 +32,14 @@ export const gpsMonitorOpen = writable(false);
 // Defaults closed: a session that never touches GPS shouldn't carry the
 // extra row just because it exists.
 export const gpsRibbonExpanded = writable(false);
+
+// Whether the Sound Warnings config view (SoundConfigPanel.svelte) shows
+// in place of ContactsPanel in the 'timetable' pane (direct request: "a
+// config view that's togglable to be visible in the place of the
+// timetable view"). Both panels stay mounted at all times -- same
+// rationale as fullscreenPanel above (never resets internal state, here
+// specifically an in-progress phrase-text edit) -- App.svelte just swaps
+// which one is display:none. Defaults closed: this is a setup/rehearsal
+// tool, not something that should occupy the Timetable's normal spot on
+// every load.
+export const soundConfigVisible = writable(false);

@@ -9,6 +9,7 @@
 import { derived, writable, get } from 'svelte/store';
 import { effectiveTime } from './clock';
 import { localCircumstances } from './localCircumstances';
+import { soundOverrides } from './soundOverrides';
 import { soundEligibleEvents, type SoundEvent } from '../sound/eligibility';
 import { initialSchedulerState, tick, type SchedulerState } from '../sound/scheduler';
 import { CONTACT_TONE } from '../sound/tones';
@@ -67,7 +68,7 @@ const MAX_SPEECH_LEAD_S = 3;
 const SPEECH_LEAD_SAFETY_MARGIN_S = 0.3;
 
 let schedulerState: SchedulerState | null = null;
-// Tone ids already armed via playTone's targetMs -- distinct from
+// Tone ids already armed via playTone's delaySec -- distinct from
 // SchedulerState's own `fired` set, which only tracks the reducer's
 // crossing detection, not whether audioEngine has already scheduled the
 // physical play for this particular id.
@@ -121,7 +122,7 @@ function fireAheadIfDue(events: SoundEvent[], curMs: number, prevMs: number): vo
     if (ev.channel === 'tone') {
       if (armedIds.has(ev.id)) continue;
       if (deltaS <= ARM_LEAD_S) {
-        void playTone(CONTACT_TONE, ev.time.getTime());
+        void playTone(CONTACT_TONE, deltaS);
         armedIds.add(ev.id);
       }
     } else {
@@ -198,13 +199,29 @@ function onTick(curMs: number, events: SoundEvent[]): void {
   }
 }
 
-// Recomputed whenever localCircumstances changes -- including, in
-// practice, roughly once a second for the whole duration of a live
-// GPS-connected session (see lastEventsKey's own comment above). onTick
-// deliberately does NOT rely on this array's reference identity to decide
-// whether a real re-arm is warranted -- only on eventsKey()'s value
-// comparison of its contents.
-const eligibleEvents = derived(localCircumstances, ($lc) => soundEligibleEvents($lc));
+// Recomputed whenever localCircumstances OR soundOverrides changes --
+// localCircumstances changes in practice roughly once a second for the
+// whole duration of a live GPS-connected session (see lastEventsKey's own
+// comment above). onTick deliberately does NOT rely on this array's
+// reference identity to decide whether a real re-arm is warranted -- only
+// on eventsKey()'s value comparison of ids+times, which disabling/
+// re-enabling an event changes (it's added to or removed from the array
+// entirely), correctly triggering the same full re-arm path as an
+// observer move (cancels any already-armed tone for a just-disabled id,
+// clears fired-state). A pure phrase-TEXT edit does NOT change eventsKey
+// (same id, same time, only the string differs) and doesn't need to --
+// it's not gated by any scheduler state, `speak(ev.phrase)` always reads
+// whatever `ev.phrase` this array holds at the moment it actually fires.
+const eligibleEvents = derived([localCircumstances, soundOverrides], ([$lc, $overrides]) => {
+  const base = soundEligibleEvents($lc);
+  const enabled = base.filter((ev) => !$overrides.disabledIds.includes(ev.id));
+  return enabled.map((ev) => {
+    const override = $overrides.phraseOverrides[ev.id];
+    // Only speech events have a phrase to override in the first place --
+    // a tone-only event's `phrase` stays `null` regardless.
+    return override !== undefined && ev.phrase !== null ? { ...ev, phrase: override } : ev;
+  });
+});
 
 derived([effectiveTime, eligibleEvents], ([$t, $events]) => ({ t: $t, events: $events })).subscribe(
   ({ t, events }) => onTick(t.getTime(), events),
@@ -221,10 +238,9 @@ derived([effectiveTime, eligibleEvents], ([$t, $events]) => ({ t: $t, events: $e
 export async function enableOrTestSound(): Promise<void> {
   await resumeAudio();
   void acquireWakeLock(); // §5.7 -- best-effort, doesn't block the audio self-test below.
-  const now = Date.now();
-  void playTone(CONTACT_TONE, now);
-  void playTone(CONTACT_TONE, now + CONTACT_TONE.durationS * 1000);
-  void playTone(CONTACT_TONE, now + CONTACT_TONE.durationS * 2000);
+  void playTone(CONTACT_TONE, 0);
+  void playTone(CONTACT_TONE, CONTACT_TONE.durationS);
+  void playTone(CONTACT_TONE, CONTACT_TONE.durationS * 2);
   const hasVoice = await selectLocalVoice();
   soundStatus.set(hasVoice ? 'full' : 'degraded');
   soundEnabled.set(true);

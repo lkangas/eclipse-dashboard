@@ -7,8 +7,9 @@
   import CountdownPanel from './lib/panels/CountdownPanel.svelte';
   import MapPanel from './lib/panels/MapPanel.svelte';
   import SkyPanel from './lib/panels/SkyPanel.svelte';
+  import SoundConfigPanel from './lib/panels/SoundConfigPanel.svelte';
   import { resizable } from './lib/actions/resizable';
-  import { fullscreenPanel, type PanelId } from './stores/layout';
+  import { fullscreenPanel, soundConfigVisible, type PanelId } from './stores/layout';
 
   // Panel fullscreen mode (direct request, stores/layout.ts) -- each
   // pane below gets a small fsbtn that sets fullscreenPanel to its own
@@ -46,7 +47,19 @@
         >
           {$fullscreenPanel === 'timetable' ? '✕' : '⛶'}
         </button>
-        <ContactsPanel />
+        <button
+          class="fsbtn soundcfgbtn"
+          onclick={() => soundConfigVisible.update((v) => !v)}
+          title={$soundConfigVisible ? 'Back to the Timetable' : 'Configure sound warnings'}
+        >
+          {$soundConfigVisible ? '📋' : '🔊'}
+        </button>
+        <div class="panelslot" class:panelhidden={$soundConfigVisible}>
+          <ContactsPanel />
+        </div>
+        <div class="panelslot" class:panelhidden={!$soundConfigVisible}>
+          <SoundConfigPanel />
+        </div>
       </div>
       <div class="hsplit" class:fs-hidden={$fullscreenPanel !== null} use:resizable={{ axis: 'y' }}>
         <div class="grip"><i></i><i></i><i></i></div>
@@ -191,6 +204,27 @@
   }
   .fsbtn:hover {
     border-color: var(--muted);
+  }
+  /* Second small icon button in the 'timetable' pane only, sitting to the
+     left of the (always-present) fullscreen button -- toggles
+     soundConfigVisible so ContactsPanel and SoundConfigPanel swap places
+     in the exact same pane slot. */
+  .soundcfgbtn {
+    right: 40px;
+  }
+  /* Both panels stay mounted at all times (same rationale as fs-hidden
+     above -- never lose in-progress state, here an unsaved phrase-text
+     edit) -- this just hides one of the two via display:none. height:
+     100% so whichever IS visible still gets the same sizing context
+     ContactsPanel/SoundConfigPanel's own height:100% expects from .pane
+     directly (only these two wrapper divs get this -- CountdownPanel/
+     MapPanel/SkyPanel mount straight into .pane with no wrapper and are
+     unaffected). */
+  .panelslot {
+    height: 100%;
+  }
+  .panelhidden {
+    display: none;
   }
 
   .vsplit {
