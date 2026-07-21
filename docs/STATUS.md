@@ -1,7 +1,7 @@
 # Status — Eclipse Dashboard
 
-**Updated:** 2026-07-20 · **T−23 days** to the eclipse (2026-08-12, ~18:26–18:33 UT,
-Spain) · `main` @ current HEAD · `npm run test`: 258/258 · `npm run check`: 0 errors
+**Updated:** 2026-07-21 · **T−22 days** to the eclipse (2026-08-12, ~18:26–18:33 UT,
+Spain) · `main` @ current HEAD · `npm run test`: 335/335 · `npm run check`: 0 errors
 
 Markers: ✅ done · 🟡 partial · ⬜ not started. Update this file when a
 feature's state actually changes, not per-commit — `git log` is the
@@ -53,6 +53,20 @@ changelog. See `docs/PLAN.md` §1–§12/§14–§15 for the frozen spec/archite
   build now emits relative asset paths and a classic/deferred script
   instead of an ES module, since Chrome refuses module scripts from a
   `file://` origin entirely).
+- ✅ "⬇ Offline copy" TopBar button — fetches this build's own served
+  index.html + JS bundle + favicon and folds them into one self-contained
+  `.html` file (File System Access "Save As" where available, Blob+anchor
+  download otherwise) so a single file, with no `assets/` folder alongside
+  it, works standalone offline. Bug found and fixed this session: the
+  inlining used `String.replace()` with the multi-megabyte bundle text as
+  the *replacement string* argument — `replace()` treats `` $` ``/`$'`/`$&`/
+  `$$`/`$<n>` specially in a replacement string, and the bundle's own NMEA
+  parsing code contains a one-character template literal `` `$` `` whose
+  `` $` `` sequence means "insert everything before the match," splicing
+  the whole preceding HTML document into the script and corrupting it.
+  Fixed by using a replacer *function* instead (no pattern substitution on
+  a function's return value). Live-verified: the downloaded file boots the
+  full app (all panels, real data) from a plain `file://` open.
 - ⬜ **Tauri "no-admin `.exe`" spike — formally not pursued.** Explicit
   decision this session to commit to the localhost-server path instead
   (matching PLAN.md's own "run it early or kill it" framing) rather than

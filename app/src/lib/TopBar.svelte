@@ -5,6 +5,7 @@
   import { gpsRibbonExpanded } from '../stores/layout';
   import GpsRibbon from './GpsRibbon.svelte';
   import SoundControl from './SoundControl.svelte';
+  import { downloadOfflineCopy } from './downloadOfflineCopy';
 
   // Switching to a different position source must actually release the
   // GPS serial connection, not just change observer.source (bug report:
@@ -190,6 +191,24 @@
     second: '2-digit',
     hour12: false,
   });
+
+  // "Save an offline copy" (direct request) -- fetches/inlines the JS
+  // bundle into a single self-contained file (see downloadOfflineCopy.ts's
+  // own comment for why a bare index.html alone wouldn't work offline).
+  // Busy state matters here specifically because this fetches and
+  // re-encodes the whole multi-megabyte JS bundle, unlike every other
+  // button in this bar -- a no-op re-click mid-save could otherwise kick
+  // off a second concurrent fetch+download for no reason.
+  let savingOffline = $state(false);
+  async function saveOfflineCopy() {
+    if (savingOffline) return;
+    savingOffline = true;
+    try {
+      await downloadOfflineCopy();
+    } finally {
+      savingOffline = false;
+    }
+  }
 </script>
 
 <div class="topbar">
@@ -267,6 +286,14 @@
   {/if}
   <span class="clocktext">{cestFmt.format($effectiveTime)} CEST</span>
   <span class="clocktext">{utFmt.format($effectiveTime)} UT</span>
+  <button
+    class="modebtn"
+    disabled={savingOffline}
+    onclick={saveOfflineCopy}
+    title="Save a single self-contained HTML file of this app (JS bundle included, no internet needed) -- for offline use in the field"
+  >
+    {savingOffline ? 'Saving…' : '⬇ Offline copy'}
+  </button>
 </div>
 {#if $gpsRibbonExpanded}
   <GpsRibbon />
